@@ -451,7 +451,7 @@ internal class EpubSpreadTurnHost(
         leaf.semanticInFlight = false
         val url = book.chapterUrl(target.chapterIndex)
         val reload = leaf.documentUrl != url || leaf.configurationIdentity != configurationIdentity
-        trace("leaf", "wv=${leaf.view.traceId} target=${target.traceLabel()} reload=$reload size=${leaf.view.width}x${leaf.view.height}")
+        trace("leaf", "wv=${System.identityHashCode(leaf.view)} target=${target} reload=$reload size=${leaf.view.width}x${leaf.view.height}")
         leaf.documentUrl = url
         leaf.configurationIdentity = configurationIdentity
         armTimeout(leaf)
@@ -484,7 +484,7 @@ internal class EpubSpreadTurnHost(
 
     private fun failLeaf(leaf: Leaf, reason: EpubInitialLoadFailureReason) {
         if (released) return
-        trace("failure", "wv=${leaf.view.traceId} target=${leaf.request?.target.traceLabel()} reason=$reason retry=${leaf.retryCount} active=${slotOf(leaf.view) === current}")
+        trace("failure", "wv=${System.identityHashCode(leaf.view)} target=${leaf.request?.target} reason=$reason retry=${leaf.retryCount} active=${slotOf(leaf.view) === current}")
         if (reason == EpubInitialLoadFailureReason.RENDERER_GONE) {
             val active = slotOf(leaf.view) === current
             val job = preparation
@@ -793,7 +793,7 @@ internal class EpubSpreadTurnHost(
             val physicalFocus = listOfNotNull(first, second).firstOrNull { it.target == focused } ?: first
             val focusPage = if (focusedLocatorJson != null) physicalFocus.copy(locatorJson = focusedLocatorJson) else physicalFocus
             state = EpubSpreadState(target, first, second, reverseAxis, focusPage)
-            trace("commit", "op=${request?.operationId} first=${first.target.traceLabel()} second=${second?.target.traceLabel()} counts=${first.pageCount}/${second?.pageCount} reverse=$reverseAxis full=${target.fullWidth} size=${width}x$height")
+            trace("commit", "op=${request?.operationId} first=${first.target} second=${second?.target} counts=${first.pageCount}/${second?.pageCount} reverse=$reverseAxis full=${target.fullWidth} size=${width}x$height")
             resetSlots()
             onSpreadChanged(state!!)
             request?.let { onNavigationResult(EpubNavigationResult.Committed(it.operationId,

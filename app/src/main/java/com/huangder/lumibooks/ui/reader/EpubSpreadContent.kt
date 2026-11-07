@@ -25,7 +25,7 @@ internal data class EpubSpreadAppearance(
     val fontType: String,
     val fontPath: String?,
     val customFonts: List<CustomFontPreset>,
-    val weight: Float,
+    val weight: Int,
     val textColor: Int?,
     val theme: String,
     val coverColor: Int?,
