@@ -1421,6 +1421,8 @@ class MyBooksSyncManager @Inject constructor(
         "PDF" -> BookFormat.PDF
         "TXT" -> BookFormat.TXT
         "MOBI" -> BookFormat.MOBI
+        "AZW" -> BookFormat.AZW
+        "AZW3" -> BookFormat.AZW3
         "CBZ" -> BookFormat.CBZ
         "MD", "MARKDOWN" -> BookFormat.MARKDOWN
         else -> null

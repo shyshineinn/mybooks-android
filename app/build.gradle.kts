@@ -29,6 +29,17 @@ val hasReleaseSigning = releaseKeystorePath.isNotBlank()
 android {
     namespace = "com.huangder.lumibooks"
     buildToolsVersion = "36.0.0"
+    ndkVersion = "28.0.13004108"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    sourceSets.getByName("main").assets.srcDirs(
+        "../third_party/libmobi/licenses",
+        "../third_party/libmobi/src"
+    )
     compileSdk {
         version = release(37) {
             minorApiLevel = 0
@@ -133,6 +144,9 @@ android {
             all {
                 it.maxHeapSize = "2g"
                 it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+                System.getenv("LUMI_KINDLE_NATIVE_DIR")?.let { nativeDirectory ->
+                    it.systemProperty("java.library.path", nativeDirectory)
+                }
             }
             // 本地单测跑在 JVM 上，解析层里的 android.util.Log 没有实现；
             // 允许框架方法返回默认值，避免 "Method ... not mocked" 直接把用例打挂。

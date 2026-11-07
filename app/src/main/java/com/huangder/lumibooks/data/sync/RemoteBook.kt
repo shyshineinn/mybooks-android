@@ -41,9 +41,9 @@ data class RemoteBook(
 
 object RemoteBookFormats {
     /** Lumi 的阅读器支持这些格式；AZW3 暂不支持。 */
-    val supported = setOf("EPUB", "PDF", "TXT", "MOBI", "CBZ", "MD", "MARKDOWN")
+    val supported = setOf("EPUB", "PDF", "TXT", "MOBI", "AZW", "AZW3", "CBZ", "MD", "MARKDOWN")
 
-    private val preferredOrder = listOf("EPUB", "PDF", "MOBI", "TXT", "CBZ", "MD")
+    private val preferredOrder = listOf("EPUB", "PDF", "MOBI", "AZW", "AZW3", "TXT", "CBZ", "MD")
 
     fun isSupported(format: String): Boolean =
         format.uppercase() in supported

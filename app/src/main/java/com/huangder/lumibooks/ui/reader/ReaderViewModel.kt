@@ -105,6 +105,7 @@ import com.huangder.lumibooks.util.parser.TxtReplaceText
 import com.huangder.lumibooks.util.parser.TxtReplaceRange
 import com.huangder.lumibooks.util.epub.EpubRenderMode
 import com.huangder.lumibooks.util.epub.BookRenderSession
+import com.huangder.lumibooks.util.parser.epubParserOrNull
 import com.huangder.lumibooks.util.epub.BookRenderSource
 import com.huangder.lumibooks.util.epub.EpubLocator
 import com.huangder.lumibooks.util.epub.BookSearchSource
@@ -2778,7 +2779,7 @@ class ReaderViewModel @Inject constructor(
 
     fun requestEpubComicReader() {
         val book = _uiState.value.book ?: return
-        if (book.format.name != "EPUB" || _uiState.value.epubComicReader || epubComicJob?.isActive == true) return
+        if (!book.format.supportsEpubFeatures || _uiState.value.epubComicReader || epubComicJob?.isActive == true) return
         _uiState.value = _uiState.value.copy(epubComicPreparing = true, epubComicError = null)
         epubComicJob = viewModelScope.launch {
             try {
@@ -2975,7 +2976,7 @@ class ReaderViewModel @Inject constructor(
         if (_uiState.value.book?.format == BookFormat.MARKDOWN) return
         val state = _uiState.value
         val format = state.book?.format?.name
-        if (format !in setOf("EPUB", "MOBI", "MARKDOWN")) return
+        if (!readerFormatSupportsBookLayout(format)) return
         if (state.renderMode == mode) return
         val chapterProgression = if (state.totalPages > 0) {
             state.currentPageIndex.toFloat() / state.totalPages
@@ -3038,7 +3039,7 @@ class ReaderViewModel @Inject constructor(
     fun fallbackFromUnsupportedEpubWebView() {
         val state = _uiState.value
         val format = state.book?.format?.name
-        if ((format !in setOf("EPUB", "MOBI")) || state.renderMode != EpubRenderMode.BOOK_LAYOUT) return
+        if (!readerFormatSupportsEpubFeatures(format) || state.renderMode != EpubRenderMode.BOOK_LAYOUT) return
         val chapterProgression = if (state.totalPages > 0) {
             state.currentPageIndex.toFloat() / state.totalPages
         } else {
@@ -3215,7 +3216,7 @@ class ReaderViewModel @Inject constructor(
             (state.pageTransition == "continuous") != (normalizedMode == "continuous")
         val destination = if (normalizedMode == "continuous") ReaderPositionFlow.CONTINUOUS
             else ReaderPositionFlow.PAGED
-        val supportsBookLayout = state.book?.format?.name in setOf("EPUB", "MOBI", "MARKDOWN")
+        val supportsBookLayout = state.book?.format?.supportsBookLayout == true
         val readerLayout = state.useNewEngine &&
             !(supportsBookLayout && state.renderMode == EpubRenderMode.BOOK_LAYOUT)
         val position = positionForReaderFlowChange(
@@ -3944,7 +3945,7 @@ class ReaderViewModel @Inject constructor(
                     largeTxtFastRanges = emptyList()
 
                     val isEpub = book.format.name == "EPUB"
-                    val supportsBookLayout = isEpub || book.format.name in setOf("MOBI", "MARKDOWN")
+                    val supportsBookLayout = book.format.supportsBookLayout
                     val isTxt = book.format.name == "TXT"
                     val renderMode = if (book.format == BookFormat.MARKDOWN) EpubRenderMode.BOOK_LAYOUT else if (supportsBookLayout) preferences.renderMode
                     else EpubRenderMode.READER_LAYOUT
@@ -3955,7 +3956,7 @@ class ReaderViewModel @Inject constructor(
                         disabled = preferences.readerFirstOpenHintsDisabled
                     )
                     val showMobiLayoutHint = ReaderFirstOpenHintPolicy.shouldShow(
-                        isSupportedFormat = book.format.name == "MOBI",
+                        isSupportedFormat = book.format.isKindle,
                         wasShownForBook = preferences.mobiLayoutHintShown,
                         acknowledgementCount = preferences.readerFirstOpenHintAcknowledgementCount,
                         disabled = preferences.readerFirstOpenHintsDisabled
@@ -4543,7 +4544,7 @@ class ReaderViewModel @Inject constructor(
         val state = _uiState.value
         if (chapterIndex == state.currentChapterIndex) return
         val format = state.book?.format?.name
-        val isBookLayout = (format in setOf("EPUB", "MOBI", "MARKDOWN")) &&
+        val isBookLayout = readerFormatSupportsBookLayout(format) &&
             state.renderMode == EpubRenderMode.BOOK_LAYOUT
         _uiState.value = state.copy(
             currentChapterIndex = chapterIndex,
@@ -5218,7 +5219,7 @@ class ReaderViewModel @Inject constructor(
 
     /** Fast first-screen path for continuous EPUB reading. */
     internal fun getFrameworkDrawnChapterPreview(index: Int, contentWidthPx: Int? = null): ContinuousChapterPreview? {
-        if (parser !is com.huangder.lumibooks.util.parser.EpubParser) return null
+        if (parser.epubParserOrNull == null) return null
         var isComplete = false
         val text = buildChapterText(
             index,
@@ -5242,7 +5243,8 @@ class ReaderViewModel @Inject constructor(
     ): CharSequence? {
         val activeParser = parser
         if (activeParser is com.huangder.lumibooks.util.parser.MarkdownParser) return if (index == 0) activeParser.searchText else null
-        val continuousEpub = (activeParser as? com.huangder.lumibooks.util.parser.EpubParser)?.takeIf {
+        val epubParser = activeParser.epubParserOrNull
+        val continuousEpub = epubParser?.takeIf {
             frameworkDrawsText && contentWidthPx != null
         }
         if (contentWidthPx != null && continuousEpub == null) {
@@ -5253,8 +5255,8 @@ class ReaderViewModel @Inject constructor(
             }
         }
         fun decode(): CharSequence? = try {
-            if (backgroundPagination && activeParser is com.huangder.lumibooks.util.parser.EpubParser) {
-                activeParser.getChapterContentForPagination(index)
+            if (backgroundPagination && epubParser != null) {
+                epubParser.getChapterContentForPagination(index)
             } else if (continuousEpub != null) {
                 if (previewChars != null) {
                     continuousEpub.getChapterContentPreview(index, contentWidthPx!!, 0, previewChars).also {
@@ -5275,8 +5277,8 @@ class ReaderViewModel @Inject constructor(
         } ?: return null
         // Keep the open trace useful for cold versus warm EPUB launches. The parser owns the
         // persistent cache because it also knows whether the current request reused source HTML.
-        if (firstChapterDecodeTraced.get() && activeParser is com.huangder.lumibooks.util.parser.EpubParser) {
-            activeParser.consumeLastPersistedChapterCacheHit()?.let { hit ->
+        if (firstChapterDecodeTraced.get() && epubParser != null) {
+            epubParser.consumeLastPersistedChapterCacheHit()?.let { hit ->
                 ReaderOpenPerformance.recordDiagnosticEvent(
                     bookId = bookId,
                     event = if (hit) "chapter_cache_hit" else "chapter_cache_miss",
@@ -6231,7 +6233,7 @@ class ReaderViewModel @Inject constructor(
             }.getOrNull()
         }
             ?: return emptyList()
-        val epub = _uiState.value.book?.format?.name in setOf("EPUB", "MOBI", "MARKDOWN")
+        val epub = _uiState.value.book?.format?.supportsBookLayout == true
         return withContext(Dispatchers.Default) {
         val started = android.os.SystemClock.elapsedRealtime()
         val result = HighlightRuleMatcher.match(text, chapterIndex, rules).map { match ->
@@ -6378,7 +6380,7 @@ class ReaderViewModel @Inject constructor(
                 )
                 if (plan.isEmpty) return@launch
                 val prepared = withContext(Dispatchers.IO) {
-                    prepareAnnotationLocators(plan, chapterText, book.format.name in setOf("EPUB", "MOBI", "MARKDOWN"))
+                    prepareAnnotationLocators(plan, chapterText, book.format.supportsBookLayout)
                 }
                 val optimistic = applyAnnotationPlanToMemory(snapshot, prepared)
                 _notes.value = optimistic
@@ -6741,7 +6743,7 @@ class ReaderViewModel @Inject constructor(
             val state = _uiState.value
             val titles = state.chapterTitles
             val formatName = state.book?.format?.name
-            if ((formatName in setOf("EPUB", "MOBI", "MARKDOWN")) &&
+            if (readerFormatSupportsBookLayout(formatName) &&
                 state.renderMode == EpubRenderMode.BOOK_LAYOUT &&
                 activeParser is BookSearchSource
             ) {

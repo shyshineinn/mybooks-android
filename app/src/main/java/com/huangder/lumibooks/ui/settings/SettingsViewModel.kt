@@ -1031,8 +1031,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 com.huangder.lumibooks.util.cache.ReaderCacheStore.get(context).clear()
+                com.huangder.lumibooks.util.kindle.KindleEpubCache.clear(context)
+                val retainedCacheDirectories = setOf(
+                    ExternalTtsAudioCache.DIRECTORY_NAME, "reader_cache",
+                    com.huangder.lumibooks.util.kindle.KindleEpubCache.DIRECTORY
+                )
                 context.cacheDir.listFiles()?.forEach { entry ->
-                    if (entry.name != ExternalTtsAudioCache.DIRECTORY_NAME && entry.name != "reader_cache") {
+                    if (entry.name !in retainedCacheDirectories) {
                         entry.deleteRecursively()
                     }
                 }

@@ -86,8 +86,8 @@ internal fun readImportBookMetadata(context: Context, location: String, fileName
         val text = if ('\uFFFD' in utf8) bytes.toString(charset("GB18030")) else utf8
         return ImportBookMetadata(isbns = findImportIsbns(text + "\n" + fileName))
     }
-    if (extension == "mobi") {
-        val parser = BookParserFactory.createParser(BookFormat.MOBI, context)
+    if (extension in setOf("mobi", "azw", "azw3")) {
+        val parser = BookParserFactory.createParser(BookFormat.valueOf(extension.uppercase()), context)
         try {
             val book = parser.parse(location)
             val text = (0 until minOf(parser.getChapterCount(), 6)).joinToString("\n") {

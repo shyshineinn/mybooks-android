@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.reader
 
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.domain.model.SelectionMenuAction
 import com.huangder.lumibooks.domain.model.SelectionMenuSettings
 import com.huangder.lumibooks.ui.components.SelectionMenuSettingsDialog
@@ -1388,7 +1389,7 @@ fun ReaderScreen(
     }
     val continuousSelectionController = remember { ContinuousSelectionController() }
     val isEpub = uiState.book?.format?.name == "EPUB"
-    val supportsBookLayout = isEpub || uiState.book?.format?.name in setOf("MOBI", "MARKDOWN")
+    val supportsBookLayout = uiState.book?.format?.supportsBookLayout == true
     val isMarkdownNative = uiState.book?.format?.name == "MARKDOWN"
     // MarkdownNativeReader owns one virtualized continuous surface.  Keeping Markdown in the
     // generic BOOK_LAYOUT state routes TOC/progress drags through EPUB pagination and makes large
@@ -1466,7 +1467,7 @@ fun ReaderScreen(
             cache.close()
         }
     }
-    val lineGuideAvailable = uiState.book?.format?.name in setOf("TXT", "EPUB", "MOBI", "MARKDOWN") &&
+    val lineGuideAvailable = uiState.book?.format?.supportsTextReading == true &&
         uiState.useNewEngine && !isBookLayout && !isVerticalWriting
     val effectiveLineGuide = lineGuideAvailable && uiState.lineGuideEnabled
 
@@ -4062,7 +4063,7 @@ fun ReaderScreen(
             ) {
                 val bookTitle = uiState.book?.title ?: ""
                 val isTxtBook = uiState.book?.format?.name == "TXT"
-                val supportsHighlightRules = uiState.book?.format?.name in setOf("TXT", "EPUB", "MOBI")
+                val supportsHighlightRules = uiState.book?.format?.let { it == BookFormat.TXT || it.supportsEpubFeatures } == true
                 ReaderTopBar(
                     title = bookTitle,
                     onBack = exitReader,
@@ -6305,14 +6306,14 @@ private fun ReaderTopBar(
         if (supportsHighlightRules) add(LiquidGlassMenuItem(stringResource(R.string.highlight_rules_title), AppIcons.Code) { onHighlightRulesClick() })
         if (lineGuideAvailable) add(LiquidGlassMenuItem(stringResource(R.string.line_guide), AppIcons.Rows,
             selectedState = { currentLineGuideEnabled }) { currentOnLineGuideToggle() })
-        if (bookFormat in setOf("EPUB", "MOBI", "MARKDOWN")) {
+        if (readerFormatSupportsBookLayout(bookFormat)) {
             add(LiquidGlassMenuItem(stringResource(R.string.comic_mode), AppIcons.Image,
                 selectedState = { currentComicModeEnabled }) { currentOnComicModeToggle() })
         }
         if (bookFormat == "EPUB") {
             add(LiquidGlassMenuItem(stringResource(R.string.epub_comic_switch), AppIcons.Image) { onSwitchComicReader() })
         }
-        if (bookFormat in setOf("TXT", "EPUB", "MOBI", "MARKDOWN")) {
+        if (readerFormatSupportsText(bookFormat)) {
             add(LiquidGlassMenuItem(stringResource(R.string.bionic_reading), AppIcons.TextB,
                 selectedState = { currentBionicReadingEnabled }) { currentOnBionicReadingToggle() })
         }
@@ -6399,7 +6400,7 @@ private fun ReaderTopBar(
                     forceSolid = forceSolidButtons,
                         onClick = onBookmarkToggle
                     )
-                    if (bookFormat in setOf("TXT", "EPUB", "MOBI", "MARKDOWN")) {
+                    if (readerFormatSupportsText(bookFormat)) {
                         ReaderTopBarButton(
                             icon = AppIcons.DotsThreeVertical,
                             contentDescription = stringResource(R.string.more_options),

@@ -38,7 +38,7 @@ internal fun validateMyBooksReading(data: JSONObject) {
     }
     readingItems(data, "positions").forEach {
         require(it.getDouble("readingProgress").isFinite() && it.getDouble("readingProgress") in 0.0..1.0)
-        require(it.getLong("lastReadTime") >= 0 && it.getString("format") in setOf("EPUB","PDF","TXT","MOBI","CBZ","MARKDOWN"))
+        require(it.getLong("lastReadTime") >= 0 && it.getString("format") in setOf("EPUB","PDF","TXT","MOBI","AZW","AZW3","CBZ","MARKDOWN"))
         require(it.getString("fileSha256").isEmpty() || it.getString("fileSha256").matches(Regex("[a-f0-9]{64}")))
     }
     for ((section, namespace) in listOf("bookmarks" to "bookmark", "notes" to "note")) {
