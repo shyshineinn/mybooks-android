@@ -1404,12 +1404,19 @@ fun ReaderScreen(
         basePageTransition !in setOf("continuous", "scroll")
     val isBookLayoutContinuousScroll = isBookLayout &&
         uiState.readerWritingMode.usesContinuousScroll(basePageTransition, eInkMode)
+    val bookLayoutSpreadEligible = originalEpubSpreadEligible(
+        enabled = uiState.twoPageSpreadEnabled && !isBookLayoutContinuousScroll,
+        isEpub = isEpub && isBookLayout,
+        widthDp = adaptiveWindowInfo.widthDp, heightDp = adaptiveWindowInfo.heightDp,
+        eInk = eInkMode, transition = basePageTransition
+    )
+    var originalSpreadState by remember(bookId) { mutableStateOf<EpubSpreadState?>(null) }
     var currentChapterRenderer by remember(bookId) { mutableStateOf(-1 to false) }
     // EPUB navigation is staged only while the active chapter actually uses WebView.  The native
     // CSS surface changes chapters directly and consumes its page request on the first layout.
     // Markdown remains transactional because its single native surface consumes that request.
     val usesTransactionalEpubNavigation = (isBookLayout &&
-        (!uiState.nativeEpubCssEnabled || currentChapterRenderer.first != uiState.currentChapterIndex ||
+        (bookLayoutSpreadEligible || !uiState.nativeEpubCssEnabled || currentChapterRenderer.first != uiState.currentChapterIndex ||
             !currentChapterRenderer.second)) || isMarkdownNative
     val effectivePageTransition = if (isBookLayout &&
         basePageTransition == "continuous" &&
@@ -1971,7 +1978,8 @@ fun ReaderScreen(
     var rendererVisibleCharacters by remember(rendererPageKey, uiState.currentChapterIndex,
         uiState.currentPageIndex) { mutableStateOf<List<ReaderVisibleCharacters>>(emptyList()) }
     LaunchedEffect(rendererPageKey, epubPageTextProvider, uiState.currentChapterIndex,
-        uiState.currentPageIndex, uiState.rightChapterIndex, uiState.rightPageIndex, uiState.pageReady) {
+        uiState.currentPageIndex, uiState.rightChapterIndex, uiState.rightPageIndex, uiState.pageReady,
+        originalSpreadState, bookLayoutSpreadEligible) {
         if ((!isBookLayout && !isMarkdownNative) || !uiState.pageReady) return@LaunchedEffect
         val provider = epubPageTextProvider ?: return@LaunchedEffect
         val visible = mutableListOf<ReaderVisibleCharacters>()
@@ -1980,8 +1988,14 @@ fun ReaderScreen(
                 visible += ReaderVisibleCharacters(chapter, it.startCharacterOffset, it.endCharacterOffset)
             }
         }
-        add(uiState.currentChapterIndex, uiState.currentPageIndex)
-        uiState.rightPageIndex?.let { add(uiState.rightChapterIndex ?: uiState.currentChapterIndex, it) }
+        val spread = originalSpreadState.takeIf { bookLayoutSpreadEligible }
+        if (spread != null) {
+            add(spread.first.target.chapterIndex, spread.first.target.pageIndex)
+            spread.second?.let { add(it.target.chapterIndex, it.target.pageIndex) }
+        } else {
+            add(uiState.currentChapterIndex, uiState.currentPageIndex)
+            uiState.rightPageIndex?.let { add(uiState.rightChapterIndex ?: uiState.currentChapterIndex, it) }
+        }
         rendererVisibleCharacters = visible
     }
     val listeningVisibleCharacters = if (isContinuousScrollMode && !isMarkdownNative)
@@ -2970,6 +2984,13 @@ fun ReaderScreen(
                 androidx.compose.runtime.key(epubRetryToken) {
                 EpubWebViewReader(
                     session = activeEpubSession,
+                    twoPageSpread = bookLayoutSpreadEligible,
+                    onSpreadChanged = { originalSpreadState = it },
+                    onFocusedPageChanged = { page ->
+                        originalSpreadState = originalSpreadState?.copy(focused = page)
+                        viewModel.onEpubPageCommitted(page.target.chapterIndex, page.target.pageIndex,
+                            page.pageCount, page.locatorJson)
+                    },
                     layoutPreviewActive = epubLayoutPreviewActive,
                     onReleaseHandlerReady = { epubReleaseHandler = it },
                     imageAdjustments = uiState.imageAdjustments.forDisplay(eInkMode),
@@ -3155,9 +3176,11 @@ fun ReaderScreen(
                     },
                     onSelection = { selection ->
                         if (selection.text.isNotBlank()) {
+                            val selectionChapter = selection.chapterIndex ?: uiState.currentChapterIndex
+                            val selectionPage = selection.pageIndex ?: uiState.currentPageIndex
                             val isNewSelection = selectionState == null
                             val resolvedSelection = viewModel.resolveAnnotationSelection(
-                                chapterIndex = uiState.currentChapterIndex,
+                                chapterIndex = selectionChapter,
                                 startPosition = selection.startPosition,
                                 endPosition = selection.endPosition,
                                 selectedText = selection.text,
@@ -3175,7 +3198,7 @@ fun ReaderScreen(
                                 )
                             } else return@EpubWebViewReader
                             val overlapping = viewModel.findOverlappingReaderNotes(
-                                chapterIndex = uiState.currentChapterIndex,
+                                chapterIndex = selectionChapter,
                                 startPosition = selection.startPosition,
                                 endPosition = selection.endPosition,
                                 selectedText = selection.text,
@@ -3183,8 +3206,8 @@ fun ReaderScreen(
                                 endLocatorJson = selection.endLocatorJson
                             )
                             selectionState = SelectionState(
-                                chapterIndex = uiState.currentChapterIndex,
-                                pageInChapter = uiState.currentPageIndex,
+                                chapterIndex = selectionChapter,
+                                pageInChapter = selectionPage,
                                 charStart = resolvedSelection.start,
                                 charEnd = resolvedSelection.end,
                                 selectedText = selection.text,
@@ -3870,21 +3893,23 @@ fun ReaderScreen(
             backdrop = activeReaderGlassBackdrop
         ) {
         if (!uiState.isLoading || isAnySheetOpen || uiState.isEpubChapterHandoffInProgress) {
+            val menuSpread = originalSpreadState.takeIf { bookLayoutSpreadEligible }
+            val menuChapterIndex = menuSpread?.first?.target?.chapterIndex ?: uiState.currentChapterIndex
             val liveChapterTitle = uiState.chapterTitles
-                .getOrNull(uiState.currentChapterIndex)
+                .getOrNull(menuChapterIndex)
                 ?.trim()
                 .orEmpty()
                 .ifBlank {
                     stringResource(
                         R.string.reader_chapter_fallback,
-                        uiState.currentChapterIndex + 1
+                        menuChapterIndex + 1
                     )
                 }
             val liveMenuSnapshot = ReaderMenuSnapshot(
-                chapterIndex = uiState.currentChapterIndex,
+                chapterIndex = menuChapterIndex,
                 chapterTitle = liveChapterTitle,
-                pageIndex = uiState.currentPageIndex,
-                pageCount = uiState.totalPages,
+                pageIndex = menuSpread?.first?.target?.pageIndex ?: uiState.currentPageIndex,
+                pageCount = menuSpread?.first?.pageCount ?: uiState.totalPages,
                 bookProgressPercent = if (isMarkdownNative) {
                     runCatching { org.json.JSONObject(uiState.epubLocatorJson ?: "{}").optDouble("progression", 0.0).toFloat() * 100f }.getOrDefault(0f)
                 } else calculateBookProgressPercent(
@@ -3896,8 +3921,8 @@ fun ReaderScreen(
                     rightPageIndex = uiState.rightPageIndex,
                     rightChapterPageCount = uiState.rightChapterTotalPages
                 ),
-                rightPageIndex = uiState.rightPageIndex,
-                rightChapterIndex = uiState.rightChapterIndex
+                rightPageIndex = menuSpread?.second?.target?.pageIndex ?: uiState.rightPageIndex,
+                rightChapterIndex = menuSpread?.second?.target?.chapterIndex ?: uiState.rightChapterIndex
             )
             var lastReadyMenuSnapshot by remember(bookId) {
                 mutableStateOf<ReaderMenuSnapshot?>(null)
@@ -3914,28 +3939,11 @@ fun ReaderScreen(
             } else {
                 liveMenuSnapshot
             }
-            // 书籍原排版双页对开：页码按物理页显示（跨页 k → 2k–2k+1，章首单独右页显示 1）
-            val spreadDisplay = isBookLayout && twoPageSpreadEligible
-            val displayCurrentPage = if (spreadDisplay) {
-                if (uiState.currentPageIndex <= 0) 1 else uiState.currentPageIndex * 2
-            } else {
-                displayedMenuSnapshot.pageIndex + 1
-            }
-            val displayRightPageIndex = if (spreadDisplay) {
-                if (uiState.currentPageIndex <= 0) null else uiState.currentPageIndex * 2
-            } else {
-                displayedMenuSnapshot.rightPageIndex
-            }
-            val displayRightChapterIndex = if (spreadDisplay) {
-                null
-            } else {
-                displayedMenuSnapshot.rightChapterIndex
-            }
-            val displayPageCount = if (spreadDisplay) {
-                (displayedMenuSnapshot.pageCount * 2 - 1).coerceAtLeast(1)
-            } else {
-                displayedMenuSnapshot.pageCount
-            }
+            val hideRightPage = isContinuousScrollMode || isBookLayoutContinuousScroll
+            val displayCurrentPage = displayedMenuSnapshot.pageIndex + 1
+            val displayRightPageIndex = displayedMenuSnapshot.rightPageIndex.takeUnless { hideRightPage }
+            val displayRightChapterIndex = displayedMenuSnapshot.rightChapterIndex.takeUnless { hideRightPage }
+            val displayPageCount = displayedMenuSnapshot.pageCount
 
             val displayedBookPages = when {
                 isMarkdownNative || isBookLayout && !isBookLayoutContinuousScroll -> rendererBookPages

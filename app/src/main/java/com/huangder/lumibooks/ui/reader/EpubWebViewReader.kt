@@ -422,7 +422,9 @@ internal data class EpubSelectionInfo(
     val top: Float,
     val right: Float,
     val bottom: Float,
-    val annotationOnly: Boolean = false
+    val annotationOnly: Boolean = false,
+    val chapterIndex: Int? = null,
+    val pageIndex: Int? = null
 )
 
 internal data class EpubDictionarySelection(
@@ -489,6 +491,9 @@ internal data class EpubTextSpacing(
 @Composable
 internal fun EpubWebViewReader(
     session: BookRenderSession,
+    twoPageSpread: Boolean = false,
+    onSpreadChanged: (EpubSpreadState?) -> Unit = {},
+    onFocusedPageChanged: (EpubSpreadPage) -> Unit = {},
     layoutPreviewActive: Boolean = false,
     imageAdjustments: com.huangder.lumibooks.domain.model.ReaderImageAdjustments = com.huangder.lumibooks.domain.model.ReaderImageAdjustments(),
     chapterIndex: Int,
@@ -575,6 +580,54 @@ internal fun EpubWebViewReader(
     onRendererEngineResolved: (nativeCss: Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    if (twoPageSpread && bookFormat == "EPUB" && !continuousScroll) {
+        EpubSpreadContent(
+            session = session,
+            chapterIndex = chapterIndex,
+            appearance = EpubSpreadAppearance(
+                fontSizeSp, letterSpacingDp, textSpacing, fontType, fontFilePath, customFonts,
+                bodyFontWeight, textColorOverride, theme, coverBackgroundColor,
+                readerBackgroundColorOverride, readerBackgroundImagePath, readerBackgroundImageOpacity,
+                readerBackgroundImageBlurDp, autoTextColor, textAlignment, preservePublisherBackground,
+                imagePageCrop, publisherPaintOnly, bionicReadingEnabled, chineseMode,
+                marginTopDp, marginRightDp, marginBottomDp, marginLeftDp,
+                longPressSelectionRange, imageAdjustments
+            ),
+            restoreLocatorJson = restoreLocatorJson,
+            restoreProgression = restoreProgression,
+            restoreProgressionInclusive = restoreProgressionInclusive,
+            initialFragment = initialFragment,
+            pageTransition = pageTransition,
+            pageTransitionDurationMs = pageTransitionDurationMs,
+            edgeTapMode = edgeTapMode,
+            notes = notes,
+            ttsCurrentSentence = ttsCurrentSentence,
+            ttsHighlightColor = ttsHighlightColor,
+            ttsFollowEnabled = ttsFollowEnabled,
+            searchRequest = searchRequest,
+            locatorRequest = locatorRequest,
+            pageRequest = pageRequest,
+            navigationRequest = navigationRequest,
+            selectionClearToken = selectionClearToken,
+            dictionarySelection = dictionarySelection,
+            selectionMenuVisible = selectionMenuVisible,
+            bookmarkPullEnabled = bookmarkPullEnabled,
+            paginationContentIdentity = paginationContentIdentity,
+            callbacks = EpubSpreadCallbacks(
+                onPageChanged, onSpreadChanged, onFocusedPageChanged, onPaginationConfigured,
+                onPageCountConfirmed, onNavigationStage, onNavigationResult, onRenderUnavailable,
+                onCenterTap, onManualScrollStarted, onSelection, onSelectionCleared,
+                onSelectionMenuDismiss, onInternalLink, onExternalLink, onSearchResolved,
+                onImagePreviewOpen, onBookmarkPullStart, onBookmarkPullProgress, onBookmarkPullFinished
+            ),
+            onPageTextProviderReady = onPageTextProviderReady,
+            onPageTurnHandlerReady = onPageTurnHandlerReady,
+            onReleaseHandlerReady = onReleaseHandlerReady,
+            modifier = modifier
+        )
+        LaunchedEffect(session) { onRendererEngineResolved(false) }
+        return
+    }
     val nativeSession = session as? com.huangder.lumibooks.util.epub.EpubRenderSession
     // A single-media page must use the same WebView geometry on both sides of the crop toggle.
     val mediaOnlyPage by produceState<Boolean?>(null, session, chapterIndex) {
@@ -3541,7 +3594,7 @@ private fun configKey(
     pageRequest?.token ?: -1
 ).joinToString("|")
 
-private fun configureReader(
+internal fun configureReader(
     view: EpubContentWebView,
     paginationSignature: String = "",
     session: BookRenderSession,
@@ -3583,6 +3636,8 @@ private fun configureReader(
     locatorRequest: EpubLocatorRequest?,
     pageRequest: EpubPageRequest?,
     preparePageRequest: Boolean = false,
+    backgroundImageOpacity: Float = 1f,
+    backgroundImageBlurDp: Float = 0f,
     onConfigured: ((Boolean) -> Unit)? = null
 ): Boolean {
     val progression = when (session.pageProgressionDirection(chapterIndex)) {
@@ -3653,6 +3708,8 @@ private fun configureReader(
         // 图片背景不能在文档层铺底色（会盖住 WebView 下方的图片层）
         .put("backgroundImage", readerBackgroundHasImage)
         .putOpt("backgroundUrl", readerBackgroundUrl)
+        .put("backgroundImageOpacity", backgroundImageOpacity.coerceIn(0f, 1f))
+        .put("backgroundImageBlurDp", backgroundImageBlurDp.coerceIn(0f, 40f))
         .put("progression", progression)
         .put("progressionValue", restoreProgression.coerceIn(0f, 1f))
         .put("restoreProgressionInclusive", restoreProgressionInclusive)
@@ -3782,7 +3839,7 @@ private fun EpubContentWebView.showMissingLinkTarget() {
     ).show()
 }
 
-private suspend fun requestPageText(
+internal suspend fun requestPageText(
     view: WebView?,
     loadedChapter: Int,
     requestedChapter: Int,
@@ -3828,7 +3885,7 @@ private suspend fun requestPageText(
     }
 }
 
-private fun applyHighlights(
+internal fun applyHighlights(
     view: WebView,
     notes: List<Note>,
     ruleFontUrls: Map<String, String> = emptyMap()
@@ -3838,7 +3895,7 @@ private fun applyHighlights(
     else view.evaluateJavascript(script, null)
 }
 
-private fun applyTtsHighlight(
+internal fun applyTtsHighlight(
     view: WebView,
     viewChapter: Int,
     sentence: TtsSentencePosition?,
@@ -3902,7 +3959,7 @@ private fun String.toCssColor(): String {
 private fun Int.toCssColor(): String =
     ("#" + Integer.toHexString(this).padStart(8, '0').takeLast(8)).toCssColor()
 
-private fun JSONObject.withChapterHref(href: String): JSONObject = apply {
+internal fun JSONObject.withChapterHref(href: String): JSONObject = apply {
     put("version", optInt("version", 1))
     put("href", href)
 }
@@ -3920,7 +3977,7 @@ internal fun EpubLocator.toJson(): JSONObject = JSONObject()
     .put("progression", progression)
 
 @SuppressLint("SetJavaScriptEnabled")
-private fun configureEpubWebViewSettings(view: WebView) {
+internal fun configureEpubWebViewSettings(view: WebView) {
     view.setBackgroundColor(Color.TRANSPARENT)
     view.isVerticalScrollBarEnabled = false
     view.isHorizontalScrollBarEnabled = false
@@ -3950,7 +4007,7 @@ private fun configureEpubWebViewSettings(view: WebView) {
     }
 }
 
-private fun blockedResponse(): WebResourceResponse = WebResourceResponse(
+internal fun blockedResponse(): WebResourceResponse = WebResourceResponse(
     "text/plain",
     "UTF-8",
     403,

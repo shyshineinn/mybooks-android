@@ -815,6 +815,7 @@ html.lumi-green-dark #lumi-footnote-popover { background: #1e3527; color: #c8e6c
     readerBackgroundActive: false,
     readerBackgroundHasImage: false,
     readerBackgroundUrl: null,
+    readerBackgroundOpacity: 1, readerBackgroundBlurDp: 0,
     edgeTapLeft: -1, edgeTapRight: 1, canTurnPrevious: true, canTurnNext: true,
     bionicReading: false, chineseMode: 'original', chineseMap: null, pendingPreparedPage: null, prepareSerial: 0,
     highlightItems: [], ttsHighlight: null, ttsFollowSuspended: false, searchHighlight: null, dictionarySelection: null,
@@ -2851,7 +2852,9 @@ html.lumi-green-dark #lumi-footnote-popover { background: #1e3527; color: #c8e6c
       'background-color:' + (state.readerBackgroundColor || 'transparent') + ' !important;' +
       'background-image:url("' + url + '") !important;' +
       'background-size:cover !important;background-position:center !important;' +
-      'background-repeat:no-repeat !important;';
+      'background-repeat:no-repeat !important;' +
+      'opacity:' + state.readerBackgroundOpacity + ' !important;' +
+      'filter:blur(' + state.readerBackgroundBlurDp + 'px) !important;';
     layer.style.setProperty('display', 'block', 'important');
     // 静态内容默认画在定位元素下面，给 body 提一层，文字才不会被背景层盖住。
     if (document.body) {
@@ -2926,7 +2929,8 @@ html.lumi-green-dark #lumi-footnote-popover { background: #1e3527; color: #c8e6c
   function geometryConfigKey(config) {
     var geometry = {};
     var paintKeys = ['configurationGeneration', 'theme', 'backgroundColor', 'autoTextColor', 'textColor',
-      'backgroundImage', 'backgroundUrl', 'coverBackgroundColor', 'publisherPaintOnly', 'preservePublisherBackground',
+      'backgroundImage', 'backgroundUrl', 'backgroundImageOpacity', 'backgroundImageBlurDp',
+      'coverBackgroundColor', 'publisherPaintOnly', 'preservePublisherBackground',
       'progressionValue', 'restoreProgressionInclusive', 'transition', 'transitionDurationMs', 'visualDurationScale',
       'edgeTapLeft', 'edgeTapRight', 'canTurnPrevious', 'canTurnNext', 'longPressSelectionRange'];
     Object.keys(config).sort().forEach(function (key) {
@@ -3022,6 +3026,10 @@ html.lumi-green-dark #lumi-footnote-popover { background: #1e3527; color: #c8e6c
     state.autoTextColor = config.autoTextColor ? String(config.autoTextColor) : null;
     state.readerBackgroundHasImage = config.backgroundImage === true;
     state.readerBackgroundUrl = config.backgroundUrl ? String(config.backgroundUrl) : null;
+    state.readerBackgroundOpacity = typeof config.backgroundImageOpacity === 'number'
+      ? Math.max(0, Math.min(1, config.backgroundImageOpacity)) : 1;
+    state.readerBackgroundBlurDp = typeof config.backgroundImageBlurDp === 'number'
+      ? Math.max(0, Math.min(40, config.backgroundImageBlurDp)) : 0;
     state.configured = true;
     capturePublisherBackground(document.body);
     // The reader background shows whenever the book has no image/gradient of its

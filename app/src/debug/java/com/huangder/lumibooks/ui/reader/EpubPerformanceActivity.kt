@@ -27,6 +27,9 @@ class EpubPerformanceActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (intent.getBooleanExtra("landscape", false)) {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         val engine = intent.getStringExtra("engine") ?: "epub"
         val transition = intent.getStringExtra("transition") ?: "slide"
         val theme = intent.getStringExtra("theme") ?: "day"
@@ -41,7 +44,7 @@ class EpubPerformanceActivity : ComponentActivity() {
         }
         setContent {
             var renderSession by remember { mutableStateOf<EpubRenderSession?>(null) }
-            var chapter by remember { mutableIntStateOf(0) }
+            var chapter by remember { mutableIntStateOf(intent.getIntExtra("chapter", 0).coerceAtLeast(0)) }
             var page by remember { mutableIntStateOf(0) }
             var count by remember { mutableIntStateOf(1) }
             var ready by remember { mutableStateOf(false) }
@@ -92,7 +95,7 @@ class EpubPerformanceActivity : ComponentActivity() {
                 Log.d("EpubPerfFixture", "START engine=$engine transition=$transition fixture=$fixture turns=$turns")
                 repeat(turns) { index ->
                     Log.d("EpubPerfFixture", "intent=$index chapter=$chapter page=$page count=$count")
-                    turn?.invoke(1)
+                    if (intent.getStringExtra("input") == "drag_probe") injectHeldDrag() else turn?.invoke(1)
                     delay(700)
                 }
                 Log.d("EpubPerfFixture", "DONE engine=$engine transition=$transition chapter=$chapter page=$page")
@@ -119,6 +122,7 @@ class EpubPerformanceActivity : ComponentActivity() {
             } else renderSession?.let { book ->
                 EpubWebViewReader(
                     session = book, chapterIndex = chapter, nativeCssEnabled = engine == "native_css", fontSizeSp = 18f, fontType = "system",
+                    twoPageSpread = intent.getBooleanExtra("spread", false) && transition !in setOf("continuous", "scroll"),
                     fontFilePath = null, textColorOverride = null, theme = activeTheme, coverBackgroundColor = null,
                     publisherPaintOnly = publisherPaint, restoreLocatorJson = null, restoreProgression = 0f,
                     pageTransition = transition, pageTransitionDurationMs = 260,
@@ -134,6 +138,29 @@ class EpubPerformanceActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /** A debug-only held pointer lets device QA capture the frame before ACTION_UP. */
+    private suspend fun injectHeldDrag() {
+        val view = window.decorView
+        val down = android.os.SystemClock.uptimeMillis()
+        fun send(action: Int, fraction: Float) {
+            val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action,
+                view.width * fraction, view.height * .55f, 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            view.dispatchTouchEvent(event)
+            event.recycle()
+        }
+        send(android.view.MotionEvent.ACTION_DOWN, .8f)
+        for (step in 1..12) {
+            delay(16)
+            send(android.view.MotionEvent.ACTION_MOVE, .8f - step * .025f)
+        }
+        Log.d("EpubPerfFixture", "DRAG_HELD transition=${intent.getStringExtra("transition")}")
+        delay(2200)
+        send(if (intent.getBooleanExtra("drag_cancel", false)) android.view.MotionEvent.ACTION_CANCEL
+            else android.view.MotionEvent.ACTION_UP, .5f)
+        Log.d("EpubPerfFixture", "DRAG_RELEASED")
     }
 
     private fun createFixture(chapters: List<String>, images: Boolean): File {
