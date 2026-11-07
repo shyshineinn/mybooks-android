@@ -105,6 +105,8 @@ fun StatisticsScreen(
     viewModel: StatisticsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val insights by viewModel.insights.collectAsState()
+    val readingDay by viewModel.readingDay.collectAsState()
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val topBlurBackdrop = rememberLayerBackdrop()
     val segmentedControlBackdrop = rememberLayerBackdrop()
@@ -221,6 +223,13 @@ fun StatisticsScreen(
                     }
                 }
 
+                insights?.let { data ->
+                    item(key = "reading_insights") {
+                        ReadingInsightsCard(data, viewModel::selectReadingDay)
+                        Spacer(Modifier.height(AppSpace.lg))
+                    }
+                }
+
                 item(key = "annotations") {
                     PageEntranceItem(play = playEntranceAnimation, index = 3) {
                         Column {
@@ -257,6 +266,11 @@ fun StatisticsScreen(
         } // OverscrollBounce 结束
 
         StatusGradientOverlay(backdrop = topBlurBackdrop.takeIf { isLiquidGlass })
+    }
+
+    readingDay?.let { day ->
+        ReadingDaySheet(day, onDismiss = { viewModel.selectReadingDay(null) },
+            onBook = { bookId -> BookDetailsActivity.start(context, bookId) })
     }
 }
 
@@ -587,6 +601,7 @@ private fun MonthlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsView
             mode = AppMonthCalendarMode.Statistics,
             nextEnabled = !isCurrentMonth,
             dailyData = uiState.monthlyDailyData,
+            onDateSelected = viewModel::selectReadingDay,
             subtitle = {
                 Text(stringResource(R.string.reading_time_hours, hours, minutes, activeDays),
                     fontSize = AppType.Caption, color = AppColors.TextSecondary)

@@ -263,4 +263,15 @@ class ReadingTimelineDateDialogTest {
         compose.onNodeWithTag("calendar_date_2026-12-17").assertDoesNotExist()
         capture("statistics-calendar")
     }
+
+    @Test fun statisticsModeOpensDayWhenCallbackProvided() {
+        val today = LocalDate.now()
+        var opened: LocalDate? = null
+        mount {
+            AppMonthCalendar(YearMonth.from(today), {}, {}, AppMonthCalendarMode.Statistics,
+                onDateSelected = { opened = it })
+        }
+        compose.onNodeWithTag("calendar_date_$today").performClick()
+        compose.runOnIdle { assertEquals(today, opened) }
+    }
 }

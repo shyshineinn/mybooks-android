@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_daily_average">1日平均</string>
+    <string name="insights_habits">読書習慣</string>
+    <string name="insights_weekday">平日の平均</string>
+    <string name="insights_weekend">週末の平均</string>
+    <string name="insights_best_day">最も読んだ日：%1$s · %2$s</string>
+    <string name="insights_marks_count">新しい注釈：%1$d件</string>
+    <string name="insights_load_failed">読み込めませんでした。ページを開き直してください。</string>
+    <string name="insights_comparison">前の期間との比較</string>
+    <string name="insights_current_period">今期</string>
+    <string name="insights_previous_period">前期</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_daily_average">Daily average</string>
+    <string name="insights_habits">Reading habits</string>
+    <string name="insights_weekday">Weekday average</string>
+    <string name="insights_weekend">Weekend average</string>
+    <string name="insights_best_day">Best day: %1$s · %2$s</string>
+    <string name="insights_marks_count">%1$d new annotations</string>
+    <string name="insights_load_failed">Could not load. Reopen this page to retry.</string>
+    <string name="insights_comparison">Compared with previous period</string>
+    <string name="insights_current_period">This period</string>
+    <string name="insights_previous_period">Previous period</string>
+</resources>

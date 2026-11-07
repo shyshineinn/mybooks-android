@@ -3,6 +3,7 @@ package com.huangder.lumibooks.ui.statistics
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.domain.model.DailyTotal
 import com.huangder.lumibooks.domain.repository.BookRepository
 import com.huangder.lumibooks.domain.repository.ReadingRepository
 import com.huangder.lumibooks.ui.home.ReadingStreakCalculator
@@ -11,13 +12,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -73,6 +78,37 @@ class StatisticsViewModel @Inject constructor(
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
+
+    private val selectedPeriods = _uiState.map { it.selectedTab to it.selectedPeriod() }.distinctUntilChanged()
+    internal val insights = selectedPeriods.flatMapLatest { (tab, period) ->
+        val today = LocalDate.now()
+        val previous = period.previousPeriod(tab)
+        readingRepository.getDailyTotalsBetween(previous.startDate, minOf(period.endInclusive, today).recordDate())
+            .map<List<DailyTotal>, ReadingInsights?> { totals ->
+                val byDate = totals.associate { it.date to it.totalDuration }
+                readingInsights(period, previous, today) { byDate[it.recordDate()] ?: 0L }
+            }.reportErrors()
+            .onStart { emit(null) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
+
+    private val selectedDay = MutableStateFlow<LocalDate?>(null)
+    internal val readingDay = selectedDay.flatMapLatest { day ->
+        if (day == null) return@flatMapLatest flowOf(null)
+        val period = StatisticsPeriod(day, day)
+        val zone = ZoneId.systemDefault()
+        combine(
+            readingRepository.getRecordsByDate(day.recordDate()),
+            bookRepository.getAllBooks(),
+            readingRepository.observeTextNotesCreatedBetween(period.startMillis(zone), period.endMillis(zone)),
+            readingRepository.observeBookmarksCreatedBetween(period.startMillis(zone), period.endMillis(zone))
+        ) { records, books, notes, bookmarks ->
+            ReadingDay(day, readingDayBooks(records, books, notes, bookmarks))
+        }.catch { emit(ReadingDay(day, loadFailed = true)) }.onStart { emit(ReadingDay(day)) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
+
+    internal fun selectReadingDay(day: LocalDate?) {
+        if (day == null || day <= LocalDate.now()) selectedDay.value = day
+    }
 
     // Each section follows its own period with flatMapLatest, so paging replaces
     // the previous Room subscription instead of stacking another collector.

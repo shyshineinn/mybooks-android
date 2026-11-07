@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_daily_average">日均時長</string>
+    <string name="insights_habits">閱讀習慣</string>
+    <string name="insights_weekday">工作日日均</string>
+    <string name="insights_weekend">週末日均</string>
+    <string name="insights_best_day">最高閱讀日：%1$s · %2$s</string>
+    <string name="insights_marks_count">新增標註 %1$d 條</string>
+    <string name="insights_load_failed">載入失敗，請重新開啟頁面重試</string>
+    <string name="insights_comparison">與上一週期對比</string>
+    <string name="insights_current_period">本期</string>
+    <string name="insights_previous_period">上一期</string>
+</resources>

@@ -57,7 +57,7 @@ internal fun AppMonthCalendar(
     previousEnabled: Boolean = true,
     dailyData: Map<String, Long> = emptyMap(),
     selectedDate: LocalDate? = null,
-    onDateSelected: (LocalDate) -> Unit = {},
+    onDateSelected: ((LocalDate) -> Unit)? = null,
     subtitle: @Composable () -> Unit = {}
 ) {
     val picker = mode == AppMonthCalendarMode.DatePicker
@@ -134,9 +134,16 @@ internal fun AppMonthCalendar(
                             .then(if (picker) Modifier.heightIn(min = 44.dp) else Modifier.aspectRatio(1f))
                             .padding(2.dp).clip(shape).background(animated)
                             .then(if (isToday) Modifier.border(1.5.dp, AppColors.Accent, shape) else Modifier)
-                            .then(if (picker) Modifier.testTag("calendar_date_$date")
-                                .semantics { this.selected = selected; contentDescription = date.format(DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.FULL).withLocale(locale)) }
-                                .clickable(role = Role.Button) { onDateSelected(date) } else Modifier),
+                            .then(if (picker || (onDateSelected != null && date <= today)) {
+                                Modifier.testTag("calendar_date_$date")
+                                    .semantics {
+                                        if (picker) this.selected = selected
+                                        contentDescription = date.format(
+                                            DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.FULL).withLocale(locale)
+                                        )
+                                    }
+                                    .clickable(role = Role.Button) { onDateSelected?.invoke(date) }
+                            } else Modifier),
                             contentAlignment = Alignment.Center) {
                             Text(if (picker) numbers.format(date.dayOfMonth) else "${date.dayOfMonth}",
                                 fontSize = if (picker) AppType.Caption else 10.sp,
