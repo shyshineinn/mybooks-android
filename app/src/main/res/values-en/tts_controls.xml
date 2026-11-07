@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tts_fullscreen">Fullscreen listening</string>
+    <string name="tts_expand_controls">Expand listening controls</string>
+    <string name="tts_collapse_controls">Collapse listening controls</string>
+    <string name="tts_return_to_book">Return to the playing book</string>
+    <string name="tts_restore_subtitle">Expand floating subtitles</string>
+</resources>

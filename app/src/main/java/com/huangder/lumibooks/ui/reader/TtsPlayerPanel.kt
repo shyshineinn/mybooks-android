@@ -52,6 +52,7 @@ import com.huangder.lumibooks.ui.components.LiquidGlassMenuAnchorKind
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -96,7 +97,8 @@ fun TtsPlayerPanel(
     readerBackgroundColor: Color,
     readerContentColor: Color,
     forceSolidSurface: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenFullscreen: (() -> Unit)? = null
 ) {
     val rateOptions = remember {
         listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f)
@@ -352,6 +354,16 @@ fun TtsPlayerPanel(
                             }
                             IconButton(onClick = { markInteraction(); onSkipForward() }, modifier = Modifier.size(44.dp)) {
                                 Icon(AppIcons.SkipForwardFilled, stringResource(R.string.tts_next_sentence), tint = panelContentColor)
+                            }
+                            if (onOpenFullscreen != null) {
+                                IconButton(
+                                    onClick = { markInteraction(); onOpenFullscreen() },
+                                    enabled = playbackState != TtsPlaybackState.INITIALIZING,
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Icon(painterResource(R.drawable.ic_listening_lyrics),
+                                        stringResource(R.string.tts_fullscreen), tint = panelContentColor)
+                                }
                             }
                             IconButton(onClick = { markInteraction(); onStop() }, modifier = Modifier.size(44.dp)) {
                                 Icon(AppIcons.X, stringResource(R.string.tts_stop), tint = panelContentColor.copy(alpha = 0.72f), modifier = Modifier.size(19.dp))

@@ -1917,6 +1917,7 @@ fun RasterReaderScreen(
                 sleepTimerDurationMs = ttsState.sleepTimerDurationMs,
                 followUserPageTurns = ttsState.followUserPageTurns,
                 onPlayPause = viewModel::toggleTtsPlayPause,
+                onOpenFullscreen = { viewModel.openFullscreenListening(context) },
                 onStop = viewModel::stopTts,
                 onSkipForward = viewModel::ttsSkipForward,
                 onSkipBackward = viewModel::ttsSkipBackward,

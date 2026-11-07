@@ -4975,6 +4975,12 @@ class ReaderViewModel @Inject constructor(
         else -> context.getString(R.string.tts_playback_error)
     }
 
+    fun openFullscreenListening(context: android.content.Context) {
+        if (ttsController.activeBookId.value == bookId) {
+            FullScreenTtsActivity.launch(context, bookId, ttsController.currentSessionId)
+        }
+    }
+
     fun stopTts() {
         ttsController.stop()
     }
