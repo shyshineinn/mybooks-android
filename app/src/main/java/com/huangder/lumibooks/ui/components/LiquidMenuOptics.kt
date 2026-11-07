@@ -33,7 +33,8 @@ internal fun LiquidMenuSurface(
     baseColor: Color,
     isDark: Boolean,
     transparency: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    blurBoost: () -> androidx.compose.ui.unit.Dp = { 0.dp }
 ) {
     val optics = rememberMenuOptics()
     val edge = if (LocalLiquidGlassControlEdgeEnabled.current) {
@@ -59,7 +60,7 @@ internal fun LiquidMenuSurface(
             shape = shape,
             effects = {
                 vibrancy()
-                blur((6.dp * (1f - menuTransparency)).toPx())
+                blur((6.dp * (1f - menuTransparency)).toPx() + blurBoost().toPx())
                 if (Build.VERSION.SDK_INT >= 33) {
                     optics?.effect(frame(), padding, density, content = false)?.let { effect(it) }
                 }

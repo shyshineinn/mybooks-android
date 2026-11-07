@@ -3,17 +3,9 @@ import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import android.os.Build
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.SpringSpec
-import androidx.compose.animation.core.animateFloatAsState
 import com.huangder.lumibooks.ui.animation.VisualMotion.spring
 import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -44,24 +36,27 @@ import androidx.compose.foundation.rememberScrollState
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import com.huangder.lumibooks.ui.theme.AppShapes
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.AbsoluteAlignment
@@ -78,7 +73,9 @@ import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -92,15 +89,17 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.IntOffset
@@ -119,6 +118,7 @@ import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.domain.model.MenuAnimationStyle
 import com.huangder.lumibooks.ui.theme.LocalMenuAnimationStyle
+import com.huangder.lumibooks.ui.theme.AppType
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -129,6 +129,8 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 data class LiquidGlassMenuItem(
     val label: String,
@@ -140,6 +142,7 @@ data class LiquidGlassMenuItem(
     val selectedState: (() -> Boolean)? = null,
     val subtitle: String? = null,
     val submenuItems: List<LiquidGlassMenuItem> = emptyList(),
+    val enabled: Boolean = true,
     val onClick: () -> Unit = {}
 ) {
     fun isSelected(): Boolean = selectedState?.invoke() ?: selected
@@ -219,6 +222,8 @@ data class LiquidGlassMenuSpec(
     val fadeOnlyPanel: Boolean = false,
     /** Disable for compact selectors whose first option overlaps the trigger hit area. */
     val keepTriggerInteractive: Boolean = true,
+    /** Embedded playback controls remain visible and usable beside their menu. */
+    val keepAnchorVisible: Boolean = false,
     /** The host supplies scrolling and an atomic, single-submission selection callback. */
     val content: (@Composable (enabled: Boolean, select: (() -> Unit) -> Unit) -> Unit)? = null
 )
@@ -474,7 +479,7 @@ class LiquidGlassMenuHostState {
     // Hide the source only after the overlay has taken ownership of its recorded layer.
     // Keeping the real control visible during the handoff prevents a one-frame flash when
     // a liquid menu is opened. Normal menus intentionally keep the source visible throughout.
-    internal fun hidesSource(id: Any): Boolean = ownsDrawing(id)
+    internal fun hidesSource(id: Any): Boolean = ownsDrawing(id) && displayedMenu?.keepAnchorVisible != true
 
     internal fun sameSource(first: LiquidGlassMenuSpec?, second: LiquidGlassMenuSpec): Boolean =
         if (first?.sourceId != null || second.sourceId != null) first?.sourceId == second.sourceId
@@ -528,11 +533,12 @@ class LiquidGlassMenuHostState {
 val LocalLiquidGlassMenuHost = staticCompositionLocalOf<LiquidGlassMenuHostState?> { null }
 
 private val MenuItemRowHeight = 44.dp
-private val MenuContentPadding = 8.dp
+private val MenuContentPadding = 6.dp
 private val MenuScreenMargin = 8.dp
 private val MenuAnchorGap = 6.dp
 private val MenuItemCornerRadius = 12.dp
 private const val ReducedMotionFadeMillis = 100
+private const val PanelScrimAlpha = 0.24f
 
 /**
  * Back handling for the menu overlay.
@@ -584,12 +590,12 @@ fun LiquidGlassMenuHost(
     // Keep this capture private: descendants retain their existing backdrop and cannot
     // sample themselves. The menu overlay is a sibling, outside the recorded content.
     val pageBackdrop = rememberLayerBackdrop()
-    val backgroundBackdrop = LocalLumiBackgroundBackdrop.current ?: backdrop
+    val backgroundBackdrop = backdrop ?: LocalLumiBackgroundBackdrop.current
     val menuBackdrop = if (backgroundBackdrop != null) {
         rememberCombinedBackdrop(backgroundBackdrop, pageBackdrop)
     } else pageBackdrop
-    val capturePage = liquidTheme &&
-        (activeMenu?.forceSolid == false || hostState.displayedMenu?.forceSolid == false)
+    // Only glass menus refract the page; solid ones never need the capture.
+    val capturePage = liquidTheme && listOfNotNull(activeMenu, hostState.displayedMenu).any { !it.forceSolid }
     var hostWindowBounds by remember { mutableStateOf(Rect.Zero) }
     var hostRootOrigin by remember { mutableStateOf(Offset.Zero) }
 
@@ -597,8 +603,7 @@ fun LiquidGlassMenuHost(
         fun motionFor(menu: LiquidGlassMenuSpec): LiquidGlassMenuMotion = when {
             menu.fadeOnlyPanel -> LiquidMenuGeometry.Motion
             menu.sourceId == null -> LiquidGlassMenuMotion.Legacy
-            liquidTheme && displayedStyle == MenuAnimationStyle.LIQUID && !menu.forceSolid &&
-                menu.motion == LiquidGlassMenuMotion.Default -> LiquidMenuGeometry.Motion
+            displayedStyle == MenuAnimationStyle.LIQUID && menu.motion == LiquidGlassMenuMotion.Default -> LiquidMenuGeometry.Motion
             else -> menu.motion
         }
         suspend fun closeDisplayed() {
@@ -715,14 +720,12 @@ fun LiquidGlassMenuHost(
                             widthPx = hostWidthPx,
                             heightPx = hostHeightPx,
                             passThrough = passThrough,
-                            scrimColor = { if (menu.fadeOnlyPanel) {
-                                val panelProgress = if (motionEnabled) {
-                                    LiquidGlassMenuMorph.containerAlpha(progress.value)
-                                } else {
-                                    fade.value
+                            scrimAlpha = if (menu.fadeOnlyPanel) {
+                                {
+                                    val shown = if (motionEnabled) LiquidGlassMenuMorph.containerAlpha(progress.value) else fade.value
+                                    PanelScrimAlpha * shown
                                 }
-                                Color.Black.copy(alpha = 0.24f * panelProgress)
-                            } else Color.Transparent },
+                            } else null,
                             onDismiss = { position ->
                                 if (hostState.activeMenu == null && sourceRect.contains(position)) {
                                     hostState.show(menu)
@@ -743,7 +746,8 @@ fun LiquidGlassMenuHost(
                                 safeBottom = safeBottom,
                                 motionEnabled = motionEnabled,
                                 menuStyle = displayedStyle,
-                                backdrop = menuBackdrop
+                                backdrop = menuBackdrop,
+                                protectedBounds = passThrough
                             )
                         }
                         if (source?.kind == LiquidGlassMenuAnchorKind.Standalone && menu.keepTriggerInteractive) {
@@ -776,7 +780,8 @@ private fun MenuDismissLayer(
     widthPx: Float,
     heightPx: Float,
     passThrough: Rect?,
-    scrimColor: () -> Color,
+    /** Dims the page behind bottom panels; read while drawing. Null draws nothing. */
+    scrimAlpha: (() -> Float)?,
     onDismiss: (Offset) -> Unit
 ) {
     val density = LocalDensity.current
@@ -791,10 +796,10 @@ private fun MenuDismissLayer(
         Box(
             Modifier.absoluteOffset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
                 .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
-                .drawBehind {
-                    val color = scrimColor()
-                    if (color.alpha > 0f) drawRect(color)
-                }
+                .then(if (scrimAlpha == null) Modifier else Modifier.drawBehind {
+                    val alpha = scrimAlpha()
+                    if (alpha > 0f) drawRect(Color.Black, alpha = alpha)
+                })
                 .pointerInput(onDismiss) { detectTapGestures { onDismiss(it + rect.topLeft) } }
         )
     }
@@ -810,96 +815,223 @@ private fun LiquidGlassMenuRow(
     expanded: Boolean,
     motionEnabled: Boolean,
     textColor: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val itemSelected = item.isSelected()
-    val itemColor = if (item.destructive || (!isLiquidGlass && itemSelected)) AppColors.Accent else textColor
+    val itemColor = when {
+        item.destructive -> AppColors.Accent
+        !isLiquidGlass && itemSelected -> AppColors.Accent
+        else -> textColor
+    }.copy(alpha = if (item.enabled) 1f else 0.38f)
     Row(
-        Modifier.fillMaxWidth().heightIn(min = MenuItemRowHeight)
+        modifier.fillMaxWidth().heightIn(min = MenuItemRowHeight)
             .then(if (hasSelection) Modifier.semantics { selected = itemSelected } else Modifier)
             .clip(AppRoundedCornerShape(MenuItemCornerRadius))
+            .then(if (expanded) Modifier.background(textColor.copy(alpha = 0.10f)) else Modifier)
             .clickable(
-                enabled = enabled,
+                enabled = enabled && item.enabled,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (hasSelection) {
-            Box(Modifier.width(20.dp), contentAlignment = Alignment.CenterStart) {
-                if (itemSelected) Icon(AppIcons.Check, null, tint = itemColor, modifier = Modifier.size(14.dp))
+            Box(Modifier.width(18.dp), contentAlignment = Alignment.CenterStart) {
+                if (itemSelected) Icon(AppIcons.Check, null, tint = itemColor, modifier = Modifier.size(12.dp))
             }
         }
         item.icon?.let {
-            Icon(it, null, tint = itemColor, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
+            Icon(it, null, tint = itemColor, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
         }
-        if (hasIcons && item.icon == null) Spacer(Modifier.width(26.dp))
+        if (hasIcons && item.icon == null) Spacer(Modifier.width(22.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                item.label, color = itemColor, fontSize = 13.sp,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                item.label, color = itemColor,
+                fontSize = if (com.huangder.lumibooks.ui.theme.LocalAppTheme.current == "material3") 13.sp else com.huangder.lumibooks.ui.theme.AppType.BodySmall,
+                lineHeight = 20.sp,
                 textAlign = if (!isLiquidGlass && item.icon == null) androidx.compose.ui.text.style.TextAlign.Center
                     else androidx.compose.ui.text.style.TextAlign.Start
             )
             item.subtitle?.let {
-                Text(it, color = itemColor.copy(alpha = 0.58f), fontSize = 11.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(it, color = itemColor.copy(alpha = itemColor.alpha * 0.70f),
+                    fontSize = AppType.Caption, lineHeight = 16.sp)
             }
         }
         if (item.submenuItems.isNotEmpty()) {
-            val rotation by animateFloatAsState(
-                targetValue = if (expanded) {
-                    if (LocalLayoutDirection.current == LayoutDirection.Ltr) -90f else 90f
-                } else 0f,
-                animationSpec = tween(if (motionEnabled) 220 else 0),
-                label = "Menu submenu arrow"
-            )
             Icon(
                 directionalIcon(AppIcons.CaretRight, AppIcons.CaretLeft), null,
                 tint = itemColor.copy(alpha = 0.7f),
-                modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = rotation }
+                modifier = Modifier.size(12.dp)
             )
         }
     }
 }
 
+/**
+ * Places its single child on the current morph bounds. Size and position are resolved during
+ * layout, so the morph re-measures this subtree instead of recomposing it. The layout itself has
+ * no pointer input; taps outside the child still reach the dismiss layer underneath.
+ */
+@Composable
+private fun MenuMorphLayout(geometry: MenuMorphGeometry, content: @Composable () -> Unit) {
+    Layout(content) { measurables, constraints ->
+        val bounds = geometry.current().bounds
+        val width = constraints.constrainWidth(bounds.width.roundToInt().coerceAtLeast(1))
+        val height = constraints.constrainHeight(bounds.height.roundToInt().coerceAtLeast(1))
+        val menu = measurables.single().measure(Constraints.fixed(width, height))
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            menu.place(bounds.left.roundToInt(), bounds.top.roundToInt())
+        }
+    }
+}
+
+/**
+ * Menu surface for everything except the refracting glass droplet. The categories panel is
+ * solid even in the glass theme, and its shadow and clip follow the morph from a layer block.
+ * The shared surface resolves the outline and extra blur in its drawing modifiers.
+ */
 @Composable
 private fun MenuFallbackSurface(
     shape: () -> Shape,
+    blurBoost: () -> Dp,
     color: Color,
     backdrop: Backdrop?,
     isDark: Boolean,
     isLiquidGlass: Boolean,
     forceSolid: Boolean,
-    blurBoost: () -> Dp,
     modifier: Modifier
 ) {
     if (forceSolid && LocalAppTheme.current == "liquid_glass") {
-        // The categories surface is solid even in the glass theme. Its shadow and
-        // clip can follow the morph without rebuilding a general-purpose surface.
-        Box(modifier.graphicsLayer {
-            shadowElevation = 8.dp.toPx()
-            this.shape = shape()
-            clip = true
-        }.background(color))
-    } else {
-        val currentShape = shape()
-        LiquidGlassSurface(
-            shape = currentShape,
-            fallbackColor = color,
-            backdrop = backdrop,
-            contentScrimColor = color.copy(alpha = if (isDark) 0.68f else 0.62f),
-            forceFallback = forceSolid,
-            decorationModifier = if (isLiquidGlass) null else Modifier.shadow(8.dp, currentShape),
-            blurBoost = blurBoost(),
-            modifier = modifier
-        ) {}
+        Box(
+            modifier
+                .graphicsLayer {
+                    this.shape = shape()
+                    clip = true
+                    shadowElevation = 8.dp.toPx()
+                }
+                .background(color)
+        )
+        return
     }
+    val frameShape = shape()
+    val outlineColor = AppColors.TextPrimary.copy(alpha = if (isDark) 0.14f else 0.08f)
+    LiquidGlassSurface(
+        shape = frameShape,
+        fallbackColor = color,
+        modifier = modifier,
+        backdrop = backdrop,
+        contentScrimColor = color.copy(alpha = if (isDark) 0.68f else 0.62f),
+        forceFallback = forceSolid,
+        blurBoost = blurBoost(),
+        decorationModifier = if (isLiquidGlass) null else Modifier.graphicsLayer {
+            this.shape = shape()
+            shadowElevation = 8.dp.toPx()
+        }.drawWithContent {
+            drawContent()
+            // Resolve the live outline while drawing so the hairline follows the
+            // liquid morph as well as the settled primary and secondary cards.
+            drawOutline(
+                outline = shape().createOutline(size, layoutDirection, this),
+                color = outlineColor,
+                style = Stroke(1.dp.toPx())
+            )
+        }
+    ) {}
 }
 
+/**
+ * The anchored menu at one value of the morph phase. Every layout, layer and draw block of a
+ * frame reads the same instance, so the (possibly warped) outline is built once per frame.
+ */
+internal class MenuMorphSnapshot(
+    val phase: Float,
+    val growth: Float,
+    val bounds: Rect,
+    val cornerRadius: Float,
+    /** Droplet outline, or null while the container morphs as a rounded rectangle. */
+    val droplet: LiquidMenuFrame?,
+    val shape: Shape,
+    /** How far the menu content has surfaced, 0..1. */
+    val reveal: Float,
+    /** Opacity of the trigger's recorded layer while the menu takes over from it. */
+    val handoff: Float
+) {
+    /** What the glass optics refract: the droplet, or a settled panel of the same bounds. */
+    val opticsFrame: LiquidMenuFrame = droplet ?: LiquidMenuFrame(bounds, cornerRadius, 0f, 0f, 0f, 0f)
+}
+
+/**
+ * Turns the animated phase into [MenuMorphSnapshot]s for one fixed set of inputs. A new instance
+ * is remembered only when the anchor, measured target or presentation changes, never per frame.
+ * [current] reads the animation, so call it from the layout or draw scope that should follow it.
+ */
+private class MenuMorphGeometry(
+    private val progress: Animatable<Float, AnimationVector1D>,
+    private val source: () -> Rect,
+    private val target: () -> Rect,
+    private val sourceRadius: Float,
+    private val targetRadius: Float,
+    /** False renders the settled menu; fades are handled by the caller. */
+    private val animated: Boolean,
+    private val motionEnabled: Boolean,
+    private val continuous: Boolean,
+    private val droplet: Boolean,
+    private val panel: Boolean,
+    private val continuousCorners: Boolean,
+    private val density: Density
+) {
+    private var latest: MenuMorphSnapshot? = null
+    private var latestSource: Rect? = null
+    private var latestTarget: Rect? = null
+
+    fun current(): MenuMorphSnapshot {
+        val phase = if (animated) progress.value else 1f
+        val source = source()
+        val target = target()
+        latest?.takeIf { it.phase == phase && latestSource == source && latestTarget == target }?.let { return it }
+        latestSource = source
+        latestTarget = target
+        return resolve(phase, source, target).also { latest = it }
+    }
+
+    private fun resolve(phase: Float, source: Rect, target: Rect): MenuMorphSnapshot {
+        val growth = LiquidGlassMenuMorph.growthProgress(phase, continuous)
+        val dropletFrame = if (droplet) {
+            LiquidMenuGeometry.frame(source, target, phase, sourceRadius, targetRadius)
+        } else null
+        val bounds = when {
+            !animated -> target
+            dropletFrame != null -> dropletFrame.bounds
+            else -> LiquidGlassMenuMorph.morphRect(source, target, phase, continuous)
+        }
+        val cornerRadius = LiquidGlassMenuMorph.cornerRadiusPx(sourceRadius, targetRadius, growth)
+            .coerceIn(0f, bounds.minDimension.coerceAtLeast(0f) / 2f)
+        val shape = when {
+            panel -> panelShape(growth)
+            dropletFrame != null -> LiquidMenuShape(dropletFrame, continuousCorners)
+            else -> AppShapes.rounded(cornerRadius, continuousCorners)
+        }
+        val reveal = when {
+            droplet -> LiquidMenuGeometry.contentAlpha(phase)
+            continuous -> LiquidGlassMenuMorph.contentProgress(growth)
+            else -> ((growth - 0.68f) / 0.32f).coerceIn(0f, 1f)
+        }
+        val handoff = if (droplet) LiquidMenuGeometry.sourceAlpha(phase) else LiquidGlassMenuMorph.sourceAlpha(phase)
+        return MenuMorphSnapshot(phase, growth, bounds, cornerRadius, dropletFrame, shape, reveal, handoff)
+    }
+
+    /** The bottom panel keeps a sheet's square bottom edge; its top corners morph like a menu. */
+    private fun panelShape(growth: Float): Shape {
+        if (!motionEnabled) return AppShapes.rounded(24.dp, 24.dp, 0.dp, 0.dp, continuousCorners)
+        val top = with(density) { LiquidGlassMenuMorph.cornerRadiusPx(sourceRadius, targetRadius, growth).toDp() }
+        val bottom = with(density) { lerp(sourceRadius, 0f, growth.coerceIn(0f, 1f)).toDp() }
+        return AppShapes.rounded(top, top, bottom, bottom, continuousCorners)
+    }
+}
 @Composable
 private fun AnchoredLiquidGlassMenu(
     spec: LiquidGlassMenuSpec,
@@ -914,33 +1046,31 @@ private fun AnchoredLiquidGlassMenu(
     safeBottom: Float,
     motionEnabled: Boolean,
     menuStyle: MenuAnimationStyle,
-    backdrop: Backdrop?
+    backdrop: Backdrop?,
+    protectedBounds: Rect? = null,
+    isSubmenu: Boolean = false,
+    liveSource: (() -> Rect)? = null,
+    placeSubmenu: ((Float, Float) -> Rect)? = null,
+    acceptInput: Boolean = true,
+    returningWithParent: Boolean = false
 ) {
     val density = LocalDensity.current
     val isDark = LocalIsDarkTheme.current
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" && !spec.forceSolid
-    val normalMotion = !spec.fadeOnlyPanel && menuStyle == MenuAnimationStyle.NORMAL
+    // A secondary pane always opens/closes as an ordinary card. Only a whole-stack
+    // dismissal borrows the primary menu's liquid return.
+    val normalMotion = !spec.fadeOnlyPanel &&
+        (menuStyle == MenuAnimationStyle.NORMAL || (isSubmenu && !returningWithParent))
     val fadeOnlyPanel = spec.fadeOnlyPanel
     val glassSurface = isLiquidGlass && LocalLiquidGlassCapability.current.supported
     // The categories sheet keeps its solid surface, but still uses the same
     // anchor handoff and liquid geometry as the glass menus.
-    val droplet = !normalMotion && source != null && (glassSurface || fadeOnlyPanel)
+    val droplet = !normalMotion && (source != null || isSubmenu)
     val layoutDirection = LocalLayoutDirection.current
-    val continuous = source != null
+    val continuous = source != null || isSubmenu
     val embedded = source?.kind == LiquidGlassMenuAnchorKind.Embedded
-    // Animation values are consumed by layout/draw/layer observers, not composition.
-    val phase = { if (motionEnabled && !normalMotion) progress.value else 1f }
-    val growth = { LiquidGlassMenuMorph.growthProgress(phase(), continuous) }
-    val reveal = {
-        if (droplet) LiquidMenuGeometry.contentAlpha(phase())
-        else if (continuous) LiquidGlassMenuMorph.contentProgress(growth())
-        else ((growth() - 0.68f) / 0.32f).coerceIn(0f, 1f)
-    }
-    val sourceAlpha = {
-        if (motionEnabled && !normalMotion && hostState.ownsDrawing(spec.sourceId ?: Unit)) {
-            if (droplet) LiquidMenuGeometry.sourceAlpha(phase()) else LiquidGlassMenuMorph.sourceAlpha(phase())
-        } else 0f
-    }
+    // The spring shapes the container only for the animated styles; the rest render settled.
+    val animated = motionEnabled && !normalMotion
     val margin = with(density) { MenuScreenMargin.toPx() }
     val gap = with(density) { MenuAnchorGap.toPx() }
     val availableHeight = (hostHeightPx - safeTop - safeBottom - margin * 2f).coerceAtLeast(1f)
@@ -950,7 +1080,12 @@ private fun AnchoredLiquidGlassMenu(
     val aboveHeight = (sourceRect.top - safeTop - margin - gap).coerceAtLeast(1f)
     val belowHeight = (hostHeightPx - safeBottom - sourceRect.bottom - margin - gap).coerceAtLeast(1f)
     val panelHeightPx = hostHeightPx * 0.85f
-    val maxHeightPx = if (fadeOnlyPanel) panelHeightPx else if (embedded || normalMotion) {
+    val protectedHeight = protectedBounds?.let {
+        if (sourceRect.center.y < it.center.y) it.top - safeTop - margin - gap
+        else hostHeightPx - safeBottom - it.bottom - margin - gap
+    }?.coerceAtLeast(MenuItemRowHeight.value * density.density)
+    val maxHeightPx = if (isSubmenu) min(availableHeight, protectedHeight ?: availableHeight)
+    else if (fadeOnlyPanel) panelHeightPx else if (embedded || normalMotion) {
         if (spec.preferAbove) aboveHeight else maxOf(aboveHeight, belowHeight)
     } else availableHeight
     val rowCapPx = with(density) {
@@ -978,39 +1113,90 @@ private fun AnchoredLiquidGlassMenu(
     ).translate(Offset(0f, safeTop))
     val sourceRadius = with(density) { (spec.anchorCornerRadius ?: source?.cornerRadius)?.toPx() }
         ?: LiquidGlassMenuMorph.capsuleCornerRadiusPx(sourceRect)
-    val targetRadius = with(density) { LiquidGlassMenuMorph.TargetCornerRadiusDp.dp.toPx() }
-    val frame = remember(droplet, sourceRect, targetRect, phase, sourceRadius, targetRadius) {
-        derivedStateOf {
-            if (droplet) LiquidMenuGeometry.frame(sourceRect, targetRect, phase(), sourceRadius, targetRadius)
-            else null
-        }
-    }
-    val rect = remember(motionEnabled, normalMotion, frame, targetRect, sourceRect, phase, continuous) {
-        derivedStateOf {
-            if (!motionEnabled || normalMotion) targetRect else frame.value?.bounds
-                ?: LiquidGlassMenuMorph.morphRect(sourceRect, targetRect, phase(), continuous)
-        }
-    }
-    val radiusPx = {
-        LiquidGlassMenuMorph.cornerRadiusPx(sourceRadius, targetRadius, growth())
-            .coerceIn(0f, rect.value.size.minDimension.coerceAtLeast(0f) / 2f)
-    }
+    val targetRadius = LiquidGlassMenuMorph.TargetCornerRadiusDp * density.density
     val continuousCorners = AppShapes.usesContinuousCorners(LocalAppTheme.current)
-    val shape = remember(fadeOnlyPanel, motionEnabled, sourceRadius, targetRadius, growth, density, frame, radiusPx, continuousCorners) {
-        derivedStateOf<Shape> {
-            if (fadeOnlyPanel) {
-                val topCorner = if (!motionEnabled) 24.dp else with(density) {
-                    LiquidGlassMenuMorph.cornerRadiusPx(sourceRadius, targetRadius, growth()).toDp()
+    val sourceProvider = liveSource ?: remember(sourceRect) { { sourceRect } }
+    val targetProvider = if (placeSubmenu != null) remember(placeSubmenu, widthPx, measuredHeightPx) {
+        { placeSubmenu(widthPx, measuredHeightPx.coerceAtLeast(1f)) }
+    } else remember(targetRect) { { targetRect } }
+    val geometry = remember(
+        progress, sourceProvider, targetProvider, sourceRadius, targetRadius, animated,
+        motionEnabled, continuous, droplet, fadeOnlyPanel, continuousCorners, density
+    ) {
+        MenuMorphGeometry(
+            progress = progress, source = sourceProvider, target = targetProvider,
+            sourceRadius = sourceRadius, targetRadius = targetRadius,
+            animated = animated, motionEnabled = motionEnabled, continuous = continuous,
+            droplet = droplet, panel = fadeOnlyPanel, continuousCorners = continuousCorners,
+            density = density
+        )
+    }
+    val childReturnProgress = remember { Animatable(1f) }
+    var childReturning by remember { mutableStateOf(false) }
+    val childFade = remember { Animatable(0f) }
+    val retreat = remember { Animatable(0f) }
+    var displayedChild by remember { mutableIntStateOf(-1) }
+    val requestedChild = if (isSubmenu) -1 else hostState.expandedSubmenuIndex
+    val closing = !hostState.isActive(spec)
+    val rowRects = remember(spec.items) { mutableStateMapOf<Int, Rect>() }
+    var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // Keep the child's ordinary fade/scale frozen when switching into a whole-stack
+    // return. Its separate return phase starts at 1, even if opening was interrupted,
+    // so the first liquid frame exactly matches the currently drawn card.
+    LaunchedEffect(requestedChild, closing, motionEnabled, menuStyle) {
+        if (isSubmenu) return@LaunchedEffect
+        suspend fun transition(open: Boolean, restoreParent: Boolean) = coroutineScope {
+            launch {
+                if (!open && childReturning && motionEnabled) {
+                    childReturnProgress.animateTo(0f, tween(190, easing = FastOutSlowInEasing))
+                } else {
+                    childFade.animateTo(if (open) 1f else 0f,
+                        tween(if (motionEnabled) if (open) 180 else 140 else 0))
                 }
-                val bottomCorner = if (!motionEnabled) 0.dp else with(density) {
-                    lerp(sourceRadius, 0f, growth().coerceIn(0f, 1f)).toDp()
-                }
-                AppShapes.rounded(topCorner, topCorner, bottomCorner, bottomCorner, continuousCorners)
-            } else {
-                frame.value?.let { LiquidMenuShape(it, continuousCorners) }
-                    ?: AppShapes.rounded(radiusPx(), continuousCorners)
+            }
+            if (restoreParent || open) launch {
+                retreat.animateTo(if (open) 1f else 0f,
+                    tween(if (!motionEnabled) 0 else if (open) 280 else 190, easing = FastOutSlowInEasing))
             }
         }
+        if (closing) {
+            if (displayedChild >= 0 && motionEnabled && menuStyle == MenuAnimationStyle.LIQUID) {
+                childReturning = true
+            }
+            transition(false, restoreParent = false)
+        } else if (requestedChild < 0) {
+            transition(false, restoreParent = true)
+            displayedChild = -1
+            childFade.snapTo(0f)
+            childReturning = false
+            childReturnProgress.snapTo(1f)
+        } else {
+            if (displayedChild >= 0 && (displayedChild != requestedChild || childReturning)) {
+                transition(false, restoreParent = false)
+                childFade.snapTo(0f)
+            }
+            childReturning = false
+            childReturnProgress.snapTo(1f)
+            displayedChild = requestedChild
+            transition(true, restoreParent = false)
+        }
+    }
+
+    val childWidthPx = with(density) {
+        min(192.dp.toPx(), (hostWidthPx - margin * 2f - widthPx * 0.96f - gap)
+            .coerceAtLeast(144.dp.toPx()))
+    }
+    val cascadeSafeArea = Rect(margin, safeTop + margin, hostWidthPx - margin, hostHeightPx - safeBottom - margin)
+    val retreatShift = CascadingMenuGeometry.parentShift(
+        targetRect, childWidthPx, cascadeSafeArea, gap, layoutDirection == LayoutDirection.Rtl)
+    val shiftX = {
+        if (displayedChild < 0 || isSubmenu) 0f
+        else retreatShift * retreat.value * geometry.current().growth.coerceIn(0f, 1f)
+    }
+
+    // From here on, animated values are read inside layout, layer and draw blocks only.
+    val handoffAlpha = { morph: MenuMorphSnapshot ->
+        if (animated && source != null && hostState.ownsDrawing(spec.sourceId ?: Unit)) morph.handoff else 0f
     }
     val color = spec.surfaceColor.takeOrElse { AppColors.CardBg }
     val backdropBase = spec.surfaceColor.takeOrElse { AppColors.WindowBg }.copy(alpha = 1f)
@@ -1023,55 +1209,68 @@ private fun AnchoredLiquidGlassMenu(
         }
     }
     val textColor = spec.contentColor.takeOrElse { AppColors.TextPrimary }
-    val enabled by remember(hostState, spec, reveal, droplet, phase) {
+    val enabled by remember(geometry, hostState, spec, acceptInput) {
         derivedStateOf {
-            hostState.sameSource(hostState.activeMenu, spec) &&
-                reveal() > LiquidGlassMenuMorph.ItemClickableReveal && (!droplet || phase() >= 0.96f)
+            acceptInput && hostState.sameSource(hostState.activeMenu, spec) && geometry.current().let { morph ->
+                morph.reveal > LiquidGlassMenuMorph.ItemClickableReveal && (!droplet || morph.phase >= 0.96f)
+            }
         }
     }
-    val alpha = { when {
-        !hostState.measured -> 0f
-        normalMotion -> fade.value
-        continuous && motionEnabled && !fadeOnlyPanel && !hostState.ownsDrawing(source.id) -> 0f
-        !motionEnabled -> fade.value
-        continuous -> 1f
-        else -> LiquidGlassMenuMorph.containerAlpha(phase())
-    } }
+    val containerAlpha = {
+        when {
+            !hostState.measured -> 0f
+            normalMotion || !motionEnabled -> fade.value
+            isSubmenu -> fade.value * LiquidGlassMenuMorph.containerAlpha(progress.value)
+            // The liquid handoff begins once the overlay owns the trigger's recorded layer.
+            // An immediate/programmatic open can precede the trigger's first draw.
+            // In that case morph without a recorded-source handoff instead of hiding forever.
+            source != null && !fadeOnlyPanel && !hostState.ownsDrawing(source.id) ->
+                LiquidGlassMenuMorph.containerAlpha(progress.value)
+            continuous -> 1f
+            else -> LiquidGlassMenuMorph.containerAlpha(geometry.current().phase)
+        }
+    }
     val alignment = LiquidGlassMenuMorph.nearAlignment(sourceRect, targetRect)
     val reduceTransparency = LocalReduceTransparency.current
-    val contentOptics = if (droplet) rememberMenuOptics() else null
+    val contentOptics = if (droplet && glassSurface) rememberMenuOptics() else null
     val panelContentBackdrop = rememberLayerBackdrop()
     val transparency = LocalLiquidGlassTransparency.current
-    val currentRect by rememberUpdatedState(rect)
+    val currentGeometry by rememberUpdatedState(geometry)
     val currentSourceRect by rememberUpdatedState(sourceRect)
     val currentSpec by rememberUpdatedState(spec)
 
+    val refractContent = Build.VERSION.SDK_INT >= 33 && motionEnabled && glassSurface
+    val blurContent = Build.VERSION.SDK_INT >= 31 && animated && !reduceTransparency
+    val densityScale = density.density
+    val surfaceAlpha = Modifier.graphicsLayer { alpha = 1f - handoffAlpha(geometry.current()) }
+    val surfaceBlurBoost = {
+        if (animated && !reduceTransparency) {
+            LiquidGlassMenuMorph.blurBoostDp(geometry.current().phase).dp
+        } else 0.dp
+    }
+
+    MenuMorphLayout(geometry) {
     Box(
-        Modifier.absoluteOffset { IntOffset(rect.value.left.roundToInt(), rect.value.top.roundToInt()) }
-            .layout { measurable, constraints ->
-                val bounds = rect.value
-                val width = constraints.constrainWidth(bounds.width.roundToInt().coerceAtLeast(1))
-                val height = constraints.constrainHeight(bounds.height.roundToInt().coerceAtLeast(1))
-                val placeable = measurable.measure(Constraints.fixed(width, height))
-                layout(width, height) { placeable.place(0, 0) }
-            }
-            .graphicsLayer {
-                this.alpha = alpha()
-                if (normalMotion && motionEnabled && !fadeOnlyPanel) {
+        Modifier.graphicsLayer {
+                val retreatScale = CascadingMenuGeometry.parentScale(retreat.value)
+                scaleX = retreatScale
+                scaleY = retreatScale
+                translationX = shiftX()
+                alpha = containerAlpha()
+                if ((normalMotion || isSubmenu) && motionEnabled && !fadeOnlyPanel) {
                     val scale = lerp(0.94f, 1f, fade.value)
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(
-                        (LiquidGlassMenuMorph.nearEdgeBiasX(sourceRect, targetRect) + 1f) / 2f,
-                        (LiquidGlassMenuMorph.nearEdgeBiasY(sourceRect, targetRect) + 1f) / 2f
-                    )
+                    scaleX *= scale
+                    scaleY *= scale
+                    transformOrigin = TransformOrigin.Center
                 }
             }
+            .testTag(if (isSubmenu) "menu-submenu" else "menu-primary")
             .pointerInput(spec.sourceId ?: spec.anchorBounds) {
                 detectTapGestures { position ->
-                    if (hostState.activeMenu == null && currentSourceRect.contains(position + currentRect.value.topLeft)) {
-                        hostState.show(currentSpec)
-                    } else hostState.dismiss()
+                    // Tapping the trigger while the menu is on its way out reopens it.
+                    val inHost = position + currentGeometry.current().bounds.topLeft
+                    val reopen = hostState.activeMenu == null && currentSourceRect.contains(inHost)
+                    if (reopen) hostState.show(currentSpec) else hostState.dismiss()
                 }
             }
     ) {
@@ -1079,27 +1278,35 @@ private fun AnchoredLiquidGlassMenu(
             LiquidMenuSurface(
                 // Animation style changes motion only; ordinary and unanchored
                 // menus retain the same settled glass lens as the liquid morph.
-                frame = { frame.value ?: LiquidMenuFrame(rect.value, radiusPx(), 0f, 0f, 0f, 0f) },
-                shape = { shape.value }, backdrop = menuBackdrop,
-                baseColor = color, isDark = isDark, transparency = transparency,
-                modifier = Modifier.matchParentSize().graphicsLayer { this.alpha = 1f - sourceAlpha() }
+                frame = { geometry.current().opticsFrame },
+                shape = { geometry.current().shape },
+                backdrop = menuBackdrop,
+                baseColor = color,
+                isDark = isDark,
+                transparency = transparency,
+                blurBoost = surfaceBlurBoost,
+                modifier = Modifier.matchParentSize().then(surfaceAlpha)
             )
-        } else MenuFallbackSurface(
-            shape = { shape.value },
-            color = color,
-            backdrop = menuBackdrop,
-            isDark = isDark, isLiquidGlass = isLiquidGlass, forceSolid = spec.forceSolid,
-            blurBoost = { if (!reduceTransparency && motionEnabled && !normalMotion) LiquidGlassMenuMorph.blurBoostDp(phase()).dp else 0.dp },
-            modifier = Modifier.matchParentSize()
-                .then(if (fadeOnlyPanel) Modifier.layerBackdrop(panelContentBackdrop) else Modifier)
-                .graphicsLayer { this.alpha = 1f - sourceAlpha() }
-        )
+        } else {
+            MenuFallbackSurface(
+                shape = { geometry.current().shape },
+                blurBoost = surfaceBlurBoost,
+                color = color,
+                backdrop = menuBackdrop,
+                isDark = isDark,
+                isLiquidGlass = isLiquidGlass,
+                forceSolid = spec.forceSolid,
+                modifier = Modifier.matchParentSize()
+                    .then(if (fadeOnlyPanel) Modifier.layerBackdrop(panelContentBackdrop) else Modifier)
+                    .then(surfaceAlpha)
+            )
+        }
         if (source != null) {
             Box(
-                Modifier.matchParentSize().graphicsLayer { this.alpha = sourceAlpha() }
+                Modifier.matchParentSize().graphicsLayer { alpha = handoffAlpha(geometry.current()) }
                     .clearAndSetSemantics {}
                     .drawWithContent {
-                        if (sourceAlpha() <= 0f || !source.recorded) return@drawWithContent
+                        if (!source.recorded || handoffAlpha(geometry.current()) <= 0f) return@drawWithContent
                         val sourceScale = min(size.width / source.layer.size.width, size.height / source.layer.size.height).coerceAtMost(1f)
                         val x = if (LiquidGlassMenuMorph.nearEdgeBiasX(sourceRect, targetRect) > 0f) size.width - source.layer.size.width * sourceScale else 0f
                         val y = if (LiquidGlassMenuMorph.nearEdgeBiasY(sourceRect, targetRect) > 0f) size.height - source.layer.size.height * sourceScale else 0f
@@ -1111,102 +1318,154 @@ private fun AnchoredLiquidGlassMenu(
             LocalLiquidGlassBackdrop provides if (fadeOnlyPanel) panelContentBackdrop else LocalLiquidGlassBackdrop.current
         ) {
         Box(
-            Modifier.matchParentSize().graphicsLayer { this.shape = shape.value; clip = true }
+            Modifier.matchParentSize()
                 .graphicsLayer {
-                    renderEffect = if (Build.VERSION.SDK_INT >= 33 && motionEnabled && glassSurface) {
-                        frame.value?.let { contentOptics?.contentEffect(it, density.density) }
+                    shape = geometry.current().shape
+                    clip = true
+                }
+                .graphicsLayer {
+                    // Only the API 33+ glass droplet warps its content; settled frames return null.
+                    val warped = geometry.current().droplet
+                    renderEffect = if (refractContent && warped != null) {
+                        contentOptics?.contentEffect(warped, densityScale)
                     } else null
                 },
             contentAlignment = alignment
         ) {
-            Column(
-                (if (fadeOnlyPanel) Modifier
-                    // Lay out the sheet at its final size. Only the surrounding viewport morphs;
-                    // changing text/list constraints on every frame would reflow the entire sheet.
-                    .wrapContentSize(alignment, unbounded = true)
+            // Flat catalogs can contain thousands of tags. Keep the menu viewport
+            // bounded and compose only visible rows; other menu types retain their layout.
+            val lazyItems = spec.content == null && spec.items.size > 24 && spec.items.all {
+                it.submenuItems.isEmpty() && !it.dividerBefore && it.groupTitle == null
+            }
+            val viewport = if (fadeOnlyPanel) {
+                // Measured once at the settled size; only the clip around it follows the morph,
+                // so the sheet never re-flows its text or lists while animating.
+                Modifier.wrapContentSize(alignment, unbounded = true)
                     .requiredSize(with(density) { hostWidthPx.toDp() }, maxContentHeight)
-                else Modifier.requiredWidth(menuWidth)
-                    .wrapContentHeight(unbounded = true, align = Alignment.Top))
+            } else {
+                Modifier.requiredWidth(menuWidth).wrapContentHeight(align = Alignment.Top, unbounded = true)
+            }
+            Column(
+                viewport
                     .heightIn(max = maxContentHeight)
                     .onSizeChanged {
                         measuredHeightPx = it.height.toFloat()
-                        hostState.measured = true
+                        if (!isSubmenu) hostState.measured = true
                     }
+                    .onGloballyPositioned { contentCoordinates = it }
+                    .testTag(if (isSubmenu) "menu-submenu-content" else "menu-primary-content")
                     .graphicsLayer {
-                        val blur = if (!reduceTransparency && motionEnabled && !normalMotion) LiquidGlassMenuMorph.contentBlurDp(reveal()).dp else 0.dp
-                        renderEffect = if (Build.VERSION.SDK_INT >= 31 && blur > 0.1.dp) {
-                            BlurEffect(blur.toPx(), blur.toPx(), TileMode.Clamp)
-                        } else null
-                        // Match Modifier.blur's default bounded treatment while active.
-                        clip = Build.VERSION.SDK_INT >= 31 && blur > 0.1.dp
+                        val reveal = geometry.current().reveal
+                        val blurPx = if (blurContent) LiquidGlassMenuMorph.contentBlurDp(reveal).dp.toPx() else 0f
+                        val blurring = blurPx > 0.1.dp.toPx()
+                        renderEffect = if (blurring) BlurEffect(blurPx, blurPx, TileMode.Clamp) else null
+                        // Bounded like Modifier.blur while the effect is active. Blur is linear,
+                        // so fading in the same layer matches fading underneath it.
+                        clip = blurring
+                        alpha = reveal * CascadingMenuGeometry.parentContentAlpha(retreat.value)
                     }
-                    .graphicsLayer { this.alpha = reveal() }
                     .then(if (!enabled) Modifier.clearAndSetSemantics {} else Modifier)
-                    .then(if (fadeOnlyPanel) Modifier else Modifier.verticalScroll(rememberScrollState()))
+                    .then(if (fadeOnlyPanel || lazyItems) Modifier else Modifier.verticalScroll(rememberScrollState()))
                     .then(if (fadeOnlyPanel) Modifier else Modifier.padding(MenuContentPadding))
             ) {
                 val customContent = spec.content
-                if (customContent != null) {
+                if (lazyItems) {
+                    val hasSelection = spec.items.any { it.selected || it.selectedState != null }
+                    val hasIcons = spec.items.any { it.icon != null }
+                    LazyColumn(Modifier.heightIn(max = maxContentHeight)) {
+                        items(spec.items, contentType = { "menu-row" }) { item ->
+                            LiquidGlassMenuRow(
+                                item = item, enabled = enabled, isLiquidGlass = isLiquidGlass,
+                                hasSelection = hasSelection, hasIcons = hasIcons, expanded = false,
+                                motionEnabled = motionEnabled, textColor = textColor,
+                                onClick = { hostState.select(spec, item.onClick) }
+                            )
+                        }
+                    }
+                } else if (customContent != null) {
                     customContent(enabled) { action -> hostState.select(spec, action) }
                 } else {
-                    val hasSelection = isLiquidGlass && spec.items.any {
+                    val hasSelection = spec.items.any {
                         it.selected || it.selectedState != null || it.submenuItems.any { child ->
                             child.selected || child.selectedState != null
                         }
                     }
-                    val hasIcons = isLiquidGlass && spec.items.any {
+                    val hasIcons = spec.items.any {
                         it.icon != null || it.submenuItems.any { child -> child.icon != null }
                     }
                     spec.items.forEachIndexed { index, item ->
-                        if (isLiquidGlass && index > 0 && (item.dividerBefore || item.groupTitle != null)) {
+                        if (index > 0 && (item.dividerBefore || item.groupTitle != null)) {
                             HorizontalDivider(
-                                Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
                                 thickness = 0.5.dp, color = textColor.copy(alpha = 0.12f)
                             )
                         }
-                        if (isLiquidGlass && item.groupTitle != null) {
-                            Text(item.groupTitle, color = textColor.copy(alpha = 0.55f), fontSize = 11.sp,
-                                modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp))
+                        if (item.groupTitle != null) {
+                            Text(item.groupTitle, color = textColor.copy(alpha = 0.55f), fontSize = AppType.Caption, lineHeight = 14.sp,
+                                modifier = Modifier.padding(start = 12.dp, top = 3.dp, bottom = 3.dp))
                         }
                         LiquidGlassMenuRow(
                             item = item, enabled = enabled, isLiquidGlass = isLiquidGlass,
                             hasSelection = hasSelection, hasIcons = hasIcons,
-                            expanded = hostState.expandedSubmenuIndex == index,
+                            expanded = !isSubmenu && displayedChild == index,
                             motionEnabled = motionEnabled, textColor = textColor,
+                            modifier = Modifier.onGloballyPositioned { coordinates ->
+                                val viewportCoordinates = contentCoordinates
+                                if (viewportCoordinates?.isAttached == true && coordinates.isAttached) {
+                                    rowRects[index] = viewportCoordinates.localBoundingBoxOf(coordinates, clipBounds = false)
+                                }
+                            },
                             onClick = {
                                 if (item.submenuItems.isEmpty()) hostState.select(spec, item.onClick)
                                 else hostState.toggleSubmenu(spec, index)
                             }
                         )
-                        if (item.submenuItems.isNotEmpty()) {
-                            AnimatedVisibility(
-                                visible = hostState.expandedSubmenuIndex == index,
-                                enter = if (motionEnabled) expandVertically(tween(260, easing = FastOutSlowInEasing)) +
-                                    fadeIn(tween(180)) else EnterTransition.None,
-                                exit = if (motionEnabled) shrinkVertically(tween(220, easing = FastOutSlowInEasing)) +
-                                    fadeOut(tween(160)) else ExitTransition.None
-                            ) {
-                                Column {
-                                    if (isLiquidGlass) HorizontalDivider(
-                                        Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                                        thickness = 0.5.dp, color = textColor.copy(alpha = 0.12f)
-                                    )
-                                    item.submenuItems.forEach { child ->
-                                        LiquidGlassMenuRow(
-                                            item = child, enabled = enabled,
-                                            isLiquidGlass = isLiquidGlass, hasSelection = hasSelection,
-                                            hasIcons = hasIcons, expanded = false,
-                                            motionEnabled = motionEnabled, textColor = textColor,
-                                            onClick = { hostState.select(spec, child.onClick) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
+
                     }
                 }
             }
         }
+        }
+    }
+    }
+    if (!isSubmenu && displayedChild >= 0) {
+        val parentItem = spec.items.getOrNull(displayedChild)
+        val row = rowRects[displayedChild]
+        if (parentItem != null && row != null && parentItem.submenuItems.isNotEmpty()) {
+            val parentBounds = remember(geometry, retreat, normalMotion, motionEnabled, fade, retreatShift, displayedChild) {
+                {
+                    val bounds = geometry.current().bounds
+                    val ordinaryScale = if (normalMotion && motionEnabled) lerp(0.94f, 1f, fade.value) else 1f
+                    CascadingMenuGeometry.scaleBounds(bounds, CascadingMenuGeometry.parentScale(retreat.value) * ordinaryScale)
+                        .translate(Offset(shiftX(), 0f))
+                }
+            }
+            val rowSource = remember(parentBounds, row, widthPx, measuredHeightPx) {
+                { CascadingMenuGeometry.rowAnchor(parentBounds(), row, widthPx, measuredHeightPx.coerceAtLeast(1f)) }
+            }
+            val safeArea = Rect(margin, safeTop + margin, hostWidthPx - margin, hostHeightPx - safeBottom - margin)
+            val placement = remember(parentBounds, rowSource, safeArea, gap, layoutDirection, protectedBounds) {
+                { width: Float, height: Float -> CascadingMenuGeometry.targetRect(
+                    parentBounds(), rowSource(), width, height, safeArea, gap,
+                    layoutDirection == LayoutDirection.Rtl, protectedBounds)
+                }
+            }
+            val childWidth = with(density) { childWidthPx.toDp() }
+            val childSpec = remember(spec, parentItem, childWidth) { spec.copy(
+                width = childWidth, items = parentItem.submenuItems, content = null,
+                anchorCornerRadius = MenuItemCornerRadius, fadeOnlyPanel = false,
+                keepTriggerInteractive = false, maxVisibleItems = 8
+            ) }
+            val initialSource = remember(displayedChild, row) { rowSource() }
+            AnchoredLiquidGlassMenu(
+                spec = childSpec, hostState = hostState, progress = childReturnProgress, fade = childFade,
+                source = null, sourceRect = initialSource, hostWidthPx = hostWidthPx, hostHeightPx = hostHeightPx,
+                safeTop = safeTop, safeBottom = safeBottom, motionEnabled = motionEnabled,
+                menuStyle = menuStyle, backdrop = backdrop, protectedBounds = protectedBounds,
+                isSubmenu = true, liveSource = rowSource, placeSubmenu = placement,
+                acceptInput = !closing && !childReturning && displayedChild == requestedChild,
+                returningWithParent = childReturning || (closing && motionEnabled && menuStyle == MenuAnimationStyle.LIQUID)
+            )
         }
     }
 }
