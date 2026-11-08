@@ -20,7 +20,10 @@ internal fun readingItemKey(section: String, item: JSONObject): String = when (s
 /** Entity IDs and item modification clocks are not user content. Float coordinates round-trip through Room. */
 internal fun readingCanonical(value: Any?): String = when (value) {
     null, JSONObject.NULL -> "null"
-    is JSONObject -> value.keys().asSequence().filter { it != "updatedAt" }.sorted().joinToString(",", "{", "}") {
+    is JSONObject -> value.keys().asSequence().filterNot {
+        // Older servers omit zero listening time, while the portable serializer writes it.
+        it == "updatedAt" || it == "listeningDuration" && value.optLong(it, -1L) == 0L
+    }.sorted().joinToString(",", "{", "}") {
         JSONObject.quote(it) + ":" + readingCanonical(value.get(it))
     }
     is JSONArray -> (0 until value.length()).map { readingCanonical(value.get(it)) }.sorted().joinToString(",", "[", "]")
