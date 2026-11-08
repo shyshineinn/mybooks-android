@@ -10,12 +10,8 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -71,6 +67,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -138,7 +135,6 @@ import com.huangder.lumibooks.tts.ExternalTtsConfig
 import com.huangder.lumibooks.tts.FloatingSubtitleSettings
 import com.huangder.lumibooks.tts.TtsProviderSelection
 import com.huangder.lumibooks.tts.TtsStartChoice
-import com.huangder.lumibooks.tts.TtsReaderResumeChoice
 import com.huangder.lumibooks.ui.components.LiquidGlassSwitch
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
@@ -158,7 +154,6 @@ import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.domain.model.HighlightPalette
 import com.huangder.lumibooks.domain.model.AppIconStyle
-import com.huangder.lumibooks.domain.model.BookOpenTransition
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.appAccentHex
 import com.huangder.lumibooks.domain.model.normalizeAppAccentHex
@@ -193,6 +188,7 @@ internal fun detailTitleCollapseFraction(
 fun DetailPage(
     title: String,
     onBack: () -> Unit,
+    targetSection: String? = null,
     content: @Composable () -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
@@ -227,12 +223,14 @@ fun DetailPage(
                 // Page overlays sample the completed pageBackdrop. Inline controls use the
                 // background-only source so they never capture surfaces drawing that same source.
                 ProvideLiquidGlassBackdrop(activeControlsBackdrop) {
-                    CollapsingSettingsScaffold(
-                        title = title,
-                        onBack = onBack,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        content()
+                    CompositionLocalProvider(LocalSettingsTargetSection provides targetSection) {
+                        CollapsingSettingsScaffold(
+                            title = title,
+                            onBack = onBack,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            content()
+                        }
                     }
                 }
             }
@@ -254,103 +252,33 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
         LongPressSelectionRange.CHARACTER to stringResource(R.string.selection_range_character),
         LongPressSelectionRange.WORD to stringResource(R.string.selection_range_word)
     )
+    val readerThemeOptions = if (uiState.eInkModeEnabled) {
+        listOf("day" to stringResource(R.string.theme_day))
+    } else {
+        listOf(
+            "day" to stringResource(R.string.theme_day),
+            "night" to stringResource(R.string.theme_night),
+            "sepia" to stringResource(R.string.theme_sepia),
+            "green" to stringResource(R.string.theme_green)
+        )
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_reader_layout), "reading_layout")
     DetailCard {
         DropdownSettingRow(
-            label = stringResource(R.string.default_selection_range),
-            options = selectionRanges.map { (range, label) -> range.storageKey to label },
-            selected = uiState.longPressSelectionRange.storageKey,
-            onSelect = { viewModel.saveLongPressSelectionRange(LongPressSelectionRange.fromKey(it)) }
+            label = stringResource(R.string.label_reader_theme),
+            options = readerThemeOptions,
+            selected = if (uiState.eInkModeEnabled) "day" else uiState.readerTheme,
+            onSelect = viewModel::saveReaderTheme
         )
-        Text(stringResource(R.string.default_selection_range_description),
-            fontSize = AppType.Caption, color = AppColors.TextSecondary,
-            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.sm))
         SettingsDivider()
-        Row(
-            Modifier.fillMaxWidth().clickable {
-                context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "selection_menu"))
-            }.padding(AppSpace.md),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(AppIcons.List, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(AppSpace.md))
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.selection_menu_settings), fontSize = AppType.Body, color = AppColors.TextPrimary)
-                Text(stringResource(R.string.selection_menu_settings_description), fontSize = AppType.Caption, color = AppColors.TextSecondary)
-            }
-            Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
-        }
-    }
-    Spacer(Modifier.height(12.dp))
-    val aiConfigured = uiState.externalTtsSettings.enabled &&
-        uiState.externalTtsHasToken &&
-        uiState.externalTtsSettings.hasRequiredFields &&
-        uiState.externalTtsSettings.consentVersion >= ExternalTtsConfig.CONSENT_VERSION
-    val selectedEngineLabel = when (val selection = uiState.ttsProviderSelection) {
-        TtsProviderSelection.SystemDefault -> stringResource(R.string.tts_engine_system_default)
-        TtsProviderSelection.AiModel -> stringResource(R.string.tts_engine_ai_model)
-        is TtsProviderSelection.AndroidEngine -> uiState.installedTtsEngines
-            .firstOrNull { it.packageName == selection.packageName }
-            ?.label
-            ?: stringResource(R.string.tts_engine_unavailable)
-    }
-    var showEngineDialog by remember { mutableStateOf(false) }
-    var showTtsStartDialog by remember { mutableStateOf(false) }
-    var showListeningResumeDialog by remember { mutableStateOf(false) }
-    val ttsStartOptions = listOf(
-        null to stringResource(R.string.tts_start_ask_each_time),
-        TtsStartChoice.CURRENT_PAGE to stringResource(R.string.tts_start_current_page),
-        TtsStartChoice.SAVED_POSITION to stringResource(R.string.tts_start_saved_position)
-    )
-    val listeningResumeOptions = listOf(
-        null to stringResource(R.string.tts_listening_resume_show_prompt),
-        TtsReaderResumeChoice.KEEP_READING to stringResource(R.string.tts_listening_resume_keep),
-        TtsReaderResumeChoice.LISTENING_POSITION to stringResource(R.string.tts_listening_resume_jump),
-        TtsReaderResumeChoice.FURTHEST_PROGRESS to stringResource(R.string.tts_listening_resume_furthest)
-    )
-
-    DetailCard {
-        TxtTocRulesManagerRow(viewModel)
+        SettingsSwitchRow(
+            label = stringResource(R.string.label_two_page_spread),
+            supportingText = stringResource(R.string.two_page_spread_description),
+            checked = uiState.twoPageSpreadEnabled,
+            onCheckedChange = viewModel::saveTwoPageSpreadEnabled
+        )
         SettingsDivider()
-        SettingsNavigationRow(
-            label = stringResource(R.string.reader_theme_suite_settings_title),
-            supportingText = stringResource(R.string.reader_theme_suite_settings_description)
-        ) {
-            context.startActivity(Intent(context, ReaderSettingsPreviewActivity::class.java)
-                .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_THEMES))
-        }
-        SettingsDivider()
-        SettingsNavigationRow(
-            label = stringResource(R.string.reader_page_animation_settings_title),
-            supportingText = if (uiState.eInkModeEnabled) stringResource(R.string.reader_page_animation_eink_unavailable)
-                else stringResource(R.string.reader_page_animation_settings_description)
-        ) {
-            if (!uiState.eInkModeEnabled) {
-                context.startActivity(Intent(context, ReaderSettingsPreviewActivity::class.java)
-                    .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_ANIMATIONS))
-            }
-        }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.highlight_color_palette), stringResource(R.string.highlight_color_palette_desc)) {
-            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "highlight_color"))
-        }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.title_floating_subtitle_settings), stringResource(R.string.floating_subtitle_settings_entry_desc)) {
-            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "floating_subtitle"))
-        }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.tts_engine_selection), selectedEngineLabel) { showEngineDialog = true }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.tts_start_setting),
-            ttsStartOptions.first { it.first == uiState.ttsStartChoice }.second) { showTtsStartDialog = true }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.tts_listening_resume_setting),
-            listeningResumeOptions.first { it.first == uiState.ttsReaderResumeChoice }.second) {
-            showListeningResumeDialog = true
-        }
-    }
-
-    Spacer(Modifier.height(12.dp))
-    DetailCard {
         SettingsSwitchRow(
             label = stringResource(R.string.body_font_weight),
             supportingText = stringResource(R.string.body_font_weight_desc),
@@ -366,50 +294,103 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
         )
     }
 
-    if (showTtsStartDialog) {
-        LiquidGlassAlertDialog(
-            onDismissRequest = { showTtsStartDialog = false },
-            title = { Text(stringResource(R.string.tts_start_setting), color = AppColors.TextPrimary) },
-            text = {
-                Column {
-                    ttsStartOptions.forEach { (choice, label) ->
-                        TtsProviderOptionRow(title = label, selected = uiState.ttsStartChoice == choice,
-                            onClick = {
-                                viewModel.saveTtsStartChoice(choice)
-                                showTtsStartDialog = false
-                            })
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                LiquidGlassTextButton(text = stringResource(R.string.cancel),
-                    onClick = { showTtsStartDialog = false })
+    Spacer(Modifier.height(8.dp))
+    DetailCard {
+        SettingsNavigationRow(
+            label = stringResource(R.string.reader_theme_suite_settings_title),
+            supportingText = stringResource(R.string.reader_theme_suite_settings_description)
+        ) {
+            context.startActivity(
+                Intent(context, ReaderSettingsPreviewActivity::class.java)
+                    .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_THEMES)
+            )
+        }
+        SettingsDivider()
+        SettingsNavigationRow(
+            label = stringResource(R.string.reader_page_animation_settings_title),
+            supportingText = if (uiState.eInkModeEnabled) stringResource(R.string.reader_page_animation_eink_unavailable)
+                else stringResource(R.string.reader_page_animation_settings_description)
+        ) {
+            if (!uiState.eInkModeEnabled) {
+                context.startActivity(
+                    Intent(context, ReaderSettingsPreviewActivity::class.java)
+                        .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_ANIMATIONS)
+                )
             }
-        )
+        }
     }
 
-    if (showListeningResumeDialog) {
-        LiquidGlassAlertDialog(
-            onDismissRequest = { showListeningResumeDialog = false },
-            title = { Text(stringResource(R.string.tts_listening_resume_setting), color = AppColors.TextPrimary) },
-            text = {
-                Column {
-                    listeningResumeOptions.forEach { (choice, label) ->
-                        TtsProviderOptionRow(title = label, selected = uiState.ttsReaderResumeChoice == choice,
-                            onClick = {
-                                viewModel.saveTtsReaderResumeChoice(choice)
-                                showListeningResumeDialog = false
-                            })
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                LiquidGlassTextButton(text = stringResource(R.string.cancel),
-                    onClick = { showListeningResumeDialog = false })
-            }
+    SettingsSectionTitle(stringResource(R.string.settings_section_reader_selection), "reading_selection")
+    DetailCard {
+        DropdownSettingRow(
+            label = stringResource(R.string.default_selection_range),
+            options = selectionRanges.map { (range, label) -> range.storageKey to label },
+            selected = uiState.longPressSelectionRange.storageKey,
+            onSelect = { viewModel.saveLongPressSelectionRange(LongPressSelectionRange.fromKey(it)) }
         )
+        Text(
+            stringResource(R.string.default_selection_range_description),
+            fontSize = AppType.Caption,
+            color = AppColors.TextSecondary,
+            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.sm)
+        )
+        SettingsDivider()
+        SettingsNavigationRow(
+            label = stringResource(R.string.selection_menu_settings),
+            supportingText = stringResource(R.string.selection_menu_settings_description),
+            icon = AppIcons.List
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "selection_menu"))
+        }
+        SettingsDivider()
+        SettingsNavigationRow(
+            stringResource(R.string.highlight_color_palette),
+            stringResource(R.string.highlight_color_palette_desc)
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "highlight_color"))
+        }
+    }
+
+    val aiConfigured = uiState.externalTtsSettings.enabled &&
+        uiState.externalTtsHasToken &&
+        uiState.externalTtsSettings.hasRequiredFields &&
+        uiState.externalTtsSettings.consentVersion >= ExternalTtsConfig.CONSENT_VERSION
+    val selectedEngineLabel = when (val selection = uiState.ttsProviderSelection) {
+        TtsProviderSelection.SystemDefault -> stringResource(R.string.tts_engine_system_default)
+        TtsProviderSelection.AiModel -> stringResource(R.string.tts_engine_ai_model)
+        is TtsProviderSelection.AndroidEngine -> uiState.installedTtsEngines
+            .firstOrNull { it.packageName == selection.packageName }
+            ?.label
+            ?: stringResource(R.string.tts_engine_unavailable)
+    }
+    var showEngineDialog by remember { mutableStateOf(false) }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_listening), "reading_listening")
+    DetailCard {
+        SettingsNavigationRow(stringResource(R.string.tts_engine_selection), selectedEngineLabel) { showEngineDialog = true }
+        SettingsDivider()
+        SettingsNavigationRow(
+            stringResource(R.string.title_floating_subtitle_settings),
+            stringResource(R.string.floating_subtitle_settings_entry_desc)
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "floating_subtitle"))
+        }
+        SettingsDivider()
+        SettingsNavigationRow(
+            stringResource(R.string.settings_listening_preferences),
+            stringResource(when (uiState.ttsStartChoice) {
+                TtsStartChoice.CURRENT_PAGE -> R.string.tts_start_current_page
+                TtsStartChoice.SAVED_POSITION -> R.string.tts_start_saved_position
+                null -> R.string.tts_start_ask_each_time
+            })
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "listening_preferences"))
+        }
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_reader_toc), "reading_toc")
+    DetailCard {
+        TxtTocRulesManagerRow(viewModel)
     }
 
     if (showEngineDialog) {
@@ -492,6 +473,11 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
         )
     }
 
+    MovedSettingsLink(
+        modifier = Modifier.padding(vertical = AppSpace.lg),
+        text = stringResource(R.string.settings_find_listening_preferences),
+        category = "listening_preferences"
+    )
 }
 
 @Composable
@@ -1110,26 +1096,14 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             "dark" to stringResource(R.string.dark_mode_dark)
         )
     }
-    val themeOptions = if (uiState.eInkModeEnabled) {
-        listOf("day" to stringResource(R.string.theme_day))
-    } else {
-        listOf(
-            "day" to stringResource(R.string.theme_day),
-            "night" to stringResource(R.string.theme_night),
-            "sepia" to stringResource(R.string.theme_sepia),
-            "green" to stringResource(R.string.theme_green)
-        )
-    }
     val startupScreenOptions = listOf(
         DataStoreManager.STARTUP_SCREEN_HOME to stringResource(R.string.startup_screen_home),
         DataStoreManager.STARTUP_SCREEN_BOOKSHELF to stringResource(R.string.startup_screen_bookshelf),
         DataStoreManager.STARTUP_SCREEN_STATISTICS to stringResource(R.string.startup_screen_statistics)
     )
 
+    SettingsSectionTitle(stringResource(R.string.settings_section_app_appearance), "display_appearance")
     DetailCard {
-        DropdownSettingRow(label = stringResource(R.string.label_startup_screen), options = startupScreenOptions,
-            selected = DataStoreManager.normalizeStartupScreen(uiState.startupScreen), onSelect = viewModel::saveStartupScreen)
-        SettingsDivider()
         AppThemeGridSettingRow(label = stringResource(R.string.label_app_theme), options = appThemeOptions,
             selected = if ((uiState.eInkModeEnabled || !liquidGlassSupported) &&
                 uiState.appTheme in listOf("liquid_glass", "fuguang")) "lumi" else uiState.appTheme,
@@ -1139,8 +1113,34 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             ThemeColorSettingRow(colorHex = uiState.appAccentColor, onClick = { showAccentColorDialog = true })
         }
         SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.label_global_font), options = globalFontOptions,
-            selected = uiState.globalFontMode, onSelect = viewModel::saveGlobalFontMode)
+        DropdownSettingRow(
+            label = stringResource(R.string.label_dark_mode),
+            options = darkModeOptions,
+            selected = if (uiState.eInkModeEnabled) "light" else uiState.darkMode,
+            onSelect = viewModel::saveDarkMode
+        )
+        SettingsDivider()
+        SettingsNavigationRow(
+            label = stringResource(R.string.icon_style_title),
+            supportingText = when (AppIconStyle.fromStoredValue(uiState.appIconStyle, uiState.lumiEasterEggUnlocked)) {
+                AppIconStyle.LUMI_CHAN -> stringResource(R.string.icon_style_lumi_chan)
+                AppIconStyle.LUMI_2 -> stringResource(R.string.icon_style_lumi2)
+                AppIconStyle.CLASSIC -> stringResource(R.string.icon_style_classic)
+                AppIconStyle.BOOK_LINE -> stringResource(R.string.icon_style_book_line)
+            }
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "icon_style"))
+        }
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_app_fonts), "display_fonts")
+    DetailCard {
+        DropdownSettingRow(
+            label = stringResource(R.string.label_global_font),
+            options = globalFontOptions,
+            selected = uiState.globalFontMode,
+            onSelect = viewModel::saveGlobalFontMode
+        )
         SettingsDivider()
         DropdownSettingRow(
             label = stringResource(R.string.label_app_font_size),
@@ -1161,123 +1161,86 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             color = AppColors.TextSecondary,
             modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.md)
         )
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_card_outlines), checked = uiState.cardOutlinesEnabled,
-            onCheckedChange = viewModel::saveCardOutlinesEnabled)
-        SettingsDivider()
-        // 按枚举穷举：新增图标样式时忘记加分支会被编译器拦下，而不是静默显示成 Lumi 2。
-        SettingsNavigationRow(
-            label = stringResource(R.string.icon_style_title),
-            supportingText = when (AppIconStyle.fromStoredValue(uiState.appIconStyle, uiState.lumiEasterEggUnlocked)) {
-                AppIconStyle.LUMI_CHAN -> stringResource(R.string.icon_style_lumi_chan)
-                AppIconStyle.LUMI_2 -> stringResource(R.string.icon_style_lumi2)
-                AppIconStyle.CLASSIC -> stringResource(R.string.icon_style_classic)
-                AppIconStyle.BOOK_LINE -> stringResource(R.string.icon_style_book_line)
-            }
-        ) { context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "icon_style")) }
     }
 
-
-    AnimatedVisibility(
-        visible = uiState.appTheme in listOf("liquid_glass", "fuguang") &&
-            !uiState.eInkModeEnabled && liquidGlassSupported,
-        enter = expandVertically(animationSpec = tween(260)) +
-            slideInVertically(animationSpec = tween(260)) { it / 3 } +
-            fadeIn(animationSpec = tween(180)),
-        exit = shrinkVertically(animationSpec = tween(180)) +
-            slideOutVertically(animationSpec = tween(180)) { it / 4 } +
-            fadeOut(animationSpec = tween(130))
-    ) {
-        Column {
-            Spacer(Modifier.height(12.dp))
-            DetailCard {
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    LiquidGlassStyleSettingRow(
-                        selected = uiState.liquidGlassStyle,
-                        onSelect = viewModel::saveLiquidGlassStyle
-                    )
-                    SettingsDivider()
-                    SettingsSliderItem(
-                        label = stringResource(R.string.liquid_glass_transparency),
-                        value = uiState.liquidGlassTransparency,
-                        range = 0f..1f,
-                        valueText = "${(uiState.liquidGlassTransparency * 100).toInt()}%",
-                        step = 0.05f,
-                        onDragChange = viewModel::previewLiquidGlassTransparency,
-                        onChange = viewModel::saveLiquidGlassTransparency
-                    )
-                    if (liquidGlassCapability.hdrSupported) {
-                        SettingsDivider()
-                        SettingsSwitchRow(
-                            label = stringResource(R.string.liquid_glass_hdr_highlight),
-                            checked = uiState.liquidGlassHdrHighlightEnabled,
-                            onCheckedChange = viewModel::saveLiquidGlassHdrHighlightEnabled
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    Spacer(Modifier.height(12.dp))
-
+    SettingsSectionTitle(stringResource(R.string.settings_section_startup_bookshelf), "display_startup")
     DetailCard {
-        DropdownSettingRow(label = stringResource(R.string.label_dark_mode), options = darkModeOptions,
-            selected = if (uiState.eInkModeEnabled) "light" else uiState.darkMode, onSelect = viewModel::saveDarkMode)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_e_ink_mode), stringResource(R.string.e_ink_mode_description), uiState.eInkModeEnabled, viewModel::saveEInkModeEnabled)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_two_page_spread), stringResource(R.string.two_page_spread_description), uiState.twoPageSpreadEnabled, viewModel::saveTwoPageSpreadEnabled)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_predictive_back), checked = uiState.predictiveBackEnabled, onCheckedChange = viewModel::savePredictiveBackEnabled)
+        DropdownSettingRow(
+            label = stringResource(R.string.label_startup_screen),
+            options = startupScreenOptions,
+            selected = DataStoreManager.normalizeStartupScreen(uiState.startupScreen),
+            onSelect = viewModel::saveStartupScreen
+        )
         SettingsDivider()
         SettingsSwitchRow(
-            label = stringResource(R.string.reduce_transparency_label),
-            supportingText = stringResource(R.string.reduce_transparency_description),
-            checked = uiState.reduceTransparencyEnabled,
-            onCheckedChange = viewModel::saveReduceTransparencyEnabled
+            label = stringResource(R.string.cover_reading_progress_enabled),
+            checked = uiState.coverReadingProgressEnabled,
+            onCheckedChange = viewModel::saveCoverReadingProgressEnabled
         )
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.motion_preference_label),
-            options = listOf(
-                "standard" to stringResource(R.string.motion_preference_standard),
-                "fast" to stringResource(R.string.motion_preference_fast),
-                "reduced" to stringResource(R.string.motion_preference_reduced)
-            ),
-            selected = uiState.motionPreference, onSelect = viewModel::saveMotionPreference)
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.menu_animation_style_label),
-            options = listOf(
-                "normal" to stringResource(R.string.menu_animation_style_normal),
-                "liquid" to stringResource(R.string.menu_animation_style_liquid)
-            ),
-            selected = uiState.menuAnimationStyle, onSelect = viewModel::saveMenuAnimationStyle)
-        Text(
-            stringResource(R.string.menu_animation_style_hint),
-            fontSize = AppType.Caption,
-            color = AppColors.TextSecondary,
-            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.md)
-        )
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.book_open_transition_label),
-            options = listOf(
-                BookOpenTransition.HERO.storedValue to stringResource(R.string.book_open_transition_hero),
-                BookOpenTransition.LOADING_PAGE.storedValue to
-                    stringResource(R.string.book_open_transition_loading_page)
-            ),
-            selected = uiState.bookOpenTransition, onSelect = viewModel::saveBookOpenTransition)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.cover_reading_progress_enabled), checked = uiState.coverReadingProgressEnabled, onCheckedChange = viewModel::saveCoverReadingProgressEnabled)
         SettingsDivider()
         SettingsSwitchRow(
             stringResource(R.string.label_splash_screen),
             checked = uiState.splashEnabled,
             onCheckedChange = viewModel::saveSplashEnabled
         )
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.label_reader_theme),
-            options = themeOptions,
-            selected = if (uiState.eInkModeEnabled) "day" else uiState.readerTheme, onSelect = viewModel::saveReaderTheme)
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_display_adaptation), "display_adaptation")
+    DetailCard {
+        SettingsSwitchRow(
+            label = stringResource(R.string.label_e_ink_mode),
+            supportingText = stringResource(R.string.e_ink_mode_description),
+            checked = uiState.eInkModeEnabled,
+            onCheckedChange = viewModel::saveEInkModeEnabled
+        )
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_more_visual), "display_visual")
+    DetailCard {
+        SettingsNavigationRow(
+            label = stringResource(R.string.settings_visual_motion),
+            supportingText = listOf(
+                stringResource(when {
+                    uiState.eInkModeEnabled || uiState.motionPreference == "reduced" -> R.string.motion_preference_reduced
+                    uiState.motionPreference == "fast" -> R.string.motion_preference_fast
+                    else -> R.string.motion_preference_standard
+                }),
+                if (uiState.appTheme in listOf("liquid_glass", "fuguang") && !uiState.eInkModeEnabled && liquidGlassSupported) {
+                    stringResource(R.string.app_theme_liquid_glass) + " ${(uiState.liquidGlassTransparency * 100).toInt()}%"
+                } else {
+                    stringResource(when (uiState.menuAnimationStyle) {
+                        "normal" -> R.string.menu_animation_style_normal
+                        else -> R.string.menu_animation_style_liquid
+                    })
+                }
+            ).joinToString(" · ")
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "visual_motion"))
+        }
+    }
+
+    Spacer(Modifier.height(AppSpace.lg))
+    Column(Modifier.padding(bottom = AppSpace.lg), verticalArrangement = Arrangement.spacedBy(AppSpace.md)) {
+        MovedSettingsLink(
+            text = stringResource(R.string.settings_find_reader_layout),
+            category = "reading",
+            targetSection = "reading_layout"
+        )
+        MovedSettingsLink(
+            text = stringResource(
+                if (uiState.appTheme in listOf("liquid_glass", "fuguang") && !uiState.eInkModeEnabled && liquidGlassSupported) {
+                    R.string.settings_find_visual_glass
+                } else {
+                    R.string.settings_find_visual_motion
+                }
+            ),
+            category = "visual_motion",
+            targetSection = if (uiState.appTheme in listOf("liquid_glass", "fuguang") && !uiState.eInkModeEnabled && liquidGlassSupported) {
+                "visual_glass"
+            } else {
+                "visual_accessibility"
+            }
+        )
     }
 
     if (showAccentColorDialog) {
@@ -1293,7 +1256,7 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
 }
 
 @Composable
-private fun TtsProviderOptionRow(
+internal fun TtsProviderOptionRow(
     title: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -2542,34 +2505,11 @@ fun BackupRestoreDetail(viewModel: SettingsViewModel) {
     }
 
     Spacer(Modifier.height(AppSpace.lg))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = AppSpace.lg),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+    SettingsSearchHint(
+        linkText = stringResource(R.string.backup_webdav_link),
+        modifier = Modifier.padding(bottom = AppSpace.lg)
     ) {
-        Text(
-            text = stringResource(R.string.backup_webdav_prompt),
-            fontSize = AppType.Caption,
-            color = AppColors.TextSecondary
-        )
-        Spacer(Modifier.width(AppSpace.xs))
-        Text(
-            text = stringResource(R.string.backup_webdav_link),
-            fontSize = AppType.Caption,
-            fontWeight = FontWeight.SemiBold,
-            color = AppColors.Accent,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                context.startActivity(
-                    Intent(context, DetailActivity::class.java)
-                        .putExtra("category", "webdav")
-                )
-            }
-        )
+        context.startActivity(DetailActivity.createIntent(context, "webdav"))
     }
 }
 
@@ -3287,7 +3227,7 @@ private fun parseChangelog(text: String): List<ChangelogEntry> {
 // ─── 通用组件 ────────────────────────────────────────────────
 
 @Composable
-private fun DetailCard(
+internal fun DetailCard(
     horizontalPadding: Dp = AppSpace.md,
     content: @Composable () -> Unit
 ) {
@@ -3304,7 +3244,7 @@ private fun DetailCard(
 }
 
 @Composable
-private fun SettingsDivider() {
+internal fun SettingsDivider() {
     Box(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md).height(0.5.dp).background(AppColors.Divider))
 }
 
@@ -3344,12 +3284,17 @@ internal fun SettingsSwitchRow(
 internal fun SettingsNavigationRow(
     label: String,
     supportingText: String? = null,
+    icon: ImageVector? = null,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(AppSpace.md),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (icon != null) {
+            Icon(icon, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(AppSpace.md))
+        }
         Column(Modifier.weight(1f)) {
             Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary)
             supportingText?.let {
@@ -3437,15 +3382,15 @@ private fun AppThemeGridSettingRow(
     selected: String,
     onSelect: (String) -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(AppSpace.md),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(AppSpace.md)
     ) {
-        Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+        Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary)
+        Spacer(Modifier.height(AppSpace.sm))
         Column(
-            modifier = Modifier.width(176.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             options.chunked(2).forEach { rowOptions ->
@@ -3455,7 +3400,7 @@ private fun AppThemeGridSettingRow(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = 36.dp)
+                                .heightIn(min = 48.dp)
                                 .clip(AppRoundedCornerShape(AppRadius.sm))
                                 .background(if (isSelected) AppColors.Accent else AppColors.WindowBg)
                                 .border(1.dp, if (isSelected) AppColors.Accent else AppColors.Divider, AppRoundedCornerShape(AppRadius.sm))
@@ -3468,7 +3413,7 @@ private fun AppThemeGridSettingRow(
                                 fontSize = AppType.Caption,
                                 color = if (isSelected) Color.White else AppColors.TextSecondary,
                                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center
                             )

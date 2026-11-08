@@ -1,0 +1,114 @@
+package com.huangder.lumibooks.ui.settings
+
+import com.huangder.lumibooks.ui.components.LiquidGlassTextButton
+import com.huangder.lumibooks.ui.theme.AppColors
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.huangder.lumibooks.R
+import com.huangder.lumibooks.tts.TtsReaderResumeChoice
+import com.huangder.lumibooks.tts.TtsStartChoice
+import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
+
+@Composable
+fun ListeningPreferencesDetail(viewModel: SettingsViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    ListeningPreferencesContent(
+        uiState,
+        viewModel::saveTtsStartChoice,
+        viewModel::saveTtsReaderResumeChoice
+    )
+}
+
+@Composable
+internal fun ListeningPreferencesContent(
+    uiState: SettingsUiState,
+    onStartChoice: (TtsStartChoice?) -> Unit,
+    onResumeChoice: (TtsReaderResumeChoice?) -> Unit
+) {
+    var showStartDialog by remember { mutableStateOf(false) }
+    var showResumeDialog by remember { mutableStateOf(false) }
+
+    val startOptions = listOf(
+        null to stringResource(R.string.tts_start_ask_each_time),
+        TtsStartChoice.CURRENT_PAGE to stringResource(R.string.tts_start_current_page),
+        TtsStartChoice.SAVED_POSITION to stringResource(R.string.tts_start_saved_position)
+    )
+    val resumeOptions = listOf(
+        null to stringResource(R.string.tts_listening_resume_show_prompt),
+        TtsReaderResumeChoice.KEEP_READING to stringResource(R.string.tts_listening_resume_keep),
+        TtsReaderResumeChoice.LISTENING_POSITION to stringResource(R.string.tts_listening_resume_jump),
+        TtsReaderResumeChoice.FURTHEST_PROGRESS to stringResource(R.string.tts_listening_resume_furthest)
+    )
+
+    SettingsSectionTitle(
+        stringResource(R.string.settings_section_listening_behavior),
+        sectionKey = "listening_behavior"
+    )
+    DetailCard {
+        SettingsNavigationRow(
+            stringResource(R.string.tts_start_setting),
+            startOptions.first { it.first == uiState.ttsStartChoice }.second
+        ) { showStartDialog = true }
+        SettingsDivider()
+        SettingsNavigationRow(
+            stringResource(R.string.tts_listening_resume_setting),
+            resumeOptions.first { it.first == uiState.ttsReaderResumeChoice }.second
+        ) { showResumeDialog = true }
+    }
+
+    if (showStartDialog) {
+        ChoiceDialog<TtsStartChoice?>(
+            title = stringResource(R.string.tts_start_setting),
+            selected = uiState.ttsStartChoice,
+            options = startOptions,
+            onSelect = onStartChoice,
+            onDismiss = { showStartDialog = false }
+        )
+    }
+    if (showResumeDialog) {
+        ChoiceDialog<TtsReaderResumeChoice?>(
+            title = stringResource(R.string.tts_listening_resume_setting),
+            selected = uiState.ttsReaderResumeChoice,
+            options = resumeOptions,
+            onSelect = onResumeChoice,
+            onDismiss = { showResumeDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun <T> ChoiceDialog(
+    title: String,
+    selected: T,
+    options: List<Pair<T, String>>,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit
+) {
+    LiquidGlassAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = AppColors.TextPrimary) },
+        text = {
+            Column {
+                options.forEach { (value, label) ->
+                    TtsProviderOptionRow(
+                        title = label,
+                        selected = selected == value,
+                        onClick = {
+                            onSelect(value)
+                            onDismiss()
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { LiquidGlassTextButton(text = stringResource(R.string.cancel), onClick = onDismiss) }
+    )
+}
