@@ -59,6 +59,9 @@ internal fun quantizeBlurStrength(strength: Float, steps: Int = PROGRESSIVE_BLUR
     return ((clamped * steps).roundToInt().toFloat() / steps).coerceIn(0f, 1f)
 }
 
+internal fun progressiveTopBlurReveal(strength: Float): Float =
+    (progressiveBlurStrength(strength) * PROGRESSIVE_BLUR_STEPS).coerceAtMost(1f)
+
 /** This API 33 gate is independent of Liquid Glass's API 31 RenderEffect support. */
 internal fun progressiveBlurEnabled(
     supported: Boolean,
@@ -125,9 +128,10 @@ fun ProgressiveTopBlur(
     maxBlurRadius: Dp = ProgressiveTopBlurMaxRadius,
     bandHeight: Dp = ProgressiveTopBlurBandHeight,
     tint: Color? = null,
+    revealProgress: () -> Float = { strength },
 ) {
     ProgressiveSurface(backdrop, strength, modifier.fillMaxWidth().height(bandHeight),
-        maxBlurRadius, tint, ProgressiveBlurDirection.Top)
+        maxBlurRadius, tint, ProgressiveBlurDirection.Top, revealProgress = revealProgress)
 }
 
 @Composable
@@ -191,11 +195,18 @@ internal fun ProgressiveSurface(
     solidFraction: Float = 0f,
     exportedBackdrop: LayerBackdrop? = null,
     blurStartFraction: Float = 0f,
+    revealProgress: () -> Float = { strength },
 ) {
     if (LocalEInkMode.current) return
     val resolvedStrength = quantizeBlurStrength(strength)
-    if (resolvedStrength <= 0f) return
-    val radius = with(LocalDensity.current) { maxBlurRadius.toPx() } * resolvedStrength
+    val isTopBand = direction == ProgressiveBlurDirection.Top && backdrop != null
+    if (resolvedStrength <= 0f && !isTopBand) return
+    val maximumRadius = with(LocalDensity.current) { maxBlurRadius.toPx() }
+    val radius = maximumRadius * if (isTopBand) {
+        resolvedStrength.coerceAtLeast(1f / PROGRESSIVE_BLUR_STEPS)
+    } else resolvedStrength
+    // Keep the RenderNode bounds constant while the scroll changes the blur radius.
+    val capturePadding = MiuixProgressiveBlurEffect.padding(if (isTopBand) maximumRadius else radius)
     val canBlur = backdrop != null && radius.isFinite() && radius > 0f &&
         progressiveBlurEnabled(LocalLiquidGlassCapability.current.supported, false, LocalReduceTransparency.current) &&
         LocalView.current.isHardwareAccelerated
@@ -217,7 +228,7 @@ internal fun ProgressiveSurface(
         tint?.let { progressiveBrush(it, direction, 0f, opaqueEdge = false) }
     }
     if (effect == null || backdrop == null) {
-        Box(modifier.graphicsLayer { alpha = resolvedStrength }
+        Box(modifier.graphicsLayer { alpha = if (isTopBand) progressiveBlurStrength(strength) else resolvedStrength }
             .then(if (exportedBackdrop != null) Modifier.layerBackdrop(exportedBackdrop) else Modifier)
             .background(fallbackBrush))
         return
@@ -225,18 +236,21 @@ internal fun ProgressiveSurface(
     // Miuix's native sharp end requires the ORIGINAL source pixels even when glass buttons use
     // reduced-resolution buffers. Limit this override to the edge band, never the whole page.
     CompositionLocalProvider(LocalBackdropSamplingScale provides 1f) {
-        Box(modifier.drawPlainBackdrop(
+        val surfaceModifier = if (isTopBand) {
+            modifier.graphicsLayer { alpha = progressiveTopBlurReveal(revealProgress()) }
+        } else modifier
+        Box(surfaceModifier.drawPlainBackdrop(
             backdrop = activeBackdrop ?: backdrop,
             shape = { RectangleShape },
             effects = {
-                padding = MiuixProgressiveBlurEffect.padding(radius)
+                padding = capturePadding
                 renderEffect = effect.effect(radius, size.width, size.height, padding, direction, blurStartFraction)
             },
             exportedBackdrop = exportedBackdrop,
             // Captures may contain transparent text/card gaps; include their actual page color
             // before blurring so alpha normalization cannot turn those gaps into dark halos.
             onDrawBackdrop = { drawBackdrop ->
-                val pad = MiuixProgressiveBlurEffect.padding(radius)
+                val pad = capturePadding
                 drawRect(pageBackground, topLeft = Offset(-pad, -pad),
                     size = Size(size.width + pad * 2f, size.height + pad * 2f))
                 drawBackdrop()

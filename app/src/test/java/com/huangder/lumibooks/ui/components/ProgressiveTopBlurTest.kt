@@ -11,6 +11,15 @@ class ProgressiveTopBlurTest {
 
     // ── 滚动进度 → 模糊强度 ──────────────────────────────────────
 
+    @Test fun topBandRevealsContinuouslyBeforeTheFirstBlurStep() {
+        val firstStep = 1f / PROGRESSIVE_BLUR_STEPS
+        assertEquals(0f, progressiveTopBlurReveal(0f), 0f)
+        assertEquals(0f, quantizeBlurStrength(firstStep / 4f), 0f)
+        assertEquals(0.25f, progressiveTopBlurReveal(firstStep / 4f), 0.0001f)
+        assertEquals(1f, progressiveTopBlurReveal(firstStep), 0.0001f)
+        assertEquals(1f, progressiveTopBlurReveal(1f), 0f)
+    }
+
     @Test
     fun scrollAtRestProducesZeroStrength() {
         assertEquals(0f, blurStrengthAtScroll(scrollPx = 0f, rampPx = 64f), 0.0001f)

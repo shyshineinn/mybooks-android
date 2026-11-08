@@ -210,8 +210,10 @@ internal fun CollapsingPageScaffold(
         }
         val strength = quantizeBlurStrength(state.progress)
         if (blurEnabled) {
-            ProgressiveTopBlur(backdrop = backdrop, strength = strength,
-                bandHeight = toolbarHeight + remainingTitleHeight + pinnedHeight + 56.dp,
+            // The large title animates separately. Resizing the sampled band on every scroll
+            // frame would also recreate the shader geometry and its offscreen buffer.
+            ProgressiveTopBlur(backdrop = backdrop, strength = state.progress,
+                bandHeight = toolbarHeight + pinnedHeight + 56.dp,
                 tint = AppColors.WindowBg.copy(alpha = if (LocalIsDarkTheme.current) PROGRESSIVE_BLUR_TINT_ALPHA_DARK else PROGRESSIVE_BLUR_TINT_ALPHA))
         } else {
             val headerHeight = toolbarHeight + remainingTitleHeight + pinnedHeight

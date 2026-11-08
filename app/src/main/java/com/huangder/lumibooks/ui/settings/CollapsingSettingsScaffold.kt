@@ -248,10 +248,7 @@ internal fun CollapsingSettingsScaffold(
     }
 }
 
-/**
- * 模糊层叶子节点：只把量化后的强度传下去，滚动过程中重组次数被限制在 [quantizeBlurStrength]
- * 的档位数内，页面内容不参与重组。
- */
+/** 模糊层独立读取进度，页面内容不会随模糊变化重新组合。 */
 @Composable
 private fun ProgressiveTopBlurBand(
     progress: State<Float>,
@@ -267,6 +264,7 @@ private fun ProgressiveTopBlurBand(
     ProgressiveTopBlur(
         backdrop = backdrop,
         strength = strength,
+        revealProgress = { progress.value },
         modifier = modifier,
         bandHeight = bandHeight,
         tint = tint.copy(alpha = tintAlpha)
