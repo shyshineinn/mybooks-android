@@ -36,13 +36,13 @@ interface BookDao {
 
     @Query(
         "SELECT id AS bookId, title, author, coverPath, readingProgress " +
-            "FROM books ORDER BY lastReadTime DESC LIMIT 1"
+            "FROM books WHERE isArchived = 0 ORDER BY lastReadTime DESC LIMIT 1"
     )
     suspend fun getContinueReadingWidgetData(): ContinueReadingWidgetData?
 
     @Query(
         "SELECT id AS bookId, title, author, coverPath, readingProgress " +
-            "FROM books ORDER BY lastReadTime DESC LIMIT 1"
+            "FROM books WHERE isArchived = 0 ORDER BY lastReadTime DESC LIMIT 1"
     )
     fun observeContinueReadingWidgetData(): Flow<ContinueReadingWidgetData?>
 
@@ -60,6 +60,22 @@ interface BookDao {
 
     @Update
     suspend fun updateBook(book: BookEntity)
+
+    @Transaction
+    suspend fun updateBookPreservingArchive(book: BookEntity) {
+        val existing = getBookById(book.id) ?: return
+        val incomingArchiveWins = book.archiveUpdatedAt > existing.archiveUpdatedAt ||
+            (book.archiveUpdatedAt == existing.archiveUpdatedAt && book.isArchived && !existing.isArchived)
+        updateBook(book.copy(
+            isArchived = if (incomingArchiveWins) book.isArchived else existing.isArchived,
+            archiveUpdatedAt = maxOf(book.archiveUpdatedAt, existing.archiveUpdatedAt)
+        ))
+    }
+
+    @Query("""UPDATE books SET isArchived = :archived,
+        archiveUpdatedAt = MAX(:updatedAt, archiveUpdatedAt + 1)
+        WHERE id = :bookId AND isArchived != :archived""")
+    suspend fun setArchived(bookId: String, archived: Boolean, updatedAt: Long): Int
 
     @Query("""UPDATE books SET
         title=CASE WHEN title=:expectedTitle THEN :title ELSE title END,

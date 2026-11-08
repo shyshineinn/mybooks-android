@@ -52,7 +52,7 @@ class BookRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateBook(book: Book) {
-        bookDao.updateBook(book.toEntity())
+        bookDao.updateBookPreservingArchive(book.toEntity())
     }
 
     override suspend fun updateSourceSha256(bookId: String, sha256: String) {
@@ -60,7 +60,7 @@ class BookRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateBookMetadata(book: Book) {
-        bookDao.updateBook(book.copy(metadataUpdatedAt = System.currentTimeMillis()).toEntity())
+        bookDao.updateBookPreservingArchive(book.copy(metadataUpdatedAt = System.currentTimeMillis()).toEntity())
     }
 
     override suspend fun updateBookTitleAuthor(bookId: String, title: String, author: String) {
@@ -131,7 +131,9 @@ class BookRepositoryImpl @Inject constructor(
             sourceSha256 = sourceSha256,
             sourceDisplayName = sourceDisplayName,
             sourceLastModified = sourceLastModified,
-            isMissing = isMissing
+            isMissing = isMissing,
+            isArchived = isArchived,
+            archiveUpdatedAt = archiveUpdatedAt
         )
     }
 
@@ -161,7 +163,9 @@ class BookRepositoryImpl @Inject constructor(
             sourceSha256 = sourceSha256,
             sourceDisplayName = sourceDisplayName,
             sourceLastModified = sourceLastModified,
-            isMissing = isMissing
+            isMissing = isMissing,
+            isArchived = isArchived,
+            archiveUpdatedAt = archiveUpdatedAt
         )
     }
 }

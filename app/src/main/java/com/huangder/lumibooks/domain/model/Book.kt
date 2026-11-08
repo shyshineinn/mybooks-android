@@ -30,7 +30,9 @@ data class Book(
     /** Last display name observed at import/reconciliation time. */
     val sourceDisplayName: String? = null,
     val sourceLastModified: Long = 0L,
-    val isMissing: Boolean = false
+    val isMissing: Boolean = false,
+    val isArchived: Boolean = false,
+    val archiveUpdatedAt: Long = 0L
 ) {
     val isReadingFinished: Boolean
         get() = readingProgress.isFinite() && readingProgress >= 1f

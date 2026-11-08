@@ -429,6 +429,91 @@ class DatabaseMigrationsTest {
         }
     }
 
+    @Test
+    fun migration22To25AddsArchiveColumnsAndPreservesLibraryData() {
+        openHelper(version = 22, createSchema = true).use { helper ->
+            helper.writableDatabase.execSQL(
+                "INSERT INTO books " +
+                    "(id,title,author,filePath,coverPath,format,lastReadTime,readingProgress," +
+                    "createdAt,isFavorite) VALUES " +
+                    "('book-1','Title','Author','/book.epub',NULL,'EPUB',10,0.42,5,1)"
+            )
+        }
+        openHelper(version = 25, createSchema = false).use { helper ->
+            helper.writableDatabase.query(
+                "SELECT title, readingProgress, isArchived, archiveUpdatedAt FROM books WHERE id='book-1'"
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("Title", cursor.getString(0))
+                assertEquals(0.42f, cursor.getFloat(1), 0.0001f)
+                assertEquals(0, cursor.getInt(2))
+                assertEquals(0L, cursor.getLong(3))
+            }
+        }
+    }
+
+    @Test
+    fun migration23To25PreservesRetiredReadingSessions() {
+        openHelper(version = 23, createSchema = true).use { helper ->
+            helper.writableDatabase.execSQL(
+                "INSERT INTO reading_sessions " +
+                    "(bookId,date,startTime,endTime,duration,startChapterIndex,endChapterIndex," +
+                    "startChapterTitle,endChapterTitle,startProgress,endProgress,mode,sourceDeviceId," +
+                    "note,mood,updatedAt) VALUES " +
+                    "('book-1','2026-11-07',100,160,60,0,1,'Chapter 1','Chapter 2',0.1,0.2," +
+                    "'reading','device-1',NULL,NULL,160)"
+            )
+        }
+        openHelper(version = 25, createSchema = false).use { helper ->
+            helper.writableDatabase.query(
+                "SELECT bookId, duration FROM reading_sessions"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("book-1", cursor.getString(0))
+                assertEquals(60L, cursor.getLong(1))
+                assertEquals(1, cursor.count)
+            }
+        }
+    }
+
+    @Test
+    fun migration24To25PreservesSessionMetadataAndDefaultsArchive() {
+        openHelper(version = 24, createSchema = true).use { helper ->
+            helper.writableDatabase.execSQL(
+                "INSERT INTO reading_sessions " +
+                    "(bookId,date,startTime,endTime,duration,startChapterIndex,endChapterIndex," +
+                    "startChapterTitle,endChapterTitle,startProgress,endProgress,mode,sourceDeviceId," +
+                    "note,mood,updatedAt) VALUES " +
+                    "('book-1','2026-11-07',100,160,60,0,1,'Chapter 1','Chapter 2',0.1,0.2," +
+                    "'reading','device-1',NULL,NULL,160)"
+            )
+            helper.writableDatabase.execSQL(
+                "INSERT INTO books " +
+                    "(id,title,author,filePath,coverPath,format,lastReadTime,readingProgress," +
+                    "createdAt,isFavorite) VALUES " +
+                    "('book-1','Title','Author','/book.epub',NULL,'EPUB',10,0.42,5,1)"
+            )
+        }
+        openHelper(version = 25, createSchema = false).use { helper ->
+            val db = helper.writableDatabase
+            db.query(
+                "SELECT duration, contributedDuration, sessionKey FROM reading_sessions"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(60L, cursor.getLong(0))
+                assertEquals(60L, cursor.getLong(1))
+                assertEquals("", cursor.getString(2))
+            }
+            db.query(
+                "SELECT isArchived, archiveUpdatedAt FROM books WHERE id='book-1'"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+                assertEquals(0L, cursor.getLong(1))
+            }
+        }
+    }
+
     private fun openHelper(version: Int, createSchema: Boolean): SupportSQLiteOpenHelper {
         val callback = object : SupportSQLiteOpenHelper.Callback(version) {
             override fun onCreate(db: SupportSQLiteDatabase) {
@@ -449,6 +534,13 @@ class DatabaseMigrationsTest {
                     if (version >= 16) DatabaseMigrations.MIGRATION_15_16.migrate(db)
                     if (version >= 17) DatabaseMigrations.MIGRATION_16_17.migrate(db)
                     if (version >= 18) DatabaseMigrations.MIGRATION_17_18.migrate(db)
+                    if (version >= 19) DatabaseMigrations.MIGRATION_18_19.migrate(db)
+                    if (version >= 20) DatabaseMigrations.MIGRATION_19_20.migrate(db)
+                    if (version >= 21) DatabaseMigrations.MIGRATION_20_21.migrate(db)
+                    if (version >= 22) DatabaseMigrations.MIGRATION_21_22.migrate(db)
+                    if (version >= 25) DatabaseMigrations.MIGRATION_22_25.migrate(db)
+                    if (version == 23 || version == 24) createReadingSessionsSchema(db)
+                    if (version == 24) upgradeReadingSessionsToV24(db)
                 }
             }
 
@@ -468,6 +560,17 @@ class DatabaseMigrationsTest {
                 if (oldVersion < 16 && newVersion >= 16) DatabaseMigrations.MIGRATION_15_16.migrate(db)
                 if (oldVersion < 17 && newVersion >= 17) DatabaseMigrations.MIGRATION_16_17.migrate(db)
                 if (oldVersion < 18 && newVersion >= 18) DatabaseMigrations.MIGRATION_17_18.migrate(db)
+                if (oldVersion < 19 && newVersion >= 19) DatabaseMigrations.MIGRATION_18_19.migrate(db)
+                if (oldVersion < 20 && newVersion >= 20) DatabaseMigrations.MIGRATION_19_20.migrate(db)
+                if (oldVersion < 21 && newVersion >= 21) DatabaseMigrations.MIGRATION_20_21.migrate(db)
+                if (oldVersion < 22 && newVersion >= 22) DatabaseMigrations.MIGRATION_21_22.migrate(db)
+                if (oldVersion < 25 && newVersion >= 25) {
+                    when {
+                        oldVersion <= 22 -> DatabaseMigrations.MIGRATION_22_25.migrate(db)
+                        oldVersion == 23 -> DatabaseMigrations.MIGRATION_23_25.migrate(db)
+                        oldVersion == 24 -> DatabaseMigrations.MIGRATION_24_25.migrate(db)
+                    }
+                }
             }
         }
         val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -487,6 +590,55 @@ class DatabaseMigrationsTest {
             }
         }
         return result
+    }
+
+    private fun createReadingSessionsSchema(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `reading_sessions` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`bookId` TEXT NOT NULL, " +
+                "`date` TEXT NOT NULL, " +
+                "`startTime` INTEGER NOT NULL, " +
+                "`endTime` INTEGER NOT NULL, " +
+                "`duration` INTEGER NOT NULL, " +
+                "`startChapterIndex` INTEGER NOT NULL, " +
+                "`endChapterIndex` INTEGER NOT NULL, " +
+                "`startChapterTitle` TEXT, " +
+                "`endChapterTitle` TEXT, " +
+                "`startProgress` REAL NOT NULL, " +
+                "`endProgress` REAL NOT NULL, " +
+                "`mode` TEXT NOT NULL, " +
+                "`sourceDeviceId` TEXT NOT NULL, " +
+                "`note` TEXT, " +
+                "`mood` TEXT, " +
+                "`updatedAt` INTEGER NOT NULL)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reading_sessions_bookId_startTime` " +
+                "ON `reading_sessions` (`bookId`, `startTime`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reading_sessions_startTime` " +
+                "ON `reading_sessions` (`startTime`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reading_sessions_date` " +
+                "ON `reading_sessions` (`date`)"
+        )
+    }
+
+    private fun upgradeReadingSessionsToV24(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `reading_sessions` ADD COLUMN `sessionKey` TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE `reading_sessions` ADD COLUMN `contributedDuration` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `reading_sessions` ADD COLUMN `contributionsJson` TEXT NOT NULL DEFAULT '{}'")
+        db.execSQL(
+            "UPDATE `reading_sessions` SET `contributedDuration` = `duration` " +
+                "WHERE `contributedDuration` = 0"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reading_sessions_sessionKey` " +
+                "ON `reading_sessions` (`sessionKey`)"
+        )
     }
 
     private fun createVersion3Schema(db: SupportSQLiteDatabase) {

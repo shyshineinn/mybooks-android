@@ -979,7 +979,9 @@ class WebdavSyncManager @Inject constructor(
         createdAt = createdAt,
         isFavorite = isFavorite,
         updatedAt = metadataUpdatedAt,
-        isPinned = isPinned
+        isPinned = isPinned,
+        isArchived = isArchived,
+        archiveUpdatedAt = archiveUpdatedAt
     )
 
     private fun mergeRemoteBook(
@@ -999,6 +1001,11 @@ class WebdavSyncManager @Inject constructor(
         val remoteMetadataWins = metadata != null &&
             (existing == null || existingIsGeneratedPlaceholder ||
                 shouldApplyRemoteMetadata(existing.metadataUpdatedAt, metadata))
+        val remoteArchive = metadata?.isArchived
+        val remoteArchiveUpdatedAt = metadata?.archiveUpdatedAt ?: metadata?.updatedAt ?: 0L
+        val applyRemoteArchive = remoteArchive != null &&
+            (existing == null || remoteArchiveUpdatedAt > existing.archiveUpdatedAt ||
+                (remoteArchiveUpdatedAt == existing.archiveUpdatedAt && remoteArchive && !existing.isArchived))
         val fallbackFormat = bookFormatFromName(remoteEntry.fileName)
         val base = existing ?: Book(
             id = bookId,
@@ -1013,6 +1020,8 @@ class WebdavSyncManager @Inject constructor(
             createdAt = metadata?.createdAt ?: remoteEntry.lastModified,
             isFavorite = metadata?.isFavorite ?: false,
             isPinned = metadata?.isPinned ?: false,
+            isArchived = metadata?.isArchived ?: false,
+            archiveUpdatedAt = metadata?.archiveUpdatedAt ?: 0L,
             isCloudOnly = true,
             metadataUpdatedAt = metadata?.updatedAt ?: 0L
         )
@@ -1028,6 +1037,8 @@ class WebdavSyncManager @Inject constructor(
             createdAt = if (remoteMetadataWins) metadata?.createdAt ?: base.createdAt else base.createdAt,
             isFavorite = if (remoteMetadataWins) metadata?.isFavorite ?: base.isFavorite else base.isFavorite,
             isPinned = if (remoteMetadataWins) metadata?.isPinned ?: base.isPinned else base.isPinned,
+            isArchived = if (applyRemoteArchive) remoteArchive == true else base.isArchived,
+            archiveUpdatedAt = if (applyRemoteArchive) remoteArchiveUpdatedAt else base.archiveUpdatedAt,
             metadataUpdatedAt = if (remoteMetadataWins) metadata?.updatedAt ?: base.metadataUpdatedAt else base.metadataUpdatedAt,
             remoteLibraryKey = libraryKey,
             remoteFileName = remoteEntry.fileName,
@@ -1575,6 +1586,22 @@ class WebdavSyncManager @Inject constructor(
                 )
                 bookRepository.updateBook(updatedBook)
                 book = updatedBook
+            }
+        }
+        val archiveCandidate = book
+        if (archiveCandidate != null) {
+            val remoteArchived = remoteMetadata?.isArchived
+            val remoteArchiveUpdatedAt = remoteMetadata?.let { it.archiveUpdatedAt ?: it.updatedAt } ?: 0L
+            val applyRemoteArchive = remoteArchived != null &&
+                (remoteArchiveUpdatedAt > archiveCandidate.archiveUpdatedAt ||
+                    (remoteArchiveUpdatedAt == archiveCandidate.archiveUpdatedAt && remoteArchived && !archiveCandidate.isArchived))
+            if (applyRemoteArchive) {
+                val archivedBook = archiveCandidate.copy(
+                    isArchived = remoteArchived == true,
+                    archiveUpdatedAt = remoteArchiveUpdatedAt
+                )
+                bookRepository.updateBook(archivedBook)
+                book = archivedBook
             }
         }
         if (book != null && config.syncReadingRecords && root.has("readingProgress")) {

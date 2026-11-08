@@ -238,6 +238,7 @@ internal sealed interface BookshelfCategoryTarget {
     data class Txt(override val title: String) : BookshelfCategoryTarget
     data class Comic(override val title: String) : BookshelfCategoryTarget
     data class Favorites(override val title: String) : BookshelfCategoryTarget
+    data class Archived(override val title: String) : BookshelfCategoryTarget
     data class Tag(val id: String, override val title: String) : BookshelfCategoryTarget
     data class Folder(val id: String, override val title: String) : BookshelfCategoryTarget
 }
@@ -282,6 +283,7 @@ private fun BookshelfCategoriesScreen(
     val doneTitle = stringResource(R.string.reading_status_done)
     val epubMobiTitle = stringResource(R.string.filter_epub_mobi)
     val favoritesTitle = stringResource(R.string.filter_favorites)
+    val archiveTitle = stringResource(R.string.archived_books_title)
     val rows = buildList {
         add(CategoryRowModel(BookshelfCategoryTarget.All(allTitle), uiState.books.size, AppIcons.BookOpen))
         add(
@@ -323,6 +325,7 @@ private fun BookshelfCategoriesScreen(
             )
         )
         add(CategoryRowModel(BookshelfCategoryTarget.Favorites(favoritesTitle), uiState.books.count { it.isFavorite }, AppIcons.Heart.regular))
+        add(CategoryRowModel(BookshelfCategoryTarget.Archived(archiveTitle), uiState.archivedBooks.size, AppIcons.Archive))
     }
     CategoryListPage(
         categories = rows,
@@ -472,6 +475,7 @@ internal fun BookshelfCategoryBooksRoute(
     val selectedBooks = remember(
         selectedTarget,
         uiState.books,
+        uiState.archivedBooks,
         uiState.folders,
         uiState.bookFolderLinks,
         uiState.serverReadingStatusByBookId,
@@ -479,6 +483,7 @@ internal fun BookshelfCategoryBooksRoute(
     ) {
         when (selectedTarget) {
             is BookshelfCategoryTarget.All -> uiState.books
+            is BookshelfCategoryTarget.Archived -> uiState.archivedBooks
             is BookshelfCategoryTarget.ServerStatus -> uiState.books.filter {
                 uiState.serverReadingStatusByBookId[it.id] == selectedTarget.status
             }
@@ -516,7 +521,13 @@ internal fun BookshelfCategoryBooksRoute(
         tags = uiState.tags,
         tagIdsByBook = tagIdsByBook,
         onBack = onBack,
-        onOpenBook = onOpenBook,
+        onOpenBook = { book ->
+            if (selectedTarget is BookshelfCategoryTarget.Archived) {
+                Toast.makeText(context, R.string.archive_reader_message, Toast.LENGTH_SHORT).show()
+            } else {
+                onOpenBook(book)
+            }
+        },
         viewModel = viewModel
     )
 }
@@ -1056,6 +1067,7 @@ private fun CategoryBooksPage(
                 onEditInfo = { openBookEditor(it) },
                 onBookDetails = { book -> BookDetailsActivity.start(context, book.id) },
                 onMoveToFolder = { book -> moveTargetBook = book },
+                onArchive = viewModel::toggleBookArchive,
                 onDelete = {
                     pendingDeleteBooks = listOf(it)
                     showDeleteConfirm = true
@@ -1114,7 +1126,8 @@ private fun CategoryBooksPage(
                 onToggleReadStatus = { book ->
                     viewModel.toggleReadStatus(book)
                 },
-                onMoveToFolder = { book -> moveTargetBook = book }
+                onMoveToFolder = { book -> moveTargetBook = book },
+                onToggleArchive = viewModel::toggleBookArchive
             )
         }
     }

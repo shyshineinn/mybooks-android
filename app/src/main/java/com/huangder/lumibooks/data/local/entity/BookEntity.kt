@@ -1,5 +1,6 @@
 package com.huangder.lumibooks.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -30,7 +31,9 @@ data class BookEntity(
     val sourceSha256: String? = null,
     val sourceDisplayName: String? = null,
     val sourceLastModified: Long = 0L,
-    val isMissing: Boolean = false
+    val isMissing: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val isArchived: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val archiveUpdatedAt: Long = 0L
 )
 
 enum class BookFormat {

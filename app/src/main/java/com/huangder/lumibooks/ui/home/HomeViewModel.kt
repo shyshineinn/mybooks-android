@@ -118,6 +118,7 @@ data class AuthorizedFolderFolder(
 
 data class HomeUiState(
     val books: List<Book> = emptyList(),
+    val archivedBooks: List<Book> = emptyList(),
     val todayReadingTime: Long = 0,
     val dailyGoal: Int = 30, // 分钟
     val avatarUri: String? = null,
@@ -268,9 +269,10 @@ class HomeViewModel @Inject constructor(
                             }
                         }
                     }
-                    val sortedBooks = sortBooks(books, _uiState.value.sortBy)
+                    val sortedBooks = sortBooks(books.filterNot { it.isArchived }, _uiState.value.sortBy)
                     _uiState.value = _uiState.value.copy(
                         books = sortedBooks,
+                        archivedBooks = sortBooks(books.filter { it.isArchived }, _uiState.value.sortBy),
                         syncedBookIds = books.asSequence()
                             .filter { it.remoteFileName != null }
                             .mapTo(mutableSetOf()) { it.id },
@@ -548,7 +550,8 @@ class HomeViewModel @Inject constructor(
                 val sort = runCatching { SortBy.valueOf(stored) }.getOrDefault(SortBy.DATE_ADDED)
                 _uiState.value = _uiState.value.copy(
                     sortBy = sort,
-                    books = sortBooks(_uiState.value.books, sort)
+                    books = sortBooks(_uiState.value.books, sort),
+                    archivedBooks = sortBooks(_uiState.value.archivedBooks, sort)
                 )
             }
         }
@@ -599,7 +602,7 @@ class HomeViewModel @Inject constructor(
         } else {
             viewModelScope.launch {
                 bookRepository.searchBooks(query).collectLatest { books ->
-                    val sortedBooks = sortBooks(books, _uiState.value.sortBy)
+                    val sortedBooks = sortBooks(books.filterNot { it.isArchived }, _uiState.value.sortBy)
                     _uiState.value = _uiState.value.copy(
                         books = sortedBooks,
                         isSearchActive = true
@@ -781,7 +784,7 @@ class HomeViewModel @Inject constructor(
                 )
             }
             scheduleFolderPreviewInitialization(
-                books = sortBooks(books, _uiState.value.sortBy),
+                books = sortBooks(books.filterNot { it.isArchived }, _uiState.value.sortBy),
                 folders = folders,
                 links = links
             )
@@ -2286,6 +2289,26 @@ class HomeViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
+            }
+        }
+    }
+
+    fun toggleBookArchive(book: Book) {
+        viewModelScope.launch {
+            try {
+                if (database.bookDao().setArchived(book.id, !book.isArchived, System.currentTimeMillis()) > 0) {
+                    if (MyBooksConfig.isMyBooks(book)) myBooksSyncManager.onPortableBookStateChanged()
+                    (application as? com.huangder.lumibooks.EBookReaderApp)?.webdavAutoSyncScheduler?.scheduleImmediate()
+                    _uiState.value = _uiState.value.copy(folderMessage = application.getString(
+                        if (book.isArchived) R.string.archive_restore_success else R.string.archive_book_success
+                    ))
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(folderMessage = application.getString(
+                    if (book.isArchived) R.string.archive_restore_failed else R.string.archive_book_failed
+                ))
             }
         }
     }

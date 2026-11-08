@@ -39,7 +39,10 @@ data class SyncBookMetadata(
     val createdAt: Long,
     val isFavorite: Boolean,
     val updatedAt: Long,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    /** Null when the sender predates the archive feature; receivers keep their own value. */
+    val isArchived: Boolean? = null,
+    val archiveUpdatedAt: Long? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("title", title)
@@ -49,6 +52,8 @@ data class SyncBookMetadata(
         put("isFavorite", isFavorite)
         put("updatedAt", updatedAt)
         put("isPinned", isPinned)
+        isArchived?.let { put("isArchived", it) }
+        archiveUpdatedAt?.let { put("archiveUpdatedAt", it) }
     }
 
     companion object {
@@ -59,7 +64,9 @@ data class SyncBookMetadata(
             createdAt = json.optLong("createdAt"),
             isFavorite = json.optBoolean("isFavorite"),
             updatedAt = json.optLong("updatedAt", json.optLong("createdAt")),
-            isPinned = json.optBoolean("isPinned", false)
+            isPinned = json.optBoolean("isPinned", false),
+            isArchived = if (json.has("isArchived")) json.optBoolean("isArchived") else null,
+            archiveUpdatedAt = if (json.has("archiveUpdatedAt")) json.optLong("archiveUpdatedAt") else null
         )
     }
 }
@@ -177,8 +184,16 @@ internal fun resolveMetadataForSync(
         isGeneratedCloudTitle(localMetadata.title, generatedCloudTitle, legacyCloudFileTitle)
     val localWins = !localIsGeneratedPlaceholder &&
         (trustedRemote == null || localMetadata.updatedAt >= trustedRemote.updatedAt)
+    val metadataWinner = if (localWins) localMetadata else trustedRemote
+    val archiveWinner = listOfNotNull(localMetadata, remoteMetadata)
+        .filter { it.isArchived != null }
+        .maxWithOrNull(compareBy<SyncBookMetadata> { it.archiveUpdatedAt ?: it.updatedAt }
+            .thenBy { it.isArchived == true })
     return SyncMetadataResolution(
-        metadata = if (localWins) localMetadata else trustedRemote,
+        metadata = metadataWinner?.copy(
+            isArchived = archiveWinner?.isArchived,
+            archiveUpdatedAt = archiveWinner?.let { it.archiveUpdatedAt ?: it.updatedAt }
+        ),
         localWins = localWins
     )
 }

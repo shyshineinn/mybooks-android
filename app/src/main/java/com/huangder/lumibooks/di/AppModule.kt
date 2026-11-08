@@ -79,8 +79,9 @@ object AppModule {
             DatabaseMigrations.MIGRATION_19_20,
             DatabaseMigrations.MIGRATION_20_21,
             DatabaseMigrations.MIGRATION_21_22,
-            DatabaseMigrations.MIGRATION_23_22,
-            DatabaseMigrations.MIGRATION_24_22
+            DatabaseMigrations.MIGRATION_22_25,
+            DatabaseMigrations.MIGRATION_23_25,
+            DatabaseMigrations.MIGRATION_24_25
         )
             .build()
     }

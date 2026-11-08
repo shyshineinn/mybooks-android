@@ -597,7 +597,11 @@ fun BookDetailsScreen(
                         onEdit = { if (MyBooksConfig.isMyBooks(book)) editingMyBooks = true else editing = true },
                         onMove = { moveOpen = true },
                         onNotes = { context.startActivity(Intent(context, BookNotesActivity::class.java).putExtra(BookNotesActivity.EXTRA_BOOK_ID, book.id)) },
-                        onRead = { onOpenReader(book.id) }
+                        onRead = {
+                            if (book.isArchived) {
+                                Toast.makeText(context, R.string.archive_reader_message, Toast.LENGTH_SHORT).show()
+                            } else onOpenReader(book.id)
+                        }
                     )
                 }
             ) { bottomOverlayHeight ->

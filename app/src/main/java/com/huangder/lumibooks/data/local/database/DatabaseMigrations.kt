@@ -15,6 +15,18 @@ object DatabaseMigrations {
     val MIGRATION_23_22: Migration = preserveLibraryOnRollback(23)
     val MIGRATION_24_22: Migration = preserveLibraryOnRollback(24)
 
+    private fun addBookArchive(fromVersion: Int) = object : Migration(fromVersion, 25) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE books ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE books ADD COLUMN archiveUpdatedAt INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    // v23/v24 are retired My Books schemas. Leave their reading_sessions table intact.
+    val MIGRATION_22_25: Migration = addBookArchive(22)
+    val MIGRATION_23_25: Migration = addBookArchive(23)
+    val MIGRATION_24_25: Migration = addBookArchive(24)
+
     val MIGRATION_21_22 = object : Migration(21, 22) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE mybooks_sync_state ADD COLUMN remoteDeleted INTEGER NOT NULL DEFAULT 0")

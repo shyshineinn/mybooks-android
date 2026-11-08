@@ -3866,6 +3866,12 @@ class ReaderViewModel @Inject constructor(
         book: Book?,
         isCacheRecovery: Boolean = false
     ) = bookLoadMutex.withLock {
+            if (book?.isArchived == true) {
+                _uiState.value = _uiState.value.copy(
+                    book = book, isLoading = false, error = context.getString(R.string.archive_reader_message)
+                )
+                return@withLock
+            }
             val generationAtLoadStart = runCatching {
                 readerCacheStore.currentGeneration()
             }.getOrDefault(observedCacheGeneration)

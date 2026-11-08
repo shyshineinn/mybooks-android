@@ -213,15 +213,22 @@ class PortableSnapshotManager @Inject constructor(
                         existingIsCloudOnly = existing?.isCloudOnly
                             ?.takeIf { !replaceAssetDirectories && book.bodyAssetId == null }
                     ).let { restored ->
+                        val incomingArchiveTime = book.archiveUpdatedAt ?: book.metadataUpdatedAt
+                        val retainArchive = existing != null && (book.isArchived == null ||
+                            (!replace && (existing.archiveUpdatedAt > incomingArchiveTime ||
+                                (existing.archiveUpdatedAt == incomingArchiveTime && existing.isArchived))))
+                        val withArchive = if (retainArchive && existing != null) {
+                            restored.copy(isArchived = existing.isArchived, archiveUpdatedAt = existing.archiveUpdatedAt)
+                        } else restored
                         val withSource = if ((preserveLocalBookIdentity || book.format == "MARKDOWN") && !replaceAssetDirectories && existing != null) {
-                            restored.copy(sourceUri = existing.sourceUri, sourceDocumentKey = existing.sourceDocumentKey,
+                            withArchive.copy(sourceUri = existing.sourceUri, sourceDocumentKey = existing.sourceDocumentKey,
                                 sourceParentUri = existing.sourceParentUri, sourceSha256 = existing.sourceSha256,
                                 sourceDisplayName = existing.sourceDisplayName, sourceLastModified = existing.sourceLastModified,
                                 isMissing = existing.isMissing,
                                 lastReadTime = if (preserveLocalBookIdentity) existing.lastReadTime else restored.lastReadTime,
                                 readingProgress = if (preserveLocalBookIdentity) existing.readingProgress else restored.readingProgress,
                                 locatorJson = if (preserveLocalBookIdentity) existing.locatorJson else restored.locatorJson)
-                        } else restored
+                        } else withArchive
                         if (preserveNewerRows && !replace && existing != null && existing.metadataUpdatedAt > book.metadataUpdatedAt) {
                             withSource.copy(title = existing.title, author = existing.author, isFavorite = existing.isFavorite,
                                 isPinned = existing.isPinned, coverPath = existing.coverPath, metadataUpdatedAt = existing.metadataUpdatedAt)
@@ -623,7 +630,7 @@ class PortableSnapshotManager @Inject constructor(
     private fun BookEntity.toPortable(bodyAssetId: String?, coverAssetId: String?) = PortableBook(
         id, title, author, format, lastReadTime, readingProgress, locatorJson, createdAt, isFavorite,
         isCloudOnly, metadataUpdatedAt, bodyAssetId, coverAssetId, remoteLibraryKey, remoteFileName,
-        remoteFileSize, remoteFileSha256, isPinned
+        remoteFileSize, remoteFileSha256, isPinned, isArchived, archiveUpdatedAt
     )
 
 }
@@ -640,7 +647,9 @@ internal fun PortableBook.toEntity(
         ?: (bodyAssetId == null && (isCloudOnly || filePath.isBlank())),
     remoteLibraryKey = remoteLibraryKey, remoteFileName = remoteFileName,
     remoteFileSize = remoteFileSize, remoteFileSha256 = remoteFileSha256,
-    metadataUpdatedAt = metadataUpdatedAt, isPinned = isPinned
+    metadataUpdatedAt = metadataUpdatedAt, isPinned = isPinned,
+    isArchived = isArchived ?: false,
+    archiveUpdatedAt = if (isArchived == null) 0L else archiveUpdatedAt ?: metadataUpdatedAt
 )
 
 private fun stableSuffix(value: String): String = MessageDigest.getInstance("SHA-256")

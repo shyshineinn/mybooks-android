@@ -43,7 +43,8 @@ internal data class CoverFlowBookActions(
     val tags: (Book) -> Unit,
     val notes: (Book) -> Unit,
     val move: (Book) -> Unit,
-    val delete: (Book) -> Unit
+    val delete: (Book) -> Unit,
+    val archive: (Book) -> Unit
 )
 
 @Composable
@@ -63,6 +64,7 @@ internal fun CoverFlowActionBar(
     val notesLabel = stringResource(R.string.bookmarks_notes)
     val moveLabel = stringResource(R.string.move_to_folder)
     val deleteLabel = stringResource(R.string.delete)
+    val archiveLabel = stringResource(R.string.archive_book)
     var ownsMenu by remember { mutableStateOf(false) }
     DisposableEffect(menuHost) {
         onDispose { if (ownsMenu) menuHost?.dismiss() }
@@ -97,6 +99,7 @@ internal fun CoverFlowActionBar(
                         add(LiquidGlassMenuItem(tagsLabel, AppIcons.Tag) { run(actions.tags) })
                         add(LiquidGlassMenuItem(notesLabel, AppIcons.Bookmark.regular) { run(actions.notes) })
                         add(LiquidGlassMenuItem(moveLabel, AppIcons.FolderSimple) { run(actions.move) })
+                        add(LiquidGlassMenuItem(archiveLabel, AppIcons.Archive) { run(actions.archive) })
                         add(LiquidGlassMenuItem(deleteLabel, AppIcons.Trash, destructive = true) { run(actions.delete) })
                     }
                 ))

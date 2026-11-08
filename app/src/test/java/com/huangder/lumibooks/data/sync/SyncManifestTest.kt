@@ -81,6 +81,44 @@ class SyncManifestTest {
     }
 
     @Test
+    fun archiveMetadataRoundTripsAndLegacyEntriesRemainUnknown() {
+        val metadata = SyncBookMetadata(
+            title = "Title",
+            author = "Author",
+            format = "EPUB",
+            createdAt = 100,
+            isFavorite = false,
+            updatedAt = 900,
+            isArchived = true,
+            archiveUpdatedAt = 1_200
+        )
+        val manifest = SyncManifest(
+            books = mapOf(
+                "book-1" to SyncFileEntry(
+                    fileName = "book-1.epub",
+                    sha256 = "hash",
+                    sizeBytes = 10,
+                    lastModified = 900,
+                    metadata = metadata
+                )
+            )
+        )
+
+        val decoded = SyncManifest.fromJson(manifest.toJson())
+        assertEquals(metadata, decoded.books.getValue("book-1").metadata)
+
+        val legacyJson = JSONObject(manifest.toJson()).apply {
+            getJSONObject("books").getJSONObject("book-1").getJSONObject("metadata").apply {
+                remove("isArchived")
+                remove("archiveUpdatedAt")
+            }
+        }
+        val legacy = SyncManifest.fromJson(legacyJson.toString()).books.getValue("book-1").metadata!!
+        assertNull(legacy.isArchived)
+        assertNull(legacy.archiveUpdatedAt)
+    }
+
+    @Test
     fun tombstoneAndEmptyMapsSurviveRoundTripWithoutCreatingBookEntries() {
         val manifest = SyncManifest(
             deletedBooks = mapOf(
@@ -216,5 +254,20 @@ class SyncManifestTest {
         assertTrue(shouldApplyReadingDataMetadata(true, true, 999, remote))
         assertTrue(shouldApplyReadingDataMetadata(true, false, 10, remote))
         assertFalse(shouldApplyReadingDataMetadata(false, false, 10, remote))
+    }
+
+    @Test
+    fun archiveChangesMergeIndependentlyOfWebdavBookMetadata() {
+        val local = SyncBookMetadata("Old title", "Author", "EPUB", 1L, false, 10L,
+            isArchived = true, archiveUpdatedAt = 30L)
+        val remote = local.copy(title = "Edited title", updatedAt = 40L, isArchived = false, archiveUpdatedAt = 20L)
+        val resolved = resolveMetadataForSync(local, false, "Placeholder", remote)
+        assertFalse(resolved.localWins)
+        assertEquals("Edited title", resolved.metadata?.title)
+        assertEquals(true, resolved.metadata?.isArchived)
+        assertEquals(30L, resolved.metadata?.archiveUpdatedAt)
+
+        val restored = remote.copy(isArchived = false, archiveUpdatedAt = 50L)
+        assertEquals(false, resolveMetadataForSync(local, false, "Placeholder", restored).metadata?.isArchived)
     }
 }

@@ -10,6 +10,7 @@ import com.huangder.lumibooks.data.local.entity.HighlightRuleEntity
 import com.huangder.lumibooks.data.local.entity.HighlightRuleExclusionEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.json.JSONObject
@@ -187,6 +188,35 @@ class PortableSnapshotTest {
         assertEquals("B", leftFirst.preferences.single().value)
     }
 
+    @Test
+    fun archiveStateRoundTripsAndLegacyBackupKeepsItUnknown() {
+        val original = snapshot(deviceId = "device-a", archived = true, archiveUpdatedAt = 50)
+        val restored = PortableSnapshot.fromJson(original.toJson()).books.single()
+        assertEquals(true, restored.isArchived)
+        assertEquals(50L, restored.archiveUpdatedAt)
+
+        val legacy = JSONObject(original.toJson()).apply {
+            getJSONArray("books").getJSONObject(0).apply {
+                remove("isArchived")
+                remove("archiveUpdatedAt")
+            }
+        }
+        val old = PortableSnapshot.fromJson(legacy.toString()).books.single()
+        assertNull(old.isArchived)
+        assertNull(old.archiveUpdatedAt)
+    }
+
+    @Test
+    fun archiveMergeKeepsMostRecentState() {
+        val local = snapshot(deviceId = "device-a", archived = true, archiveUpdatedAt = 100)
+        val remote = snapshot(deviceId = "device-b", archived = false, archiveUpdatedAt = 50)
+
+        val merged = PortableSnapshotMerger.merge(local, remote).books.single()
+
+        assertEquals(true, merged.isArchived)
+        assertEquals(100L, merged.archiveUpdatedAt)
+    }
+
     private fun snapshot(
         deviceId: String,
         format: String = "EPUB",
@@ -195,7 +225,9 @@ class PortableSnapshotTest {
         bookmarks: List<BookmarkEntity> = emptyList(),
         notes: List<NoteEntity> = emptyList(),
         tombstones: List<SyncTombstoneEntity> = emptyList(),
-        isPinned: Boolean = false
+        isPinned: Boolean = false,
+        archived: Boolean? = null,
+        archiveUpdatedAt: Long? = null
     ) = PortableSnapshot(
         createdAt = 100,
         sourceDeviceId = deviceId,
@@ -219,7 +251,9 @@ class PortableSnapshotTest {
                 remoteLibraryKey = null,
                 remoteFileName = null,
                 remoteFileSize = 0,
-                remoteFileSha256 = null
+                remoteFileSha256 = null,
+                isArchived = archived,
+                archiveUpdatedAt = archiveUpdatedAt
             )
         ),
         folders = emptyList(),

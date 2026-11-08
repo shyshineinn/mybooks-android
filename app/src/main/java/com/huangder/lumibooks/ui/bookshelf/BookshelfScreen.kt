@@ -491,6 +491,7 @@ fun BookshelfScreen(
                 PendingBookMenuActionType.ToggleReadStatus ->
                     viewModel.toggleReadStatus(currentBook)
                 PendingBookMenuActionType.MoveToFolder -> moveTargetBook = currentBook
+                PendingBookMenuActionType.Archive -> viewModel.toggleBookArchive(currentBook)
             }
         }
         pendingContextMenuAction = null
@@ -916,6 +917,7 @@ fun BookshelfScreen(
                         onBookDetails = openDetailsFromList,
                         onMoveToFolder = moveBookFromList,
                         onDelete = deleteBookFromList,
+                        onArchive = viewModel::toggleBookArchive,
                         onFavorite = { book -> viewModel.updateBook(book.copy(isFavorite = !book.isFavorite)) },
                         onCustomCover = chooseCoverFromList,
                         onRemoveCustomCover = removeCoverFromList,
@@ -1035,6 +1037,7 @@ fun BookshelfScreen(
                         onBookDetails = openDetailsFromList,
                         onMoveToFolder = moveBookFromList,
                         onDelete = deleteBookFromList,
+                        onArchive = viewModel::toggleBookArchive,
                         onFavorite = { book -> viewModel.updateBook(book.copy(isFavorite = !book.isFavorite)) },
                         onCustomCover = chooseCoverFromList,
                         onRemoveCustomCover = removeCoverFromList,
@@ -1231,6 +1234,9 @@ fun BookshelfScreen(
             },
             onToggleReadStatus = { book ->
                 pendingContextMenuAction = PendingBookMenuAction(PendingBookMenuActionType.ToggleReadStatus, book)
+            },
+            onToggleArchive = { book ->
+                pendingContextMenuAction = PendingBookMenuAction(PendingBookMenuActionType.Archive, book)
             },
             onMoveToFolder = { book ->
                 pendingContextMenuAction = PendingBookMenuAction(PendingBookMenuActionType.MoveToFolder, book)
@@ -1587,6 +1593,7 @@ internal fun BookshelfCollection(
     onBookDetails: (Book) -> Unit = {},
     onMoveToFolder: (Book) -> Unit = {},
     onDelete: (Book) -> Unit,
+    onArchive: (Book) -> Unit,
     onFavorite: (Book) -> Unit,
     onCustomCover: (Book) -> Unit,
     onRemoveCustomCover: (Book) -> Unit,
@@ -1730,7 +1737,8 @@ internal fun BookshelfCollection(
                         actions = CoverFlowBookActions(
                             open = onBookClick, details = onBookDetails, favorite = onFavorite,
                             editInfo = onEditInfo, customCover = onCustomCover, removeCustomCover = onRemoveCustomCover,
-                            tags = onTags, notes = onBookmarksNotes, move = onMoveToFolder, delete = onDelete
+                            tags = onTags, notes = onBookmarksNotes, move = onMoveToFolder, delete = onDelete,
+                            archive = onArchive
                         ),
                         onMenuVisibleChange = onCoverFlowMenuVisibleChange,
                         onHaptic = onHaptic, onSelectionToggle = onSelectionToggle, onAddBook = onAddBook,
@@ -2469,6 +2477,7 @@ private enum class PendingBookMenuActionType {
     EditInfo,
     BookDetails,
     ToggleReadStatus,
+    Archive,
     MoveToFolder
 }
 

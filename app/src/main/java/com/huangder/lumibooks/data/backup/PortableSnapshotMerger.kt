@@ -135,7 +135,12 @@ object PortableSnapshotMerger {
                     val progressWinner = listOf(localBook, remoteBook).maxWith(
                         compareBy<PortableBook> { it.lastReadTime }.thenBy { it.toString() }
                     )
+                    val archiveWinner = listOf(localBook, remoteBook).filter { it.isArchived != null }
+                        .maxWithOrNull(compareBy<PortableBook> { it.archiveUpdatedAt ?: it.metadataUpdatedAt }
+                            .thenBy { it.isArchived == true })
                     metadataWinner.copy(
+                        isArchived = archiveWinner?.isArchived,
+                        archiveUpdatedAt = archiveWinner?.let { it.archiveUpdatedAt ?: it.metadataUpdatedAt },
                         lastReadTime = progressWinner.lastReadTime,
                         readingProgress = progressWinner.readingProgress,
                         locatorJson = progressWinner.locatorJson,

@@ -136,6 +136,8 @@ class MyBooksSyncManager @Inject constructor(
     }
 
     fun onLocalBooksImported() { scheduler.scheduleImportedBooks() }
+
+    fun onPortableBookStateChanged() { scheduler.schedulePush() }
     suspend fun cacheImportedCover(url: String, target: File) { client.downloadFile(url, target, 0) { _, _ -> } }
 
     suspend fun syncIfStale(maxAgeMs: Long = 10 * 60_000) {

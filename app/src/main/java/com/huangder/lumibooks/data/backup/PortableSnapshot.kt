@@ -45,7 +45,9 @@ data class PortableBook(
     val remoteFileName: String?,
     val remoteFileSize: Long,
     val remoteFileSha256: String?,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val isArchived: Boolean? = null,
+    val archiveUpdatedAt: Long? = null
 )
 
 data class PortableSnapshot(
@@ -146,6 +148,8 @@ private fun bookToJson(book: PortableBook) = JSONObject().apply {
     put("remoteFileSize", book.remoteFileSize)
     putNullable("remoteFileSha256", book.remoteFileSha256)
     put("isPinned", book.isPinned)
+    book.isArchived?.let { put("isArchived", it) }
+    book.archiveUpdatedAt?.let { put("archiveUpdatedAt", it) }
 }
 
 private fun bookFromJson(json: JSONObject) = PortableBook(
@@ -166,7 +170,9 @@ private fun bookFromJson(json: JSONObject) = PortableBook(
     remoteFileName = json.nullableString("remoteFileName"),
     remoteFileSize = json.optLong("remoteFileSize"),
     remoteFileSha256 = json.nullableString("remoteFileSha256"),
-    isPinned = json.optBoolean("isPinned", false)
+    isPinned = json.optBoolean("isPinned", false),
+    isArchived = json.opt("isArchived") as? Boolean,
+    archiveUpdatedAt = (json.opt("archiveUpdatedAt") as? Number)?.toLong()?.coerceAtLeast(0L)
 )
 
 private fun folderToJson(item: FolderEntity) = JSONObject().apply {

@@ -66,6 +66,7 @@ sealed class ContextMenuAction {
     data object ToggleReadStatus : ContextMenuAction()
     data object MoveToFolder : ContextMenuAction()
     data object Delete : ContextMenuAction()
+    data object Archive : ContextMenuAction()
     data object Favorite : ContextMenuAction()
     data object Pin : ContextMenuAction()
     data object CustomCover : ContextMenuAction()
@@ -97,7 +98,8 @@ fun BookContextMenuOverlay(
     onEditInfo: (Book) -> Unit = {},
     onBookDetails: (Book) -> Unit = {},
     onToggleReadStatus: (Book) -> Unit = {},
-    onMoveToFolder: (Book) -> Unit = {}
+    onMoveToFolder: (Book) -> Unit = {},
+    onToggleArchive: (Book) -> Unit = {}
 ) {
     if (state.phase == ContextMenuPhase.Idle) return
 
@@ -152,6 +154,7 @@ fun BookContextMenuOverlay(
                         is ContextMenuAction.ToggleReadStatus -> onToggleReadStatus(book)
                         is ContextMenuAction.MoveToFolder -> onMoveToFolder(book)
                         is ContextMenuAction.Delete -> onDelete(book)
+                        is ContextMenuAction.Archive -> onToggleArchive(book)
                         is ContextMenuAction.Favorite -> onFavorite(book)
                         is ContextMenuAction.Pin -> onPin(book)
                         is ContextMenuAction.CustomCover -> onCustomCover(book)
@@ -326,6 +329,7 @@ private fun ContextMenuLayout(
             isPinned = book.isPinned,
             hasCustomCover = com.huangder.lumibooks.util.FileUtils.isCustomCover(book.coverPath),
             isReadingFinished = book.isReadingFinished,
+            isArchived = book.isArchived,
             onAction = onAction
         )
         }
@@ -428,6 +432,7 @@ private fun MenuActionsPanel(
     isPinned: Boolean = false,
     hasCustomCover: Boolean = false,
     isReadingFinished: Boolean = false,
+    isArchived: Boolean = false,
     onAction: (ContextMenuAction) -> Unit
 ) {
     val shape = AppRoundedCornerShape(
@@ -449,6 +454,8 @@ private fun MenuActionsPanel(
         add(MenuItem(stringResource(R.string.bookmarks_notes), AppIcons.Bookmark.regular, ContextMenuAction.BookmarksNotes))
         add(MenuItem(stringResource(R.string.custom_cover), AppIcons.Image, ContextMenuAction.CustomCover))
         if (hasCustomCover) add(MenuItem(stringResource(R.string.remove_custom_cover), AppIcons.ArrowCounterClockwise, ContextMenuAction.RemoveCustomCover))
+        add(MenuItem(stringResource(if (isArchived) R.string.restore_book else R.string.archive_book),
+            AppIcons.Archive, ContextMenuAction.Archive))
         add(MenuItem(stringResource(R.string.delete), AppIcons.Trash, ContextMenuAction.Delete))
     }
     LiquidGlassSurface(

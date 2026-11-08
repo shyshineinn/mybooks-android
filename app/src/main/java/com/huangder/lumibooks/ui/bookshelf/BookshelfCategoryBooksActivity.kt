@@ -141,6 +141,7 @@ class BookshelfCategoryBooksActivity : ComponentActivity() {
                 is BookshelfCategoryTarget.Markdown -> "markdown"
                 is BookshelfCategoryTarget.Comic -> "cbz"
                 is BookshelfCategoryTarget.Favorites -> "favorites"
+                is BookshelfCategoryTarget.Archived -> "archived"
                 is BookshelfCategoryTarget.Tag -> "tag"
                 is BookshelfCategoryTarget.Folder -> "folder"
             }
@@ -170,6 +171,7 @@ class BookshelfCategoryBooksActivity : ComponentActivity() {
                 "markdown" -> BookshelfCategoryTarget.Markdown(title)
                 "cbz" -> BookshelfCategoryTarget.Comic(title)
                 "favorites" -> BookshelfCategoryTarget.Favorites(title)
+                "archived" -> BookshelfCategoryTarget.Archived(title)
                 "tag" -> getStringExtra(EXTRA_TAG_ID)
                     ?.takeIf { it.isNotBlank() }
                     ?.let { BookshelfCategoryTarget.Tag(it, title) }
