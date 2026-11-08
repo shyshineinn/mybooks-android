@@ -150,6 +150,8 @@ internal class MyBooksPortableStateEngine(
         lastReadTime = 0, readingProgress = 0f, locatorJson = null, bodyAssetId = null,
         remoteLibraryKey = null, remoteFileName = null, remoteFileSize = 0, remoteFileSha256 = null
     ) }, bookTagLinks = emptyList(), tombstones = snapshot.tombstones.filterNot { it.namespace == "book_tag" },
+        // The MyBooks server v1 snapshot schema rejects unknown top-level fields.
+        tagGroups = emptyList(), hasTagGroups = false,
         readingRecords = emptyList(), bookmarks = emptyList(), notes = emptyList())
     private fun materialize(source: PortableAssetSource, directory: File): File {
         val file = File(directory, source.asset.fileName)

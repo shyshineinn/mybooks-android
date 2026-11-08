@@ -3,7 +3,9 @@ package com.huangder.lumibooks.data.sync
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.huangder.lumibooks.data.backup.*
+import com.huangder.lumibooks.data.local.entity.BookFolderCrossRefEntity
 import com.huangder.lumibooks.data.local.entity.FolderEntity
+import com.huangder.lumibooks.data.local.entity.TagGroupEntity
 import com.huangder.lumibooks.domain.model.SyncContentSelection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -62,7 +64,10 @@ class MyBooksPortableStateSyncTest {
                 }
                 val input = JSONObject(request.body.readUtf8())
                 assertEquals(remoteRevision, input.getLong("expected_revision"))
-                remote = input.getJSONObject("data"); remoteRevision++
+                val data = input.getJSONObject("data")
+                // Mirror the production v1 validator instead of accepting the backup schema.
+                if (data.has("tagGroups")) return MockResponse().setResponseCode(400)
+                remote = data; remoteRevision++
                 onPut?.invoke()
                 return MockResponse().setBody(envelope().toString())
             }
@@ -88,11 +93,21 @@ class MyBooksPortableStateSyncTest {
             .sync("library", selection, direction)
     }
     @Test fun twoDevicesMergeProfileAndFoldersWithoutReadingInjection() = runBlocking {
-        val a = Device(empty().copy(preferences = listOf(preference("Reader")), folders = listOf(FolderEntity("f", "Books", "books", null, 1))))
-        sync(a)
-        val b = Device(empty("b")); sync(b)
+        val group = TagGroupEntity("g", "book", "Local group", "local group", 1)
+        val folder = FolderEntity("f", "Books", "books", null, 1)
+        val book = PortableBook("mybooks-1", "Book", "Author", "EPUB", 0, 0f, null, 1,
+            false, true, 1, null, null, null, null, 0, null)
+        val link = BookFolderCrossRefEntity(book.id, folder.id, 1)
+        val active = mapOf(book.id to "uuid")
+        val a = Device(empty().copy(preferences = listOf(preference("Reader")), folders = listOf(folder),
+            books = listOf(book), bookFolderLinks = listOf(link), tagGroups = listOf(group)))
+        sync(a, active = active)
+        assertEquals(listOf(group), a.state.tagGroups)
+        val b = Device(empty("b").copy(books = listOf(book)))
+        sync(b, active = active)
         assertEquals("Reader", b.state.preferences.single().value)
-        assertEquals("f", b.state.folders.single().id)
+        assertEquals(folder.id, b.state.folders.single().id)
+        assertEquals(listOf(link), b.state.bookFolderLinks)
         assertEquals(1, puts); assertEquals(1L, b.revision)
         assertEquals(0, remote!!.getJSONArray("notes").length())
     }
