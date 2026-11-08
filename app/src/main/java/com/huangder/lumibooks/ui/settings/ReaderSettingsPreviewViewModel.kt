@@ -27,12 +27,14 @@ import java.util.zip.ZipInputStream
 import org.json.JSONObject
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,7 +71,6 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ReaderSettingsPreviewUiState())
     val uiState: StateFlow<ReaderSettingsPreviewUiState> = _uiState.asStateFlow()
-    private var themeUpdateJob: Job? = null
 
     init {
         viewModelScope.launch { dataStoreManager.migrateReaderThemeSuites() }
@@ -81,17 +82,32 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.customReaderBackgrounds.collectLatest { backgrounds ->
                 _uiState.update { it.copy(backgrounds = backgrounds) }
-                // The settings screen can receive the background list after a slider
-                // change has already persisted the theme. Reconcile that state here so
-                // a blurred copy is still produced instead of leaving the reader on
-                // the original image.
-                val editingSettings = _uiState.value.editingSettings ?: return@collectLatest
-                val prepared = withContext(Dispatchers.IO) {
-                    prepareProcessedBackground(editingSettings, backgrounds)
-                }
-                if (prepared != backgrounds) {
-                    dataStoreManager.saveCustomReaderBackgrounds(prepared)
-                    _uiState.update { it.copy(backgrounds = prepared) }
+            }
+        }
+        viewModelScope.launch {
+            val target = _uiState.map { state ->
+                state.editingSuiteId?.let { Triple(it, state.editingLayout, state.editingDark) }
+            }.distinctUntilChanged()
+            combine(dataStoreManager.readerThemeSuiteState, dataStoreManager.customReaderBackgrounds, target) {
+                    suites, backgrounds, editing ->
+                val (suiteId, layout, dark) = editing ?: return@combine null
+                val settings = suites.suites.firstOrNull { it.id == suiteId }?.settingsFor(layout, dark)
+                    ?: return@combine null
+                val preset = backgrounds.firstOrNull {
+                    it.selectionKey == settings.backgroundSelection && it.type == ReaderBackgroundType.IMAGE
+                } ?: return@combine null
+                Triple(preset.id, preset.value, settings.backgroundImageBlurDp.coerceIn(0f, 40f))
+            }.distinctUntilChanged().collectLatest { request ->
+                val (id, path, blur) = request ?: return@collectLatest
+                val original = dataStoreManager.customReaderBackgrounds.first().firstOrNull { it.id == id && it.value == path }
+                    ?: return@collectLatest
+                val processed = withContext(Dispatchers.IO) { prepareProcessedBackground(original, blur) }
+                    ?: return@collectLatest
+                if (dataStoreManager.saveProcessedReaderBackground(original, processed)) {
+                    withContext(Dispatchers.IO) {
+                        original.processedValue?.takeUnless { it == processed.processedValue }
+                            ?.let { File(it).delete() }
+                    }
                 }
             }
         }
@@ -169,32 +185,20 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
     }
 
     fun updateTheme(settings: ReaderThemeSettings) {
-        val suiteId = _uiState.value.editingSuiteId ?: return
-        val layout = _uiState.value.editingLayout
+        val state = _uiState.value
+        val suiteId = state.editingSuiteId ?: return
+        val layout = state.editingLayout
+        val dark = state.editingDark
         previewTheme(settings)
-        themeUpdateJob?.cancel()
-        themeUpdateJob = viewModelScope.launch {
-            val availableBackgrounds = _uiState.value.backgrounds.ifEmpty {
-                dataStoreManager.customReaderBackgrounds.first()
-            }
-            val backgrounds = withContext(Dispatchers.IO) {
-                prepareProcessedBackground(settings, availableBackgrounds)
-            }
-            val latestSuite = _uiState.value.suites.firstOrNull { it.id == suiteId }
-            if (_uiState.value.editingSuiteId != suiteId ||
-                latestSuite?.settingsFor(layout, _uiState.value.editingDark) != settings
-            ) {
-                return@launch
-            }
-            if (backgrounds != availableBackgrounds) {
-                dataStoreManager.saveCustomReaderBackgrounds(backgrounds)
-                _uiState.update { it.copy(backgrounds = backgrounds) }
-            }
+        // Commit the accepted edit even if the editor closes or changes mode.
+        // The background collector prepares blur copies after persistence; the
+        // original image can render with runtime blur while that work completes.
+        viewModelScope.launch {
             dataStoreManager.updateReaderThemeSuite(
                 suiteId,
                 layout,
                 settings,
-                modeDark = _uiState.value.editingDark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
+                modeDark = dark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
             )
         }
     }
@@ -561,7 +565,10 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
     }
 
     fun addBackgroundPhoto(uri: Uri) {
-        val suiteId = _uiState.value.editingSuiteId ?: return
+        val state = _uiState.value
+        val suiteId = state.editingSuiteId ?: return
+        val layout = state.editingLayout
+        val dark = state.editingDark
         viewModelScope.launch {
             val preset = withContext(Dispatchers.IO) {
                 val directory = File(context.filesDir, "reader_backgrounds").apply { mkdirs() }
@@ -572,20 +579,15 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
                 } ?: return@withContext null
                 ReaderBackgroundPreset(id, ReaderBackgroundType.IMAGE, target.absolutePath)
             } ?: return@launch
-            val state = _uiState.value
-            dataStoreManager.saveCustomReaderBackgrounds(state.backgrounds + preset)
-            val suite = state.suites.firstOrNull { it.id == suiteId } ?: return@launch
-            val layout = state.editingLayout
-            val currentSettings = suite.settingsFor(
-                layout,
-                state.editingDark
-            )
-            dataStoreManager.updateReaderThemeSuite(
+            // Publish the asset and its selection together, using the target
+            // chosen before the photo picker copy, and the latest saved settings.
+            val added = dataStoreManager.addReaderThemeSuiteBackground(
                 suiteId,
                 layout,
-                currentSettings.copy(backgroundSelection = preset.selectionKey),
-                modeDark = state.editingDark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
+                preset,
+                modeDark = dark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
             )
+            if (!added) withContext(Dispatchers.IO) { File(preset.value).delete() }
         }
     }
 
@@ -610,42 +612,23 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
                 updatedSettings,
                 modeDark = state.editingDark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
             )
-            val usedByAnotherSuite = preset != null && _uiState.value.suites.any {
-                it.id != suite.id && ReaderLayoutTarget.entries.any { target ->
-                    it.settingsFor(target).backgroundSelection == preset.selectionKey
-                }
-            }
-            if (preset?.type == ReaderBackgroundType.IMAGE && !usedByAnotherSuite) {
-                dataStoreManager.saveCustomReaderBackgrounds(
-                    _uiState.value.backgrounds.filterNot { it.id == preset.id }
-                )
+            if (preset?.type == ReaderBackgroundType.IMAGE) {
+                val removed = dataStoreManager.removeUnusedReaderBackground(preset.id) ?: return@launch
                 withContext(Dispatchers.IO) {
-                    runCatching { File(preset.value).delete() }
-                    preset.processedValue?.let { runCatching { File(it).delete() } }
+                    runCatching { File(removed.value).delete() }
+                    removed.processedValue?.let { runCatching { File(it).delete() } }
                 }
             }
         }
     }
 
-    private fun prepareProcessedBackground(
-        settings: ReaderThemeSettings,
-        backgrounds: List<ReaderBackgroundPreset>
-    ): List<ReaderBackgroundPreset> {
-        val preset = backgrounds.firstOrNull {
-            it.selectionKey == settings.backgroundSelection && it.type == ReaderBackgroundType.IMAGE
-        } ?: return backgrounds
-        val blur = settings.backgroundImageBlurDp.coerceIn(0f, 40f)
-        if (blur < 0.01f) {
-            preset.processedValue?.let { runCatching { File(it).delete() } }
-            return backgrounds.map {
-                if (it.id == preset.id) it.copy(processedValue = null, processedBlurDp = null) else it
-            }
-        }
+    private fun prepareProcessedBackground(preset: ReaderBackgroundPreset, blur: Float): ReaderBackgroundPreset? {
+        if (blur < 0.01f) return null
         if (preset.processedValue != null &&
             preset.processedBlurDp != null &&
             kotlin.math.abs(preset.processedBlurDp - blur) < 0.01f &&
             File(preset.processedValue).isFile
-        ) return backgrounds
+        ) return null
         val blurKey = "%.2f".format(java.util.Locale.US, blur)
             .replace('.', '_')
         val target = File(
@@ -659,16 +642,8 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
                 blurDp = blur,
                 density = context.resources.displayMetrics.density
             )
-        if (!generated) return backgrounds
-        preset.processedValue?.takeUnless { it == target.absolutePath }?.let {
-            runCatching { File(it).delete() }
-        }
-        return backgrounds.map {
-            if (it.id == preset.id) it.copy(
-                processedValue = target.absolutePath,
-                processedBlurDp = blur
-            ) else it
-        }
+        if (!generated) return null
+        return preset.copy(processedValue = target.absolutePath, processedBlurDp = blur)
     }
 
     fun selectBackgroundColor(selection: String) {

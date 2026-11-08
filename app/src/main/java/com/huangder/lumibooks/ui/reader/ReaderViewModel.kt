@@ -53,7 +53,6 @@ import com.huangder.lumibooks.domain.model.ReaderWritingMode
 import com.huangder.lumibooks.domain.model.ReaderThemeSettings
 import com.huangder.lumibooks.domain.model.ReaderThemeSuite
 import com.huangder.lumibooks.domain.model.ReaderThemeSuites
-import com.huangder.lumibooks.domain.model.withoutReaderBackground
 import com.huangder.lumibooks.domain.model.PdfPageMode
 import com.huangder.lumibooks.domain.model.normalizeReaderThemeSuiteName
 import com.huangder.lumibooks.domain.model.readerThemeSuiteNameCodePointCount
@@ -1334,8 +1333,9 @@ class ReaderViewModel @Inject constructor(
                 }
             }
             if (hydrated != presets) {
-                _uiState.value = _uiState.value.copy(customReaderBackgrounds = hydrated)
-                dataStoreManager.saveCustomReaderBackgrounds(hydrated)
+                presets.zip(hydrated).forEach { (original, sampled) ->
+                    if (sampled != original) dataStoreManager.saveProcessedReaderBackground(original, sampled)
+                }
             }
         }
     }
@@ -1529,8 +1529,9 @@ class ReaderViewModel @Inject constructor(
                     }
                 }
                 if (hydrated != presets) {
-                    _uiState.value = _uiState.value.copy(customReaderBackgrounds = hydrated)
-                    dataStoreManager.saveCustomReaderBackgrounds(hydrated)
+                    presets.zip(hydrated).forEach { (original, sampled) ->
+                        if (sampled != original) dataStoreManager.saveProcessedReaderBackground(original, sampled)
+                    }
                 }
             }
         }
@@ -2417,16 +2418,10 @@ class ReaderViewModel @Inject constructor(
                 return@launch
             }
 
-            val latest = latestState.customReaderBackgrounds
-            val updated = latest.map {
-                if (it.id == latestSelected.id) it.copy(
-                    processedValue = target,
-                    processedBlurDp = blur
-                ) else it
-            }
-            if (updated != latest) {
-                dataStoreManager.saveCustomReaderBackgrounds(updated)
-                _uiState.value = _uiState.value.copy(customReaderBackgrounds = updated)
+            val processed = latestSelected.copy(processedValue = target, processedBlurDp = blur)
+            if (processed != latestSelected &&
+                dataStoreManager.saveProcessedReaderBackground(latestSelected, processed)
+            ) {
                 latestSelected.processedValue
                     ?.takeUnless { it == target }
                     ?.let { oldPath -> withContext(Dispatchers.IO) { runCatching { File(oldPath).delete() } } }
@@ -2470,7 +2465,11 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun addCustomReaderBackgroundImage(uri: Uri, displayName: String = "") {
-        if (_uiState.value.keepsPublisherPaint()) return
+        val state = _uiState.value
+        if (state.keepsPublisherPaint()) return
+        val layout = state.readerLayoutTarget()
+        val suiteId = state.activeThemeSuiteIdFor(layout)
+        val dark = state.themeEditingDark
         viewModelScope.launch {
             val preset = withContext(Dispatchers.IO) {
                 val id = UUID.randomUUID().toString()
@@ -2492,34 +2491,19 @@ class ReaderViewModel @Inject constructor(
                     null
                 }
             } ?: return@launch
-            saveAddedReaderBackground(preset)
+            val added = dataStoreManager.addReaderThemeSuiteBackground(
+                suiteId,
+                layout,
+                preset,
+                modeDark = dark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
+            )
+            if (!added) withContext(Dispatchers.IO) { File(preset.value).delete() }
         }
     }
 
     fun deleteCustomReaderBackground(id: String) {
-        val state = _uiState.value
-        val removed = state.customReaderBackgrounds.firstOrNull { it.id == id } ?: return
-        val remaining = state.customReaderBackgrounds.filterNot { it.id == id }
-        val repairedSuites = state.readerThemeSuites.map {
-            it.withoutReaderBackground(removed.selectionKey)
-        }
-        val restoredSettings = repairedSuites
-            .firstOrNull { it.id == state.activeThemeSuiteId() }
-            ?.settingsFor(state.readerLayoutTarget(), activeReaderThemeDark)
-        val next = state.copy(
-            customReaderBackgrounds = remaining,
-            readerThemeSuites = repairedSuites
-        )
-        _uiState.value = restoredSettings?.let { next.withReaderThemeSettings(it) } ?: next
         viewModelScope.launch {
-            dataStoreManager.saveCustomReaderBackgrounds(remaining)
-            dataStoreManager.saveReaderThemeSuiteState(
-                repairedSuites,
-                state.globalActiveReaderThemeSuiteId,
-                applyActiveSuite = !state.readerThemeSuiteBookScoped &&
-                    state.globalActiveReaderThemeSuiteId == state.activeReaderThemeSuiteId,
-                activeBookLayoutSuiteId = state.globalActiveBookLayoutThemeSuiteId
-            )
+            val removed = dataStoreManager.deleteReaderBackground(id) ?: return@launch
             if (removed.type == ReaderBackgroundType.IMAGE) {
                 withContext(Dispatchers.IO) {
                     runCatching { File(removed.value).delete() }
@@ -2562,15 +2546,11 @@ class ReaderViewModel @Inject constructor(
             }
         )
         val targetSuiteId = state.activeThemeSuiteIdFor(layout)
-        val settings = updatedSuites.firstOrNull { it.id == targetSuiteId }
-            ?.settingsFor(layout, state.themeEditingDark)
-            ?: return
         viewModelScope.launch {
-            dataStoreManager.saveCustomReaderBackgrounds(updated)
-            dataStoreManager.updateReaderThemeSuite(
+            dataStoreManager.addReaderThemeSuiteBackground(
                 targetSuiteId,
                 layout,
-                settings,
+                preset,
                 modeDark = state.themeEditingDark.takeIf { layout == ReaderLayoutTarget.READER_LAYOUT }
             )
         }
