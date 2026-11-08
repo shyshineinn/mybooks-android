@@ -3,6 +3,9 @@ package com.huangder.lumibooks.data.backup
 import android.content.Context
 import androidx.room.withTransaction
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.domain.model.ReaderBackgroundPreset
+import com.huangder.lumibooks.domain.model.ReaderBackgroundPresetCodec
+import com.huangder.lumibooks.domain.model.ReaderBackgroundType
 import com.huangder.lumibooks.data.local.database.AppDatabase
 import com.huangder.lumibooks.data.local.entity.BookEntity
 import com.huangder.lumibooks.data.local.entity.AnnotationTagEntity
@@ -68,7 +71,7 @@ class PortableSnapshotManager internal constructor(
         val sources = linkedMapOf<String, PortableAssetSource>()
         val pathAssets = mutableMapOf<String, String>()
 
-        fun addSource(kind: String, ownerId: String, displayName: String, opener: () -> InputStream): String? {
+        fun addSource(kind: String, ownerId: String, displayName: String, dedupeByContent: Boolean = false, opener: () -> InputStream): String? {
             val digest = MessageDigest.getInstance("SHA-256")
             var size = 0L
             val valid = runCatching {
@@ -86,15 +89,16 @@ class PortableSnapshotManager internal constructor(
             val sha = digest.digest().joinToString("") { "%02x".format(it) }
             val extension = displayName.substringAfterLast('.', "bin")
                 .lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,10}")) } ?: "bin"
-            val logicalId = "$sha-${stableSuffix("$kind\u0000$ownerId")}"
+            // 背景图按内容去重：同一张图不同路径只上传一份。
+            val logicalId = if (dedupeByContent) sha else "$sha-${stableSuffix("$kind\u0000$ownerId")}"
             val asset = PortableAsset(logicalId, kind, ownerId, "$sha.$extension", sha, size)
             sources.putIfAbsent(logicalId, PortableAssetSource(asset, opener))
             return logicalId
         }
 
-        fun addFile(kind: String, ownerId: String, file: File): String? {
+        fun addFile(kind: String, ownerId: String, file: File, dedupeByContent: Boolean = false): String? {
             if (!file.isFile || file.length() <= 0L) return null
-            val id = addSource(kind, ownerId, file.name) { file.inputStream().buffered() }
+            val id = addSource(kind, ownerId, file.name, dedupeByContent) { file.inputStream().buffered() }
             if (id != null) pathAssets[file.absolutePath] = id
             return id
         }
@@ -119,13 +123,35 @@ class PortableSnapshotManager internal constructor(
 
         val avatar = File(context.filesDir, "avatars/avatar.jpg")
         addFile("avatar", "profile", avatar)
-        listOf("fonts" to "font", "reader_backgrounds" to "reader_background").forEach { (directory, kind) ->
-            File(context.filesDir, directory).walkTopDown()
-                .filter { it.isFile && !it.name.contains(".blurred-") }
-                .forEach { file -> addFile(kind, file.relativeTo(File(context.filesDir, directory)).path, file) }
-        }
+        val fontRoot = File(context.filesDir, "fonts")
+        fontRoot.walkTopDown()
+            .filter { it.isFile }
+            .forEach { file -> addFile("font", file.relativeTo(fontRoot).path, file) }
 
-        val preferences = dataStoreManager.exportPortablePreferences(deviceId).map { preference ->
+        // 自定义阅读背景是唯一随快照同步的本地文件；按内容去重并限制体积与数量。
+        val backgroundRoot = File(context.filesDir, "reader_backgrounds")
+        val backgroundIds = linkedSetOf<String>()
+        backgroundRoot.walkTopDown()
+            .filter { it.isFile && !it.name.contains(".blurred-") }
+            .sortedBy { it.relativeTo(backgroundRoot).path }
+            .forEach { file ->
+                if (file.length() > MAX_READER_BACKGROUND_BYTES) return@forEach
+                val id = addFile(READER_BACKGROUND_KIND, file.relativeTo(backgroundRoot).path, file, dedupeByContent = true)
+                if (id != null) backgroundIds += id
+            }
+        backgroundIds.drop(MAX_READER_BACKGROUND_ASSETS).forEach { id ->
+            sources.remove(id)
+            pathAssets.entries.removeAll { it.value == id }
+        }
+        val includedPaths = pathAssets.keys.toSet()
+
+        val preferences = rewriteReaderBackgroundPreferences(
+            dataStoreManager.exportPortablePreferences(deviceId),
+            keep = { preset ->
+                preset.type != ReaderBackgroundType.IMAGE || File(preset.value).absolutePath in includedPaths
+            },
+            transform = ::stripDerivedBackgroundPaths
+        ).map { preference ->
             if (preference.type != PortablePreference.TYPE_STRING) return@map preference
             preference.copy(
                 value = replacePathsInPortableString(
@@ -179,7 +205,16 @@ class PortableSnapshotManager internal constructor(
         val oldPreferences = dataStoreManager.exportPortablePreferences(deviceId)
         val preparedAssets = prepareAssets(snapshot, assetFiles, replaceAssetDirectories)
         val assetPaths = preparedAssets.paths
-        val preferences = snapshot.preferences.map { preference ->
+        val preferences = rewriteReaderBackgroundPreferences(
+            snapshot.preferences,
+            keep = { preset ->
+                if (preset.type != ReaderBackgroundType.IMAGE) true
+                else if (preset.value.startsWith("asset://")) {
+                    preset.value.removePrefix("asset://") in assetPaths
+                } else File(preset.value).isFile
+            },
+            transform = ::stripDerivedBackgroundPaths
+        ).map { preference ->
             if (preference.type != PortablePreference.TYPE_STRING) return@map preference
             preference.copy(
                 value = replacePathsInPortableString(
@@ -445,6 +480,9 @@ class PortableSnapshotManager internal constructor(
         val roots = assetRoots()
         val stagingRoots = roots.mapValues { (_, target) -> File(target.parentFile, ".${target.name}.restore-$token") }
         val required = referencedAssetIds(snapshot)
+        val strictRequired = required.filterTo(mutableSetOf()) { id ->
+            snapshot.assets.firstOrNull { it.id == id }?.kind != READER_BACKGROUND_KIND
+        }
         val paths = mutableMapOf<String, String>()
         val stagedFiles = linkedMapOf<File, File>()
         try {
@@ -454,15 +492,23 @@ class PortableSnapshotManager internal constructor(
                 val stagingRoot = stagingRoots.getValue(asset.kind)
                 val target = assetTarget(root, asset)
                 val staged = assetTarget(stagingRoot, asset)
-                staged.parentFile?.mkdirs()
-                source.copyTo(staged, overwrite = true)
-                require(staged.length() == asset.sizeBytes && staged.sha256Portable() == asset.sha256) {
-                    "Backup asset is damaged: ${asset.fileName}"
+                val bestEffort = asset.kind == READER_BACKGROUND_KIND
+                val installed = runCatching {
+                    staged.parentFile?.mkdirs()
+                    source.copyTo(staged, overwrite = true)
+                    require(staged.length() == asset.sizeBytes && staged.sha256Portable() == asset.sha256) {
+                        "Backup asset is damaged: ${asset.fileName}"
+                    }
+                }
+                if (installed.isFailure) {
+                    staged.delete()
+                    if (bestEffort) continue
+                    throw installed.exceptionOrNull()!!
                 }
                 paths[asset.id] = target.absolutePath
                 stagedFiles[target] = staged
             }
-            require(required.all { it in paths }) { "Backup is missing a referenced asset" }
+            require(strictRequired.all { it in paths }) { "Backup is missing a referenced asset" }
         } catch (error: Throwable) {
             stagingRoots.values.distinct().forEach { it.deleteRecursively() }
             throw error
@@ -502,7 +548,10 @@ class PortableSnapshotManager internal constructor(
             }
         }
         for (assetId in referencedAssetIds(snapshot)) {
-            require(assets.containsKey(assetId)) { "Referenced asset is not declared: $assetId" }
+            val asset = assets[assetId]
+            require(asset != null) { "Referenced asset is not declared: $assetId" }
+            // 背景图是可选内容：文件缺失或损坏时回退默认背景，不阻断整次恢复。
+            if (asset.kind == READER_BACKGROUND_KIND) continue
             val source = files[assetId]
             require(source?.isFile == true) { "Referenced asset is missing: $assetId" }
         }
@@ -665,12 +714,57 @@ class PortableSnapshotManager internal constructor(
         }
     }
 
+    private fun stripDerivedBackgroundPaths(preset: ReaderBackgroundPreset): ReaderBackgroundPreset =
+        if (preset.type == ReaderBackgroundType.IMAGE) {
+            preset.copy(processedValue = null, processedBlurDp = null)
+        } else preset
+
+    /**
+     * 背景图是可选的：未入包或还原失败的图片对应 preset 直接剔除，
+     * 并把指向它的选中项回退默认背景，避免快照携带跨设备无效路径。
+     */
+    private fun rewriteReaderBackgroundPreferences(
+        preferences: List<PortablePreference>,
+        keep: (ReaderBackgroundPreset) -> Boolean,
+        transform: (ReaderBackgroundPreset) -> ReaderBackgroundPreset
+    ): List<PortablePreference> {
+        val stored = preferences.firstOrNull {
+            it.key == READER_BACKGROUNDS_PREFERENCE_KEY && it.type == PortablePreference.TYPE_STRING
+        } ?: return preferences
+        val presets = ReaderBackgroundPresetCodec.decode(stored.value)
+        if (presets.isEmpty()) return preferences
+        val kept = presets.filter(keep).map(transform)
+        if (kept == presets) return preferences
+        val droppedKeys = presets.filterNot(keep).map { it.selectionKey }
+        return preferences.map { preference ->
+            when {
+                preference.key == READER_BACKGROUNDS_PREFERENCE_KEY ->
+                    preference.copy(value = ReaderBackgroundPresetCodec.encode(kept))
+                preference.type == PortablePreference.TYPE_STRING && droppedKeys.any { it in preference.value } ->
+                    preference.copy(
+                        value = droppedKeys.fold(preference.value) { text, key ->
+                            text.replace(key, DEFAULT_BACKGROUND_SELECTION)
+                        }
+                    )
+                else -> preference
+            }
+        }
+    }
+
     private fun BookEntity.toPortable(bodyAssetId: String?, coverAssetId: String?) = PortableBook(
         id, title, author, format, lastReadTime, readingProgress, locatorJson, createdAt, isFavorite,
         isCloudOnly, metadataUpdatedAt, bodyAssetId, coverAssetId, remoteLibraryKey, remoteFileName,
         remoteFileSize, remoteFileSha256, isPinned, isManuallyMarkedRead, isHidden, isArchived,
         archiveUpdatedAt
     )
+
+    private companion object {
+        const val READER_BACKGROUND_KIND = "reader_background"
+        const val READER_BACKGROUNDS_PREFERENCE_KEY = "custom_reader_backgrounds"
+        const val MAX_READER_BACKGROUND_BYTES = 20L * 1024 * 1024
+        const val MAX_READER_BACKGROUND_ASSETS = 30
+        const val DEFAULT_BACKGROUND_SELECTION = "day"
+    }
 
 }
 
