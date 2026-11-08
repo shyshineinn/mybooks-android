@@ -140,10 +140,6 @@ class MyBooksSyncManager @Inject constructor(
     fun onPortableBookStateChanged() { scheduler.schedulePush() }
     suspend fun cacheImportedCover(url: String, target: File) { client.downloadFile(url, target, 0) { _, _ -> } }
 
-    suspend fun syncIfStale(maxAgeMs: Long = 10 * 60_000) {
-        scheduler.scheduleIfNeeded(maxAgeMs)
-    }
-
     suspend fun syncNow(scheduleRetry: Boolean = true, direction: MyBooksSyncDirection = MyBooksSyncDirection.BOTH,
         selectedBookIds: Set<String>? = null): MyBooksSyncResult = syncMutex.withLock {
         if (!preferences.current().enabled || !MyBooksConfig.hasWriteToken()) {

@@ -42,9 +42,9 @@ val LocalCoverReadingProgressEnabled = staticCompositionLocalOf { false }
 
 /** Adds the optional high-contrast edge used by standard (non-liquid) cards. */
 @Composable
-fun Modifier.cardOutline(shape: Shape, alpha: Float = 1f): Modifier {
+fun Modifier.cardOutline(shape: Shape, alpha: Float = 1f, includeLiquidGlass: Boolean = false): Modifier {
     if (alpha <= 0f || !LocalCardOutlinesEnabled.current ||
-        LocalAppTheme.current == "liquid_glass"
+        (!includeLiquidGlass && LocalAppTheme.current == "liquid_glass")
     ) return this
     val outlineColor = if (LocalIsDarkTheme.current) Color.White else Color.Black
     return vectorCardOutline(width = 0.5.dp, color = outlineColor.copy(alpha = alpha.coerceIn(0f, 1f)), shape = shape)

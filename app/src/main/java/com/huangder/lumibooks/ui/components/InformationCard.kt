@@ -3,6 +3,8 @@ package com.huangder.lumibooks.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,6 +16,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.huangder.lumibooks.domain.model.AppUiIconStyle
+import com.huangder.lumibooks.ui.icons.AppIcons
+import com.huangder.lumibooks.ui.icons.ControlIcon
+import com.huangder.lumibooks.ui.icons.LocalAppUiIconStyle
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +48,8 @@ fun InformationCard(
     title: String? = null,
     contentPadding: PaddingValues = PaddingValues(AppSpace.md),
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(AppSpace.sm),
+    titleIcon: ImageVector? = null,
+    titleIconTint: Color = AppColors.Accent,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val eInk = LocalEInkMode.current
@@ -87,13 +96,10 @@ fun InformationCard(
                     modifier = Modifier.fillMaxWidth().clip(shape)
                 ) {
                     if (!title.isNullOrBlank()) {
-                        Text(
-                            text = title,
-                            modifier = Modifier.padding(horizontal = AppSpace.md)
-                                .padding(top = AppSpace.md).semantics { heading() },
-                            fontSize = AppType.Body,
-                            fontWeight = FontWeight.SemiBold,
-                            color = AppColors.TextPrimary
+                        InformationCardHeading(
+                            title, titleIcon,
+                            Modifier.padding(horizontal = AppSpace.md).padding(top = AppSpace.md),
+                            iconTint = titleIconTint
                         )
                     }
                     Column(
@@ -104,5 +110,24 @@ fun InformationCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun InformationCardHeading(
+    title: String,
+    icon: ImageVector?,
+    modifier: Modifier = Modifier,
+    iconTint: Color = AppColors.Accent
+) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (icon != null) {
+            val style = LocalAppUiIconStyle.current
+            val glyphStyle = if (style == AppUiIconStyle.FILLED_COLORFUL) AppUiIconStyle.FILLED_MONOCHROME else style
+            ControlIcon(AppIcons.styled(icon, glyphStyle), null, Modifier.size(17.dp),
+                tint = if (style.isColorful && !LocalEInkMode.current) iconTint else AppColors.TextPrimary)
+        }
+        Text(title, Modifier.semantics { heading() }, fontSize = AppType.Body,
+            fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
     }
 }

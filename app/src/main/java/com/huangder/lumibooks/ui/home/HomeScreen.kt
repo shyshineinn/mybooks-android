@@ -129,7 +129,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.huangder.lumibooks.ui.components.AppDropdownMenu
-import com.huangder.lumibooks.ui.components.AmbientGlow
+import com.huangder.lumibooks.ui.components.MainTabAmbientGlow
 import com.huangder.lumibooks.ui.components.MainTabHeader
 import com.huangder.lumibooks.ui.components.MainTabTitle
 import com.huangder.lumibooks.ui.components.rememberCoverColors
@@ -223,9 +223,7 @@ fun HomeScreen(
         Box(Modifier.matchParentSize()
             .then(if (isLiquidGlass) Modifier.layerBackdrop(avatarBackdrop) else Modifier)
             .background(AppColors.PageBg)) {
-            AmbientGlow(glowColors, scrollOffset = {
-                if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE else listState.firstVisibleItemScrollOffset.toFloat()
-            })
+            MainTabAmbientGlow(glowColors, intensity = 1f)
         }
         // Inset individual cards, not the scrolling viewport: the book row must reach under
         // the floating rail all the way to the window edge while keeping its initial alignment.

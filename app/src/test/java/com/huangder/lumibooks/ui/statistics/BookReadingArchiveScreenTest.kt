@@ -35,9 +35,23 @@ class BookReadingArchiveScreenTest {
         val last = model.state.value.daily.keys.maxOrNull()!!
         compose.onNodeWithText(context.getString(R.string.insights_first_read_label)).assertExists()
         compose.onAllNodesWithText(shortDate(first)).onFirst().assertExists()
+        compose.onNodeWithContentDescription(last.toString()).assertExists()
+        val archive = compose.onNodeWithTag("book_reading_archive").fetchSemanticsNode().boundsInRoot
+        val monthly = compose.onNodeWithTag("book_monthly_reading_records").fetchSemanticsNode().boundsInRoot
+        assertEquals(archive.height, monthly.height, 1f)
+        compose.onNodeWithText(context.getString(R.string.insights_reading)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.insights_listening)).assertDoesNotExist()
+        compose.onNodeWithContentDescription(context.getString(R.string.insights_book_records_expand))
+            .performScrollTo().performClick()
         compose.onNodeWithContentDescription(last.toString()).performScrollTo().assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithText(context.getString(R.string.insights_day_list)).performScrollTo().performClick()
         compose.onNodeWithText(dayTitle(last)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.insights_book_records_collapse))
+            .performScrollTo().performClick()
+        compose.onNodeWithText(dayTitle(last)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.insights_reading)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.insights_listening)).assertDoesNotExist()
+        compose.onNodeWithContentDescription(last.toString()).assertExists()
     }
 
     @Test fun dayDetailsLaunchCheckInWithTheSelectedBookAndDate() {

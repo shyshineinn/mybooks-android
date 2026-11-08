@@ -409,6 +409,9 @@ fun MainNavGraph(
     var showImportActions by remember { mutableStateOf(false) }
     var showImportConfirmation by remember { mutableStateOf(false) }
     var showImportDestination by remember { mutableStateOf(false) }
+    var informationSources by remember { mutableStateOf(emptyList<com.huangder.lumibooks.ui.bookshelf.MyBooksCreateSource>()) }
+    var informationIndex by remember { mutableIntStateOf(0) }
+    var informationDrafts by remember { mutableStateOf(emptyMap<String, String>()) }
     var selectedImportBooks by remember { mutableStateOf(emptyList<SelectedImportBook>()) }
     var selectedImportBookUris by remember { mutableStateOf(emptySet<String>()) }
     var importCopiesIntoApp by remember { mutableStateOf(true) }
@@ -491,12 +494,14 @@ fun MainNavGraph(
             if (candidates.isNotEmpty()) {
                 isPreparingImport = false
                 showImportActions = false
-                homeViewModel.importBooks(
-                    context = context,
-                    uris = candidates.map { it.uri },
-                    targetFolderId = importRequestFolderId
-                )
-                importRequestFolderId = null
+                importCopiesIntoApp = true
+                selectedImportBooks = emptyList()
+                selectedImportBookUris = emptySet()
+                informationSources = candidates.map { com.huangder.lumibooks.ui.bookshelf.MyBooksCreateSource(it.name, it.uri) }
+                informationIndex = 0
+                informationDrafts = emptyMap()
+            } else if (uris.isNotEmpty()) {
+                transientMessage = context.getString(R.string.import_no_supported_files)
             }
         }
     }
@@ -1786,6 +1791,49 @@ fun MainNavGraph(
                 },
                 onDismiss = clearPendingImport
             )
+        }
+
+        fun commitConfirmedImports(drafts: Map<String, String>) {
+            val confirmed = informationSources.filter { it.uri.toString() in drafts }
+            if (confirmed.isNotEmpty()) {
+                homeViewModel.importBooks(
+                    context = context,
+                    uris = confirmed.map { it.uri },
+                    targetFolderId = importRequestFolderId,
+                    overrides = drafts.mapValues { (_, draft) ->
+                        val fields = org.json.JSONObject(draft).getJSONObject("fields")
+                        com.huangder.lumibooks.ui.home.BookImportOverride(
+                            fields.optString("title"),
+                            fields.optString("author"),
+                            draft
+                        )
+                    }
+                )
+            }
+            informationSources = emptyList()
+            informationIndex = 0
+            informationDrafts = emptyMap()
+            importRequestFolderId = null
+        }
+        informationSources.getOrNull(informationIndex)?.let { source ->
+            androidx.compose.runtime.key(source.uri.toString()) {
+                com.huangder.lumibooks.ui.bookshelf.MyBooksEditSheet(
+                    book = null,
+                    meta = null,
+                    createSource = source,
+                    localImport = true,
+                    onDismiss = { commitConfirmedImports(informationDrafts) },
+                    onLocalImportSaved = { draft ->
+                        val updated = informationDrafts + (source.uri.toString() to draft)
+                        informationDrafts = updated
+                        if (informationIndex + 1 < informationSources.size) {
+                            informationIndex++
+                        } else {
+                            commitConfirmedImports(updated)
+                        }
+                    }
+                )
+            }
         }
 
         ReadingGoalSheet(

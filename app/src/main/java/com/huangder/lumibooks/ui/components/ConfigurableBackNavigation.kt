@@ -76,21 +76,33 @@ fun ConfigurableBackHandler(
     onBack = onBack
 )
 
-/** Matches Material 3 ModalBottomSheet's predictive-back easing. */
+/**
+ * Matches Material 3 ModalBottomSheet's predictive-back easing.
+ *
+ * [staysOpen] marks backs that only navigate inside the sheet (a category, rename or save state).
+ * Their gesture must not scale the sheet, and the completed progress is reset so the next back
+ * starts from rest.
+ */
 @Composable
 fun ConfigurableBottomSheetBackHandler(
     enabled: Boolean = true,
+    staysOpen: () -> Boolean = { false },
     onBack: () -> Unit
-): Float = configurableBackHandler(
-    enabled = enabled,
-    transformProgress = MaterialBottomSheetBackEasing::transform,
-    onBack = onBack
-)
+): Float {
+    val progress = configurableBackHandler(
+        enabled = enabled,
+        transformProgress = MaterialBottomSheetBackEasing::transform,
+        staysOpen = staysOpen,
+        onBack = onBack
+    )
+    return if (staysOpen()) 0f else progress
+}
 
 @Composable
 private fun configurableBackHandler(
     enabled: Boolean,
     transformProgress: (Float) -> Float,
+    staysOpen: () -> Boolean = { false },
     onBack: () -> Unit
 ): Float {
     val predictiveBackEnabled = LocalPredictiveBackEnabled.current
@@ -111,7 +123,7 @@ private fun configurableBackHandler(
                 val rawProgress = event.progress.coerceIn(0f, 1f)
                 progress.snapTo(transformProgress(rawProgress))
             }
-            progress.snapTo(1f)
+            progress.snapTo(if (staysOpen()) 0f else 1f)
             currentOnBack()
         } catch (_: CancellationException) {
             progress.animateTo(0f, tween(180))

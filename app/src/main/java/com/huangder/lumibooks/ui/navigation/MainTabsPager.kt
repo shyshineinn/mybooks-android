@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
@@ -52,6 +53,9 @@ import com.huangder.lumibooks.ui.animation.LocalMainTabItemMotion
 import com.huangder.lumibooks.ui.animation.MainTabItemMotion
 import com.huangder.lumibooks.ui.animation.MainTabMotion
 import com.huangder.lumibooks.ui.animation.MAIN_TAB_SETTLE_LIMIT_MS
+import com.huangder.lumibooks.ui.components.LocalMainTabAmbientPage
+import com.huangder.lumibooks.ui.components.LocalMainTabAmbientState
+import com.huangder.lumibooks.ui.components.MainTabAmbientState
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
 import com.huangder.lumibooks.ui.theme.LocalPageVisible
 
@@ -72,6 +76,9 @@ internal fun MainTabsPager(
     val dragging = dragInteractions.collectIsDraggedAsState()
     val motion = remember { MainTabMotion() }
     val motionEnabled = LocalMotionEnabled.current
+    val ambientState = remember { MainTabAmbientState(mainTabRoutes.size) }
+    val ambientPage = state.currentPage
+    SideEffect { ambientState.selectedPage = ambientPage }
     LaunchedEffect(state, motionEnabled, selection) {
         if (!motionEnabled) {
             motion.finish(state.currentPage.toFloat())
@@ -167,7 +174,7 @@ internal fun MainTabsPager(
                     state, page, isLtr,
                     // Selection resets the motion above. Keep the item modifier layers
                     // attached through the fade so retained pages keep their display lists.
-                    motion.takeIf { motionEnabled }, selection, content
+                    motion.takeIf { motionEnabled }, selection, ambientState, content
                 )
             }
         }
@@ -181,6 +188,7 @@ private fun MainTabPage(
     isLtr: Boolean,
     motion: MainTabMotion?,
     selection: MainTabSelection?,
+    ambientState: MainTabAmbientState,
     content: @Composable (Int) -> Unit
 ) {
     val parent = LocalLifecycleOwner.current
@@ -212,7 +220,9 @@ private fun MainTabPage(
     CompositionLocalProvider(
         LocalLifecycleOwner provides owner,
         LocalPageVisible provides visible,
-        LocalMainTabItemMotion provides itemMotion
+        LocalMainTabItemMotion provides itemMotion,
+        LocalMainTabAmbientState provides ambientState,
+        LocalMainTabAmbientPage provides page
     ) {
         Box(
             Modifier.fillMaxSize()

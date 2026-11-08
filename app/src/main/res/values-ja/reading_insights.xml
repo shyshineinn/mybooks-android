@@ -19,7 +19,9 @@
     <string name="insights_first_read">最初の読書記録：%1$s</string>
     <string name="insights_last_read">最近の読書記録：%1$s</string>
     <string name="insights_records_hint">保存済みの読書・聴書記録に基づきます</string>
-    <string name="insights_book_records">読書記録</string>
+    <string name="insights_book_records">月間読書記録</string>
+    <string name="insights_book_records_expand">月間読書記録を展開</string>
+    <string name="insights_book_records_collapse">月間読書記録を折りたたむ</string>
     <string name="insights_share_card">共有カード</string>
     <string name="insights_calendar">カレンダー</string>
     <string name="insights_day_list">日別記録</string>

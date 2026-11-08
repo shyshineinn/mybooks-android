@@ -5,6 +5,7 @@ import android.util.LruCache
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -78,6 +79,63 @@ internal fun rememberCoverColors(coverPath: String?): List<Color> {
     return colors?.map { Color(it) }?.let { if (it.size >= 3) it else it + fallback.drop(it.size) } ?: fallback
 }
 
+internal data class MainTabAmbientSpec(
+    val colors: List<Color> = emptyList(),
+    val intensity: Float = 1f
+)
+
+/**
+ * One atmosphere shared by the three main tabs. Every page draws the selected tab's spec, so the
+ * 700 ms tab crossfade never shows two different corner glows at once.
+ */
+internal class MainTabAmbientState(pageCount: Int) {
+    var selectedPage by mutableIntStateOf(0)
+    private val specs = mutableStateListOf<MainTabAmbientSpec>().apply {
+        repeat(pageCount) { add(MainTabAmbientSpec()) }
+    }
+
+    fun update(page: Int, colors: List<Color>, intensity: Float) {
+        if (page !in specs.indices) return
+        val next = MainTabAmbientSpec(colors, intensity)
+        if (specs[page] != next) specs[page] = next
+    }
+
+    fun spec(page: Int): MainTabAmbientSpec = specs.getOrElse(page) { MainTabAmbientSpec() }
+}
+
+internal val LocalMainTabAmbientState = staticCompositionLocalOf<MainTabAmbientState?> { null }
+internal val LocalMainTabAmbientPage = staticCompositionLocalOf<Int?> { null }
+
+/**
+ * Draws the main-tab atmosphere from the shared state. Used inside each page's background so the
+ * page-local glass backdrop keeps refracting the glow.
+ */
+@Composable
+internal fun MainTabAmbientGlow(
+    colors: List<Color>,
+    intensity: Float
+) {
+    val state = LocalMainTabAmbientState.current
+    val page = LocalMainTabAmbientPage.current
+    if (state == null || page == null) {
+        AmbientGlow(colors, intensity = intensity)
+        return
+    }
+    SideEffect { state.update(page, colors, intensity) }
+    val spec = state.spec(state.selectedPage)
+    val animatedIntensity by animateFloatAsState(
+        spec.intensity,
+        tween(700),
+        label = "mainTabGlowIntensity"
+    )
+    AmbientGlow(
+        colors = spec.colors,
+        intensity = animatedIntensity,
+        // A shared static position keeps every page pixel-identical during the tab crossfade.
+        driftProgress = { .5f }
+    )
+}
+
 /**
  * Soft atmospheric glow behind a page's top (like Apple Music / Books). Purely decorative and drawn
  * in the draw phase only: slow drift, colour crossfade when the source changes, and it fades and
@@ -90,7 +148,8 @@ internal fun AmbientGlow(
     modifier: Modifier = Modifier,
     height: Dp = 460.dp,
     intensity: Float = 1f,
-    scrollOffset: () -> Float = { 0f }
+    scrollOffset: () -> Float = { 0f },
+    driftProgress: (() -> Float)? = null
 ) {
     if (LocalEInkMode.current || LocalReduceTransparency.current || LocalLumiBackgroundPresent.current) return
     val dark = LocalIsDarkTheme.current
@@ -102,7 +161,9 @@ internal fun AmbientGlow(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val driftState = remember { Animatable(if (motion) 0f else .5f) }
     val towardEnd = remember { booleanArrayOf(true) }
-    LaunchedEffect(motion, visible, lifecycle) {
+    val hasExternalDrift = driftProgress != null
+    LaunchedEffect(motion, visible, lifecycle, hasExternalDrift) {
+        if (hasExternalDrift) return@LaunchedEffect
         if (!motion) {
             driftState.snapTo(.5f)
         } else if (visible) {
@@ -121,7 +182,7 @@ internal fun AmbientGlow(
         val scroll = scrollOffset().coerceAtLeast(0f)
         val fade = (1f - scroll / 300.dp.toPx()).coerceIn(0f, 1f)
         if (fade <= 0f) return@Canvas
-        val t = driftState.value
+        val t = driftProgress?.invoke() ?: driftState.value
         val w = size.width
         val h = size.height
         val a = baseAlpha * fade

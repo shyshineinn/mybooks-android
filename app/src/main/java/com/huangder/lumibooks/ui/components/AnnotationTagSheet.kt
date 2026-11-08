@@ -140,7 +140,10 @@ fun AnnotationTagSheet(
         }
     }
     val close = { if (pendingSave == null && !isCreating) isClosing = true }
-    val predictiveBackProgress = ConfigurableBottomSheetBackHandler(onBack = dismiss)
+    val predictiveBackProgress = ConfigurableBottomSheetBackHandler(
+        staysOpen = { secondary || groupOpen || pendingSave != null || isCreating },
+        onBack = dismiss
+    )
     LaunchedEffect(Unit) {
         if (motionEnabled) sheetOffset.animateBottomSheetIn() else sheetOffset.snapTo(0f)
     }

@@ -7,6 +7,8 @@ import com.huangder.lumibooks.ui.components.AppDialogAction
 import com.huangder.lumibooks.ui.components.AppDialogActionRole
 
 import com.huangder.lumibooks.domain.model.ActivityDuration
+import com.huangder.lumibooks.domain.model.AppUiIconStyle
+import com.huangder.lumibooks.ui.theme.cardOutline
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.data.sync.BookDownloadState
 import com.huangder.lumibooks.data.sync.MyBooksConfig
@@ -110,6 +112,7 @@ import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
 import com.huangder.lumibooks.ui.components.ReplacingToast
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.InformationCard
+import com.huangder.lumibooks.ui.components.InformationCardHeading
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassButton
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
@@ -136,6 +139,7 @@ import com.huangder.lumibooks.ui.theme.rememberLiquidGlassCapability
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.TimeUtils
 import com.huangder.lumibooks.ui.icons.directionalIcon
+import com.huangder.lumibooks.ui.statistics.InsightsHue
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dagger.hilt.android.AndroidEntryPoint
@@ -192,7 +196,9 @@ class BookDetailsActivity : ComponentActivity() {
                 .collectAsState(initial = launchTheme.liquidGlassSamplingQuality)
             val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
                 .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
+            val appUiIconStyle by dataStoreManager.appUiIconStyle.collectAsState(initial = AppUiIconStyle.DEFAULT.storedValue)
             EBookReaderTheme(
+                appUiIconStyle = AppUiIconStyle.fromStoredValue(appUiIconStyle),
                 liquidGlassStyle = liquidGlassStyle,
                 liquidGlassSamplingQuality = liquidGlassSamplingQuality,
                 reduceTransparencyEnabled = reduceTransparencyEnabled,
@@ -244,7 +250,6 @@ class BookDetailsActivity : ComponentActivity() {
 
 data class BookDetailsUiState(
     val book: Book? = null,
-    val totalReadingTime: Long = 0L,
     val activeDays: Int = 0,
     val bookmarkCount: Int = 0,
     val noteCount: Int = 0,
@@ -271,7 +276,7 @@ class BookDetailsViewModel @Inject constructor(
                     readingRepository.getActiveDaysByBookId(bookId),
                     readingRepository.getBookmarksByBookId(bookId),
                     readingRepository.getNotesByBookId(bookId)
-                ) { books, duration, days, bookmarks, notes -> BookDetailsUiState(books.firstOrNull { it.id == bookId }, duration.totalDuration, days, bookmarks.size, notes.count { !it.isInkStroke }, false, activityDuration = duration) },
+                ) { books, duration, days, bookmarks, notes -> BookDetailsUiState(books.firstOrNull { it.id == bookId }, days, bookmarks.size, notes.count { !it.isInkStroke }, false, activityDuration = duration) },
                 dataStoreManager.bookReview(bookId),
                 dataStoreManager.bookReviewRating(bookId)
             ) { state, review, rating -> state.copy(review = review, reviewRating = rating) }
@@ -665,17 +670,7 @@ fun BookDetailsScreen(
                         }
                         BookDetailsPage.Reading -> {
                             item {
-                                MetricGrid(book, details.totalReadingTime, details.activeDays, details.bookmarkCount, details.noteCount)
-                                Text(
-                                    stringResource(
-                                        R.string.activity_duration_breakdown,
-                                        com.huangder.lumibooks.ui.components.activityDurationText(details.activityDuration.readingDuration),
-                                        com.huangder.lumibooks.ui.components.activityDurationText(details.activityDuration.listeningDuration)
-                                    ),
-                                    fontSize = AppType.Caption, color = AppColors.TextSecondary,
-                                    modifier = Modifier.fillMaxWidth().padding(AppSpace.sm),
-                                    textAlign = TextAlign.Center
-                                )
+                                MetricGrid(book, details.activityDuration, details.activeDays, details.bookmarkCount, details.noteCount)
                             }
                             metaState.meta?.let { meta ->
                                 if (timelineEvents.isNotEmpty() || meta.readCount > 0) {
@@ -685,6 +680,9 @@ fun BookDetailsScreen(
                             item { com.huangder.lumibooks.ui.statistics.BookReadingArchive(book.id) }
                             item {
                                 InformationCard(
+                                    title = stringResource(R.string.bookmarks_notes),
+                                    titleIcon = AppIcons.PencilSimple,
+                                    titleIconTint = InsightsHue.Yellow,
                                     contentPadding = PaddingValues(0.dp),
                                     verticalArrangement = Arrangement.Top
                                 ) {
@@ -920,10 +918,11 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
     }
 }
 
-@Composable internal fun MetricGrid(book: Book, duration: Long, days: Int, bookmarks: Int, notes: Int) {
+@Composable internal fun MetricGrid(book: Book, duration: ActivityDuration, days: Int, bookmarks: Int, notes: Int) {
     val coreMetrics = listOf(
         stringResource(R.string.book_detail_progress) to AnnotatedString("${(book.readingProgress * 100).toInt()}%"),
-        stringResource(R.string.book_detail_reading_time) to compactReadingDuration(duration, AppColors.TextSecondary),
+        stringResource(R.string.insights_reading) to compactReadingDuration(duration.readingDuration, AppColors.TextSecondary),
+        stringResource(R.string.insights_listening) to compactReadingDuration(duration.listeningDuration, AppColors.TextSecondary),
         stringResource(R.string.book_detail_active_days) to AnnotatedString(days.toString())
     )
     val valueStyle = LocalTextStyle.current.copy(
@@ -958,6 +957,8 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
     }
     InformationCard(
         title = stringResource(R.string.book_detail_reading_statistics),
+        titleIcon = AppIcons.ChartBar,
+        titleIconTint = InsightsHue.Green,
         contentPadding = PaddingValues(AppSpace.md),
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
     ) {
@@ -1053,6 +1054,8 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
         }
         InformationCard(
             title = stringResource(R.string.book_detail_group_details),
+            titleIcon = AppIcons.Info,
+            titleIconTint = InsightsHue.Blue,
             contentPadding = PaddingValues(0.dp),
             verticalArrangement = Arrangement.Top
         ) {
@@ -1089,6 +1092,8 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
         }
         InformationCard(
             title = stringResource(R.string.book_detail_group_library),
+            titleIcon = AppIcons.BooksPair.regular,
+            titleIconTint = InsightsHue.Indigo,
             contentPadding = PaddingValues(0.dp),
             verticalArrangement = Arrangement.Top
         ) {
@@ -1112,6 +1117,8 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
         if (showRetry || showSync) {
             InformationCard(
                 title = stringResource(R.string.mybooks_sync_state),
+                titleIcon = AppIcons.Cloud,
+                titleIconTint = InsightsHue.Teal,
                 contentPadding = PaddingValues(0.dp),
                 verticalArrangement = Arrangement.Top
             ) {
@@ -1136,6 +1143,9 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
     } == true
     val downloading = downloadState as? BookDownloadState.Downloading
     InformationCard(
+        title = stringResource(R.string.book_detail_tab_files),
+        titleIcon = AppIcons.FolderOpen,
+        titleIconTint = InsightsHue.Orange,
         contentPadding = PaddingValues(0.dp),
         verticalArrangement = Arrangement.Top
     ) {
@@ -1199,7 +1209,9 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
         canExpand -> ({ expanded = !expanded })
         else -> null
     }
+    val outline = Modifier.cardOutline(shape, includeLiquidGlass = true)
     LiquidGlassSurface(shape, AppColors.CardBg, Modifier.fillMaxWidth(), contentScrimColor = Color.Transparent,
+        decorationModifier = outline,
         onClick = onCardClick, interactive = false, pressFeedbackEnabled = false) {
         Column(
             Modifier
@@ -1212,7 +1224,12 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
             verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.book_review), Modifier.weight(1f), fontSize = AppType.Body, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                InformationCardHeading(
+                    stringResource(R.string.book_review),
+                    AppIcons.PencilSimple,
+                    Modifier.weight(1f),
+                    iconTint = InsightsHue.Yellow
+                )
                 ReviewEditButton(hasReview, actionColor, onActionColor, onEdit)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {

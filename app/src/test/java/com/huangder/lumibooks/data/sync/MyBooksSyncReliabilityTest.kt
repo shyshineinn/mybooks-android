@@ -236,15 +236,6 @@ class MyBooksSyncReliabilityTest {
         Unit
     }
 
-    @Test fun foregroundThrottlingResumesPendingEditsAndHandlesAClockMovingBackwards() {
-        val recent = MyBooksSyncStatus(lastSuccessAt = 1000)
-        assertFalse(shouldScheduleMyBooksSync(recent, 0, 1050, 100))
-        assertTrue(shouldScheduleMyBooksSync(recent, 1, 1050, 100))
-        assertTrue(shouldScheduleMyBooksSync(recent, 0, 1100, 100))
-        assertTrue(shouldScheduleMyBooksSync(recent, 0, 900, 100))
-        assertFalse(shouldScheduleMyBooksSync(recent.copy(failure = MyBooksSyncFailure.AUTH), 1, 2000, 100))
-    }
-
     @Test fun anOldWorkerCannotMarkANewerSuccessfulSyncAsExhausted() = runBlocking {
         store.started(10)
         store.completed(MyBooksSyncResult("offline", false, failure = MyBooksSyncFailure.TRANSIENT, attemptAt = 10))

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.huangder.lumibooks.ui.components.InformationCardHeading
+import com.huangder.lumibooks.ui.statistics.InsightsHue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -290,12 +292,11 @@ internal fun SummaryRow(summary: String, expanded: Boolean, onExpandedChange: (B
                 .padding(horizontal = AppSpace.md, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
+            InformationCardHeading(
                 stringResource(R.string.server_meta_summary),
-                fontSize = AppType.Body,
-                fontWeight = FontWeight.SemiBold,
-                color = AppColors.TextPrimary,
-                modifier = Modifier.weight(1f).semantics { heading() }
+                AppIcons.BookOpenText,
+                Modifier.weight(1f),
+                iconTint = InsightsHue.Teal
             )
             if (canExpand) {
                 Icon(

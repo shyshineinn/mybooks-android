@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.statistics
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -9,15 +10,21 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -33,6 +40,7 @@ import com.huangder.lumibooks.ui.bookshare.BookShareActivity
 import com.huangder.lumibooks.ui.components.DisclosureChevron
 import com.huangder.lumibooks.ui.components.activityDurationText
 import com.huangder.lumibooks.ui.icons.AppIcons
+import com.huangder.lumibooks.ui.icons.ControlIcon
 import com.huangder.lumibooks.ui.theme.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.DayOfWeek
@@ -75,11 +83,17 @@ internal class BookArchiveViewModel @Inject constructor(private val repository: 
         }
     }
     var list by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable(bookId) { mutableStateOf(false) }
+    var archiveHeightPx by remember { mutableIntStateOf(0) }
+    val archiveHeight = with(LocalDensity.current) { archiveHeightPx.toDp() }
     var selected by remember { mutableStateOf<LocalDate?>(null) }
     val context = LocalContext.current
     val motion = insightsMotion()
     ProvideInsightsMotion("archive-$bookId") { Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        InsightsCard(stringResource(R.string.insights_book_archive), icon = AppIcons.Archive, tint = InsightsHue.Indigo,
+        InsightsCard(stringResource(R.string.insights_book_archive),
+            modifier = Modifier.testTag("book_reading_archive").onSizeChanged { archiveHeightPx = it.height },
+            icon = AppIcons.Archive,
+            tint = InsightsHue.Indigo, includeLiquidGlassOutline = true,
             action = { InsightsTextAction(stringResource(R.string.insights_share_card)) { BookShareActivity.start(context, bookId) } }) {
             val first = state.daily.keys.minOrNull()
             val last = state.daily.keys.maxOrNull()
@@ -97,7 +111,42 @@ internal class BookArchiveViewModel @Inject constructor(private val repository: 
             }
             InsightLabel(stringResource(R.string.insights_records_hint))
         }
-        InsightsCard(stringResource(R.string.insights_book_records), icon = AppIcons.ChartBar, tint = InsightsHue.Green) {
+        InsightsCard(
+            stringResource(R.string.insights_book_records),
+            modifier = Modifier.testTag("book_monthly_reading_records")
+                .then(
+                    if (motion && archiveHeightPx > 0) {
+                        Modifier.animateContentSize(
+                            animationSpec = VisualMotion.tween<IntSize>(220)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .then(if (expanded || archiveHeightPx == 0) Modifier else Modifier.height(archiveHeight)),
+            icon = AppIcons.ChartBar,
+            tint = InsightsHue.Green,
+            action = {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
+                    ControlIcon(
+                        if (expanded) AppIcons.CaretUp else AppIcons.CaretDown,
+                        stringResource(if (expanded) R.string.insights_book_records_collapse else R.string.insights_book_records_expand),
+                        Modifier.size(18.dp)
+                    )
+                }
+            },
+            includeLiquidGlassOutline = true
+        ) {
+            if (!expanded) {
+                InsightLabel(insightsDate(month.atDay(1), "yMMMM"))
+                ActivityCalendar(
+                    StatisticsPeriod(month.atDay(1), month.atEndOfMonth()),
+                    state.daily,
+                    state.annotations,
+                    firstDayOfWeek = DayOfWeek.MONDAY
+                ) { selected = it }
+                return@InsightsCard
+            }
             var direction by remember { mutableIntStateOf(0) }
             PeriodNavigation(insightsDate(month.atDay(1), "yMMMM"), month < YearMonth.now(),
                 { direction = -1; month = month.minusMonths(1) },

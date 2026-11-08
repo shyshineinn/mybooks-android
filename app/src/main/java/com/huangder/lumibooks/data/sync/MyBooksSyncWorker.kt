@@ -37,13 +37,6 @@ internal fun myBooksWorkerDecision(result: MyBooksSyncResult, attempt: Int): MyB
 
 data class MyBooksSyncWorkState(val queued: Boolean = false, val retrying: Boolean = false)
 
-internal fun shouldScheduleMyBooksSync(
-    status: MyBooksSyncStatus, pendingCount: Int, now: Long, maxAgeMs: Long
-): Boolean = status.failure != MyBooksSyncFailure.AUTH && (
-    status.failure != null || pendingCount > 0 || status.lastSuccessAt == 0L ||
-        now < status.lastSuccessAt || now - status.lastSuccessAt >= maxAgeMs
-    )
-
 @HiltWorker
 class MyBooksSyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -90,15 +83,6 @@ class MyBooksSyncScheduler @Inject constructor(
             queued = pending.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED },
             retrying = pending.any { it.runAttemptCount > 0 }
         )
-    }
-
-    fun scheduleIfNeeded(maxAgeMs: Long = 10 * 60_000L) {
-        scope.launch {
-            if (!preferences.automatic() || !MyBooksConfig.hasWriteToken()) return@launch
-            val status = stateStore.status.first()
-            if (shouldScheduleMyBooksSync(status, stateStore.pendingCount.first(),
-                    System.currentTimeMillis(), maxAgeMs)) enqueue(0)
-        }
     }
 
     fun schedulePush() { scope.launch { enqueue(5_000, followUpIfRunning = true) } }

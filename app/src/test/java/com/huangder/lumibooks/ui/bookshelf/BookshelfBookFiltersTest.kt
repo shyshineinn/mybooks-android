@@ -2,6 +2,7 @@ package com.huangder.lumibooks.ui.bookshelf
 
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookFormat
+import com.huangder.lumibooks.domain.model.ReadingStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -13,6 +14,28 @@ class BookshelfBookFiltersTest {
         assertEquals(
             listOf(BookFormat.EPUB, BookFormat.MOBI, BookFormat.AZW, BookFormat.AZW3),
             books.filter(Book::isEpubMobi).map { it.format }
+        )
+    }
+
+    @Test
+    fun finishedBooksUseServerDoneForMyBooksAndLocalStateForImports() {
+        val books = listOf(
+            book(BookFormat.EPUB).copy(id = "local-finished", isManuallyMarkedRead = true),
+            book(BookFormat.TXT).copy(id = "local-unfinished"),
+            book(BookFormat.EPUB).copy(id = "mybooks-1"),
+            book(BookFormat.EPUB).copy(id = "mybooks-2", readingProgress = 1f),
+            book(BookFormat.EPUB).copy(id = "mybooks-3", isManuallyMarkedRead = true)
+        )
+
+        assertEquals(
+            setOf("local-finished", "mybooks-1"),
+            finishedBookIdsForLibrary(
+                books,
+                mapOf(
+                    "mybooks-1" to ReadingStatus.DONE,
+                    "mybooks-2" to ReadingStatus.READING
+                )
+            )
         )
     }
 

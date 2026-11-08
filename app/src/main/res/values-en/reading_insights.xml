@@ -19,7 +19,9 @@
     <string name="insights_first_read">First recorded reading: %1$s</string>
     <string name="insights_last_read">Latest recorded reading: %1$s</string>
     <string name="insights_records_hint">Based on retained reading and listening records</string>
-    <string name="insights_book_records">Reading history</string>
+    <string name="insights_book_records">Monthly reading records</string>
+    <string name="insights_book_records_expand">Expand monthly reading records</string>
+    <string name="insights_book_records_collapse">Collapse monthly reading records</string>
     <string name="insights_share_card">Share card</string>
     <string name="insights_calendar">Calendar</string>
     <string name="insights_day_list">Daily history</string>

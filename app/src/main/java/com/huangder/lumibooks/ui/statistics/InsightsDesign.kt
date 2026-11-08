@@ -192,7 +192,7 @@ internal object InsightsHue {
 
 internal val InsightsCardRadius = 22.dp
 
-@Composable internal fun Modifier.insightsCardSurface(radius: Dp = InsightsCardRadius, elevation: Dp = 10.dp): Modifier {
+@Composable internal fun Modifier.insightsCardSurface(radius: Dp = InsightsCardRadius, elevation: Dp = 10.dp, includeLiquidGlassOutline: Boolean = false): Modifier {
     val shape = AppRoundedCornerShape(radius)
     val shadowColor = AppColors.CardShadow
     // Content role only: these cards live inside the captured scroll layer and must never sample it.
@@ -200,17 +200,22 @@ internal val InsightsCardRadius = 22.dp
     return this
         .then(if (eInk || shadowColor.alpha == 0f) Modifier
             else Modifier.shadow(elevation, shape, clip = false, ambientColor = shadowColor, spotColor = shadowColor))
-        .then(if (eInk) Modifier.border(1.dp, Color.Black, shape) else Modifier.cardOutline(shape))
+        .then(if (eInk) Modifier.border(1.dp, Color.Black, shape) else Modifier.cardOutline(shape, includeLiquidGlass = includeLiquidGlassOutline))
         .clip(shape).lumiCardSurface(shape = shape)
 }
 
 /** Card header in the Health style: tinted glyph + tinted title, optional trailing action. */
 @Composable internal fun InsightsCardHeader(title: String, icon: ImageVector?, tint: Color, action: (@Composable () -> Unit)? = null) {
     val iconStyle = LocalAppUiIconStyle.current
+    val glyphStyle = if (iconStyle == com.huangder.lumibooks.domain.model.AppUiIconStyle.FILLED_COLORFUL) {
+        com.huangder.lumibooks.domain.model.AppUiIconStyle.FILLED_MONOCHROME
+    } else {
+        iconStyle
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) {
             Icon(
-                AppIcons.styled(icon, iconStyle),
+                AppIcons.styled(icon, glyphStyle),
                 null,
                 tint = if (iconStyle.isColorful) hue(tint) else AppColors.TextPrimary,
                 modifier = Modifier.size(17.dp)

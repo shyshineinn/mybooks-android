@@ -83,9 +83,10 @@ import kotlinx.coroutines.flow.*
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     tint: Color = AppColors.Accent,
     action: (@Composable () -> Unit)? = null,
+    includeLiquidGlassOutline: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(modifier.fillMaxWidth().insightsCardSurface().padding(horizontal = 18.dp, vertical = 16.dp),
+    Column(modifier.fillMaxWidth().insightsCardSurface(includeLiquidGlassOutline = includeLiquidGlassOutline).padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (title != null) InsightsCardHeader(title, icon, tint, action)
         content()

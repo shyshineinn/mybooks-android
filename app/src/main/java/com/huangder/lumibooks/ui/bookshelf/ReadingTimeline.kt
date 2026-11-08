@@ -50,9 +50,11 @@ import androidx.compose.ui.unit.sp
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.sync.ServerBookMeta
 import com.huangder.lumibooks.ui.components.InformationCard
+import com.huangder.lumibooks.ui.components.InformationCardHeading
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.icons.directionalIcon
+import com.huangder.lumibooks.ui.statistics.InsightsHue
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
@@ -73,10 +75,11 @@ internal fun ReadingRecordBlock(
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.server_meta_read_logs), fontSize = AppType.Body,
-                fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary,
-                modifier = Modifier.weight(1f).semantics { heading() }
+            InformationCardHeading(
+                stringResource(R.string.server_meta_read_logs),
+                AppIcons.Timer,
+                Modifier.weight(1f),
+                iconTint = InsightsHue.Blue
             )
             readCountLabel(meta)?.let { Text(it, fontSize = AppType.Caption, color = AppColors.TextSecondary) }
         }

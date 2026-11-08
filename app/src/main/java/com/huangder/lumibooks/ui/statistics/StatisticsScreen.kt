@@ -85,8 +85,7 @@ internal fun StatisticsScreen(
             .then(if (isLiquidGlass) Modifier.layerBackdrop(controlsBackdrop) else Modifier)
             .background(AppColors.PageBg)) {
             val accent = AppColors.Accent
-            AmbientGlow(remember(accent) { listOf(accent, InsightsHue.Indigo, InsightsHue.Teal) }, intensity = .8f,
-                scrollOffset = { if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE else listState.firstVisibleItemScrollOffset.toFloat() })
+            MainTabAmbientGlow(remember(accent) { listOf(accent, InsightsHue.Indigo, InsightsHue.Teal) }, intensity = .8f)
         }
         ProvideLiquidGlassBackdrop(controlsBackdrop.takeIf { isLiquidGlass }) {
             OverscrollBounce(Modifier.fillMaxSize()) {

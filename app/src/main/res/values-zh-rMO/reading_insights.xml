@@ -19,7 +19,9 @@
     <string name="insights_first_read">首次閱讀記錄：%1$s</string>
     <string name="insights_last_read">最近閱讀記錄：%1$s</string>
     <string name="insights_records_hint">根據已保留的閱讀與聽書記錄計算</string>
-    <string name="insights_book_records">閱讀記錄</string>
+    <string name="insights_book_records">每月閱讀記錄</string>
+    <string name="insights_book_records_expand">展開每月閱讀記錄</string>
+    <string name="insights_book_records_collapse">收起每月閱讀記錄</string>
     <string name="insights_share_card">分享卡</string>
     <string name="insights_calendar">日曆</string>
     <string name="insights_day_list">按日記錄</string>

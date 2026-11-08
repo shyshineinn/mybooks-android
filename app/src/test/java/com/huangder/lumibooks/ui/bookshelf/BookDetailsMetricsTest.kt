@@ -20,6 +20,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.R
+import com.huangder.lumibooks.domain.model.ActivityDuration
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
@@ -57,11 +58,11 @@ class BookDetailsMetricsTest {
 
     private fun label(id: Int) = RuntimeEnvironment.getApplication().getString(id)
     private val coreLabels get() = listOf(
-        label(R.string.book_detail_progress), label(R.string.book_detail_reading_time),
-        label(R.string.book_detail_active_days)
+        label(R.string.book_detail_progress), label(R.string.insights_reading),
+        label(R.string.insights_listening), label(R.string.book_detail_active_days)
     )
     private val coreValues get() = listOf(
-        "42%", if (longValues) "2562047788015H 12M" else "1H 15M",
+        "42%", if (longValues) "2562047788015H 12M" else "1H 15M", "36M",
         if (longValues) Int.MAX_VALUE.toString() else "7"
     )
     private val auxiliaryValues get() = listOf(
@@ -83,7 +84,7 @@ class BookDetailsMetricsTest {
                     ) {
                         Box(Modifier.width(width).testTag("metrics")) {
                             MetricGrid(
-                                book, if (longValues) Long.MAX_VALUE else 4_500_000L,
+                                book, ActivityDuration(if (longValues) Long.MAX_VALUE else 4_500_000L, 2_160_000L),
                                 if (longValues) Int.MAX_VALUE else 7,
                                 if (longValues) Int.MAX_VALUE else 11,
                                 if (longValues) Int.MAX_VALUE else 23
@@ -134,14 +135,17 @@ class BookDetailsMetricsTest {
 
     @Test
     @Config(qualifiers = "zh-rCN-w1000dp-h1600dp-mdpi")
-    fun standardWidthUsesThreeEqualColumnsAndCompactAuxiliaryRow() {
+    fun standardWidthUsesFourEqualColumnsAndCompactAuxiliaryRow() {
         mount()
         assertReadable()
         val values = coreValues.map(::bounds)
         assertEquals(values[0].top, values[1].top, .5f)
         assertEquals(values[1].top, values[2].top, .5f)
-        assertEquals(values[1].center.x - values[0].center.x,
-            values[2].center.x - values[1].center.x, 1f)
+        assertEquals(values[2].top, values[3].top, .5f)
+        val columnSpacing = values[1].center.x - values[0].center.x
+        values.zipWithNext().forEach { (left, right) ->
+            assertEquals(columnSpacing, right.center.x - left.center.x, 1f)
+        }
         val auxiliary = auxiliaryValues.map(::bounds)
         assertEquals(auxiliary[0].top, auxiliary[1].top, .5f)
         assertTrue(auxiliary[0].top > coreLabels.maxOf { bounds(it).bottom })
@@ -175,11 +179,12 @@ class BookDetailsMetricsTest {
             val values = coreValues.map(::bounds)
             assertTrue(values[0].bottom <= values[1].top)
             assertTrue(values[1].bottom <= values[2].top)
+            assertTrue(values[2].bottom <= values[3].top)
             assertTrue(bounds(auxiliaryValues[0]).bottom <= bounds(auxiliaryValues[1]).top)
         }
         // Recomposition must restore columns when the content and available space permit it.
-        compose.runOnIdle { width = 320.dp; fontScale = 1f; longValues = false }
+        compose.runOnIdle { width = 480.dp; fontScale = 1f; longValues = false }
         assertReadable()
-        assertEquals(bounds(coreValues[0]).top, bounds(coreValues[2]).top, .5f)
+        assertEquals(bounds(coreValues[0]).top, bounds(coreValues[3]).top, .5f)
     }
 }

@@ -126,6 +126,7 @@ import com.huangder.lumibooks.data.sync.MyBooksConfig
 import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.domain.model.FolderMoveResult
 import com.huangder.lumibooks.domain.model.LibraryFolder
+import com.huangder.lumibooks.domain.model.ReadingStatus
 import com.huangder.lumibooks.domain.model.FolderPreviewPlanner
 import com.huangder.lumibooks.ui.animation.AppEasing
 import com.huangder.lumibooks.ui.animation.OverscrollBounce
@@ -617,10 +618,12 @@ fun BookshelfScreen(
     ) {
         folderBookCounts(uiState.folders, shelfFolderLinks, matchingBookIds)
     }
-    val finishedBookIds = remember(uiState.books, matchingBookIds) {
-        uiState.books.asSequence()
-            .filter { it.isReadingFinished && (matchingBookIds == null || it.id in matchingBookIds) }
-            .mapTo(mutableSetOf()) { it.id }
+    // MyBooks 书以服务器 status=done 为准（随现有自动同步刷新），本地导入书按本地读完状态。
+    val libraryFinishedBookIds = remember(uiState.books, uiState.serverReadingStatusByBookId) {
+        finishedBookIdsForLibrary(uiState.books, uiState.serverReadingStatusByBookId)
+    }
+    val finishedBookIds = remember(libraryFinishedBookIds, matchingBookIds) {
+        matchingBookIds?.let(libraryFinishedBookIds::intersect) ?: libraryFinishedBookIds
     }
     val displayedFolderFinishedCounts = remember(uiState.folders, shelfFolderLinks, finishedBookIds) {
         folderBookCounts(uiState.folders, shelfFolderLinks, finishedBookIds)
@@ -917,9 +920,9 @@ fun BookshelfScreen(
                 .background(AppColors.PageBg)
         ) {
             val glowAccent = AppColors.Accent
-            com.huangder.lumibooks.ui.components.AmbientGlow(
+            com.huangder.lumibooks.ui.components.MainTabAmbientGlow(
                 remember(glowAccent) { listOf(glowAccent, glowAccent.shiftHue(32f), glowAccent.shiftHue(-28f)) },
-                intensity = .55f, height = 360.dp)
+                intensity = .55f)
             if (isLiquidGlass) {
                 OverscrollBounce(
                     modifier = Modifier.fillMaxSize(),
@@ -1024,7 +1027,7 @@ fun BookshelfScreen(
                         isEditing = isEditing,
                         selectedCount = selectedBookIds.size,
                         libraryBookCount = uiState.books.size,
-                        libraryFinishedBookCount = uiState.books.count { it.isReadingFinished },
+                        libraryFinishedBookCount = libraryFinishedBookIds.size,
                         onFilterSelected = { selectedFilter = it },
                         onEditToggle = {
                             isEditing = !isEditing
@@ -1174,7 +1177,7 @@ fun BookshelfScreen(
                     isEditing = isEditing,
                     selectedCount = selectedBookIds.size,
                     libraryBookCount = uiState.books.size,
-                    libraryFinishedBookCount = uiState.books.count { it.isReadingFinished },
+                    libraryFinishedBookCount = libraryFinishedBookIds.size,
                     onFilterSelected = { selectedFilter = it },
                     onEditToggle = {
                         isEditing = !isEditing
@@ -2276,6 +2279,19 @@ private fun BookshelfHeaderActions(
         )
     }
 }
+
+internal fun finishedBookIdsForLibrary(
+    books: List<Book>,
+    serverReadingStatusByBookId: Map<String, ReadingStatus>
+): Set<String> = books.asSequence()
+    .filter { book ->
+        if (MyBooksConfig.isMyBooks(book)) {
+            serverReadingStatusByBookId[book.id] == ReadingStatus.DONE
+        } else {
+            book.isReadingFinished
+        }
+    }
+    .mapTo(mutableSetOf()) { it.id }
 
 private fun layoutIcon(layoutMode: Int, compact: Boolean): ImageVector = when {
     compact && layoutMode == 1 -> AppIcons.List

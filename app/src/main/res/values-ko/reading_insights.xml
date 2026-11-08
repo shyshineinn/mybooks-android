@@ -19,7 +19,9 @@
     <string name="insights_first_read">첫 독서 기록: %1$s</string>
     <string name="insights_last_read">최근 독서 기록: %1$s</string>
     <string name="insights_records_hint">저장된 읽기 및 듣기 기록 기준</string>
-    <string name="insights_book_records">독서 이력</string>
+    <string name="insights_book_records">월간 독서 기록</string>
+    <string name="insights_book_records_expand">월간 독서 기록 펼치기</string>
+    <string name="insights_book_records_collapse">월간 독서 기록 접기</string>
     <string name="insights_share_card">공유 카드</string>
     <string name="insights_calendar">달력</string>
     <string name="insights_day_list">일별 기록</string>
