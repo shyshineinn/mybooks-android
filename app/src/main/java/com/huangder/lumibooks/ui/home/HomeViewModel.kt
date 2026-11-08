@@ -2379,6 +2379,83 @@ class HomeViewModel @Inject constructor(
             ?: _uiState.value.hiddenBooks.firstOrNull { it.id == bookId }
             ?: _uiState.value.archivedBooks.firstOrNull { it.id == bookId }
 
+    fun toggleBookArchive(book: Book) {
+        viewModelScope.launch {
+            try {
+                if (database.bookDao().setArchived(book.id, !book.isArchived, System.currentTimeMillis()) > 0) {
+                    if (MyBooksConfig.isMyBooks(book)) myBooksSyncManager.onPortableBookStateChanged()
+                    (application as? com.huangder.lumibooks.EBookReaderApp)?.webdavAutoSyncScheduler?.scheduleImmediate()
+                    _uiState.value = _uiState.value.copy(folderMessage = application.getString(
+                        if (book.isArchived) R.string.archive_restore_success else R.string.archive_book_success
+                    ))
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(folderMessage = application.getString(
+                    if (book.isArchived) R.string.archive_restore_failed else R.string.archive_book_failed
+                ))
+            }
+        }
+    }
+
+    fun toggleReadStatus(book: Book) {
+        viewModelScope.launch {
+            try {
+                val finished = !book.isReadingFinished
+                bookRepository.updateReadingProgress(
+                    bookId = book.id,
+                    progress = if (finished) 1f else 0f
+                )
+                if (MyBooksConfig.isMyBooks(book) && MyBooksConfig.hasWriteToken()) {
+                    myBooksSyncManager.setReadStatus(book.id, finished)
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message)
+            }
+        }
+    }
+
+    /**
+     * 详情页分类沿用 status / read_logs；仅显式开始新一轮时清零本地进度与位置。
+     * 失败时回传错误，由选择卡片恢复原状态并提示。
+     */
+    fun setReadingStatus(
+        book: Book,
+        status: ReadingStatus,
+        startNewReading: Boolean = false,
+        abandonCurrentReading: Boolean = false,
+        onResult: (success: Boolean, message: String?) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            try {
+                myBooksSyncManager.setReadingStatus(book.id, status, startNewReading, abandonCurrentReading)
+                onResult(true, null)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                val message = e.message?.takeIf { it.isNotBlank() }
+                    ?: application.getString(R.string.mybooks_edit_save_failed)
+                _uiState.value = _uiState.value.copy(error = message)
+                onResult(false, message)
+            }
+        }
+    }
+
+    suspend fun syncMyBooksNow(): com.huangder.lumibooks.data.sync.MyBooksSyncResult =
+        myBooksSyncManager.syncNow()
+
+    fun syncWebdavNow() {
+        _uiState.value = _uiState.value.copy(importMessage = application.getString(R.string.webdav_syncing))
+        viewModelScope.launch {
+            val result = webdavSyncManager.fullSync()
+            _uiState.value = _uiState.value.copy(importMessage = result.message)
+        }
+    }
+
+    val myBooksSyncing: kotlinx.coroutines.flow.StateFlow<Boolean>
+        get() = myBooksSyncManager.isSyncing
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }

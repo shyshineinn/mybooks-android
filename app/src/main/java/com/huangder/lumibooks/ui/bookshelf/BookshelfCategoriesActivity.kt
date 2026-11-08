@@ -82,6 +82,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.data.sync.BookDownloadState
+import com.huangder.lumibooks.data.sync.MyBooksConfig
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookDeleteMode
 import com.huangder.lumibooks.domain.model.BookFormat
@@ -1194,8 +1196,7 @@ private fun CategoryBooksPage(
                 onToggleReadStatus = { book ->
                     viewModel.updateBook(book.toggleReadStatus())
                 },
-                onMoveToFolder = { book -> moveTargetBook = book },
-                onToggleArchive = viewModel::toggleBookArchive
+                onMoveToFolder = { book -> moveTargetBook = book }
             )
         }
     }

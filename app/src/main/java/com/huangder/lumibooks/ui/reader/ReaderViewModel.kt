@@ -592,7 +592,6 @@ class ReaderViewModel @Inject constructor(
     private val activityTracker: ReadingActivityTracker,
     private val dataStoreManager: DataStoreManager,
     private val ttsController: TtsController,
-    private val activityTracker: ReadingActivityTracker,
     private val pdfConversionManager: PdfConversionManager,
     private val pdfTextExtractor: PdfTextExtractor,
     private val mineruManualImportManager: MineruManualImportManager,
@@ -2574,7 +2573,7 @@ class ReaderViewModel @Inject constructor(
 
     fun deleteCustomReaderBackground(id: String) {
         viewModelScope.launch {
-            val removed = dataStoreManager.deleteReaderBackground(id) ?: return@launch
+            val removed = dataStoreManager.removeUnusedReaderBackground(id) ?: return@launch
             if (removed.type == ReaderBackgroundType.IMAGE) {
                 withContext(Dispatchers.IO) {
                     runCatching { File(removed.value).delete() }
@@ -3857,6 +3856,10 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    private fun stopReadingActivity() {
+        activityTracker.setReaderVisible(this, bookId, false)
+    }
+
     /** 用户离开阅读页时调用（DisposableEffect.onDispose） */
     fun saveAndPause() {
         stopReadingActivity()
@@ -5073,8 +5076,11 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    val floatingSubtitlesEnabled = dataStoreManager.ttsFloatingWindow
     private var readerExitDecisionBusy = false
+
+    fun finishReaderExit(keepListening: Boolean, onReady: () -> Unit) {
+        ttsController.finishReaderExit(bookId, keepListening, onReady)
+    }
 
     fun requestReaderExit(onAsk: () -> Unit, onExit: (Boolean) -> Unit) {
         if (readerExitDecisionBusy) return
@@ -5109,10 +5115,6 @@ class ReaderViewModel @Inject constructor(
                 readerExitDecisionBusy = false
             }
         }
-    }
-
-    fun finishReaderExit(keepListening: Boolean, onReady: () -> Unit) {
-        ttsController.finishReaderExit(bookId, keepListening, onReady)
     }
 
     fun stopTts() {
@@ -6926,7 +6928,7 @@ class ReaderViewModel @Inject constructor(
         if (externalPositionReloading) return
         bookRepository.updateReadingPosition(book.id, position.readingProgress, position.locatorJson)
         bookRepository.updateLastReadTime(book.id, System.currentTimeMillis())
-        autoMarkServerReadIfNeeded(previous, position.readingProgress)
+        autoMarkServerReadIfNeeded(book, position.readingProgress)
         // Trigger debounced WebDAV sync for reading progress
         webdavSyncManager.scheduleReadingProgressSync(book.id)
     }
@@ -6971,6 +6973,13 @@ class ReaderViewModel @Inject constructor(
                 if (!stored) page.recycle()
             }
         }
+    }
+
+    private suspend fun autoMarkServerReadIfNeeded(previousBook: Book?, progress: Float) {
+        val book = previousBook ?: return
+        if (!MyBooksReadStatus.becameFinished(book.readingProgress, progress)) return
+        if (!MyBooksConfig.isMyBooks(book) || !MyBooksConfig.hasWriteToken()) return
+        runCatching { myBooksSyncManager.setReadStatus(book.id, true) }
     }
 
     fun clearError() {

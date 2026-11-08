@@ -95,6 +95,7 @@ fun EditInputDialog(
     fields: List<Triple<String, String, String>>,  // (label, placeholder, initialValue)
     onBack: () -> Unit,
     onConfirm: (List<String>) -> Unit,
+    resetKey: Any? = null,
     supportingContent: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"

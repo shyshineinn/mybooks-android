@@ -7,8 +7,45 @@ import com.huangder.lumibooks.domain.model.AnnotationTags
 object DatabaseMigrations {
     val MIGRATION_26_27 = object : Migration(26, 27) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE books ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
+            if (!db.hasColumn("books", "isArchived")) {
+                db.execSQL("ALTER TABLE books ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
+            }
+            // 本地 2.3.10 线在 25 → 26 才加 listeningDuration，上游在 24 → 25 加；
+            // 从本地 25 升级上来的库需要在 26 → 27 补齐。
+            if (!db.hasColumn("reading_records", "listeningDuration")) {
+                db.execSQL("ALTER TABLE reading_records ADD COLUMN listeningDuration INTEGER NOT NULL DEFAULT 0")
+            }
+            // 上游 26 → 27 已包含 tag_groups；本地 2.3.10 线的 26 尚未包含，
+            // 用 IF NOT EXISTS + 列检查让两条升级路径都能通过。
+            db.execSQL("CREATE TABLE IF NOT EXISTS tag_groups (id TEXT NOT NULL PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL, normalizedName TEXT NOT NULL, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_tag_groups_type_normalizedName ON tag_groups (type, normalizedName)")
+            if (!db.hasColumn("tags", "groupId")) {
+                db.execSQL("ALTER TABLE tags ADD COLUMN groupId TEXT")
+            }
+            if (!db.hasColumn("annotation_tags", "groupId")) {
+                db.execSQL("ALTER TABLE annotation_tags ADD COLUMN groupId TEXT")
+            }
+            db.execSQL("INSERT OR IGNORE INTO book_tag_cross_refs (bookId, tagId, updatedAt) SELECT links.bookId, parents.id, links.updatedAt FROM book_tag_cross_refs AS links INNER JOIN tags AS children ON children.id = links.tagId INNER JOIN tags AS parents ON parents.id = children.parentId WHERE children.parentId IS NOT NULL")
+            db.execSQL("UPDATE tags SET parentId = NULL")
         }
+    }
+
+    val MIGRATION_27_28 = object : Migration(27, 28) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            if (!db.hasColumn("books", "archiveUpdatedAt")) {
+                db.execSQL("ALTER TABLE books ADD COLUMN archiveUpdatedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+    }
+
+    private fun SupportSQLiteDatabase.hasColumn(table: String, column: String): Boolean {
+        query("PRAGMA table_info($table)").use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameIndex) == column) return true
+            }
+        }
+        return false
     }
 
     val MIGRATION_25_26 = object : Migration(25, 26) {
@@ -66,6 +103,31 @@ object DatabaseMigrations {
                     }
                 }
             }
+            // 本地 mybooks 同步链路在 19 → 20 引入的两张表；与上游 annotation_tags 合并为同一迁移。
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `mybooks_sync_state` (" +
+                    "`bookId` TEXT NOT NULL, " +
+                    "`remoteId` INTEGER NOT NULL, " +
+                    "`serverUpdatedAt` TEXT NOT NULL DEFAULT '', " +
+                    "`baseJson` TEXT NOT NULL DEFAULT '', " +
+                    "`overridesJson` TEXT NOT NULL DEFAULT '{}', " +
+                    "`editedAtJson` TEXT NOT NULL DEFAULT '{}', " +
+                    "`baseTagsJson` TEXT NOT NULL DEFAULT '[]', " +
+                    "`coverDirty` INTEGER NOT NULL DEFAULT 0, " +
+                    "`coverEditedAt` INTEGER NOT NULL DEFAULT 0, " +
+                    "`lastSyncAt` INTEGER NOT NULL DEFAULT 0, " +
+                    "`lastError` TEXT, " +
+                    "PRIMARY KEY(`bookId`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `mybooks_pending_delete` (" +
+                    "`remoteId` INTEGER NOT NULL, " +
+                    "`bookId` TEXT NOT NULL, " +
+                    "`deletedAt` INTEGER NOT NULL, " +
+                    "`lastAttemptAt` INTEGER NOT NULL DEFAULT 0, " +
+                    "`lastError` TEXT, " +
+                    "PRIMARY KEY(`remoteId`))"
+            )
         }
     }
 
@@ -332,35 +394,6 @@ object DatabaseMigrations {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE notes ADD COLUMN isStale INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE bookmarks ADD COLUMN isStale INTEGER NOT NULL DEFAULT 0")
-        }
-    }
-
-    val MIGRATION_19_20 = object : Migration(19, 20) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS `mybooks_sync_state` (" +
-                    "`bookId` TEXT NOT NULL, " +
-                    "`remoteId` INTEGER NOT NULL, " +
-                    "`serverUpdatedAt` TEXT NOT NULL DEFAULT '', " +
-                    "`baseJson` TEXT NOT NULL DEFAULT '', " +
-                    "`overridesJson` TEXT NOT NULL DEFAULT '{}', " +
-                    "`editedAtJson` TEXT NOT NULL DEFAULT '{}', " +
-                    "`baseTagsJson` TEXT NOT NULL DEFAULT '[]', " +
-                    "`coverDirty` INTEGER NOT NULL DEFAULT 0, " +
-                    "`coverEditedAt` INTEGER NOT NULL DEFAULT 0, " +
-                    "`lastSyncAt` INTEGER NOT NULL DEFAULT 0, " +
-                    "`lastError` TEXT, " +
-                    "PRIMARY KEY(`bookId`))"
-            )
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS `mybooks_pending_delete` (" +
-                    "`remoteId` INTEGER NOT NULL, " +
-                    "`bookId` TEXT NOT NULL, " +
-                    "`deletedAt` INTEGER NOT NULL, " +
-                    "`lastAttemptAt` INTEGER NOT NULL DEFAULT 0, " +
-                    "`lastError` TEXT, " +
-                    "PRIMARY KEY(`remoteId`))"
-            )
         }
     }
 }

@@ -1692,7 +1692,7 @@ fun MainNavGraph(
                 onDownload = {
                     autoOpenDownloadedBookId = book.id
                     pendingCloudBook = null
-                    homeViewModel.downloadCloudBook(book.id)
+                    homeViewModel.downloadCloudBook(book)
                 }
             )
         }

@@ -124,25 +124,7 @@ internal fun AnnotationFeedScreen(
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val excerptDark = LocalIsDarkTheme.current
     val context = LocalContext.current
-    val locale = LocalConfiguration.current.locales[0]
-    val zone = ZoneId.systemDefault()
-    val today = LocalDate.now(zone)
-    val todayLabel = stringResource(R.string.annotation_feed_today)
-    val yesterdayLabel = stringResource(R.string.annotation_feed_yesterday)
-    val displayEnvironment = remember(context, locale, zone, today, todayLabel, yesterdayLabel) {
-        val is24Hour = android.text.format.DateFormat.is24HourFormat(context)
-        AnnotationFeedDisplayEnvironment(
-            locale, zone, today,
-            (android.text.format.DateFormat.getTimeFormat(context) as? SimpleDateFormat)?.toPattern()
-                ?: android.text.format.DateFormat.getBestDateTimePattern(locale, if (is24Hour) "Hm" else "hm"),
-            android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMMdEEE"),
-            android.text.format.DateFormat.getBestDateTimePattern(locale, "yMMMMdEEE"),
-            todayLabel, yesterdayLabel
-        )
-    }
-    LaunchedEffect(viewModel, displayEnvironment) {
-        viewModel.setDisplayEnvironment(displayEnvironment)
-    }
+
     val scope = rememberCoroutineScope()
     val glassBackdrop = rememberLayerBackdrop()
     val segmentedControlBackdrop = rememberLayerBackdrop()

@@ -53,7 +53,7 @@ import com.huangder.lumibooks.data.local.entity.MyBooksPendingDeleteEntity
         MyBooksSyncStateEntity::class,
         MyBooksPendingDeleteEntity::class
     ],
-    version = 27,
+    version = 28,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

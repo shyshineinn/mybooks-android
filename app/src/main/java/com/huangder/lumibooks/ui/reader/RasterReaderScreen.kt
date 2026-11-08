@@ -1981,7 +1981,6 @@ fun RasterReaderScreen(
                 onPlayPause = viewModel::toggleTtsPlayPause,
                 onOpenFullscreen = { viewModel.openFullscreenListening(context) },
                 onStop = viewModel::stopTts,
-                onOpenFullscreen = { viewModel.openFullScreenTts(context) },
                 onSkipForward = viewModel::ttsSkipForward,
                 onSkipBackward = viewModel::ttsSkipBackward,
                 onRateChange = viewModel::setTtsSpeechRate,

@@ -257,14 +257,6 @@ class TtsController(
             }
         }
 
-        override fun onPlaybackActivity(utteranceId: String, active: Boolean) {
-            scope.launch {
-                if (engine !== activeEngine || utteranceId != activeUtteranceId) return@launch
-                if (active && _playbackState.value != TtsPlaybackState.PLAYING) return@launch
-                onListeningActivity(if (active) _activeBookId.value else null)
-            }
-        }
-
         override fun onPlaybackInterrupted() {
             scope.launch {
                 commandMutex.withLock {
@@ -559,6 +551,32 @@ class TtsController(
         }
     }
 
+    /** 阅读页退出时决定继续听书还是彻底停止。 */
+    fun finishReaderExit(bookId: String, keepListening: Boolean, onReady: () -> Unit) {
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value == bookId) {
+                    if (keepListening) {
+                        pageSource?.detachReader()
+                        updateReaderAttachment(false)
+                    } else {
+                        stopInternal()
+                    }
+                }
+            }
+            onReady()
+        }
+    }
+
+    /** 另一本书进入阅读页时，停掉旧书的听书会话。 */
+    fun stopForOtherReader(bookId: String) {
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value != null && _activeBookId.value != bookId) stopInternal()
+            }
+        }
+    }
+
     fun skip(forward: Boolean = true) {
         scope.launch {
             commandMutex.withLock {
@@ -615,6 +633,23 @@ class TtsController(
                 updateReaderAttachment(attached)
             }
         }
+    }
+
+    private suspend fun updateReaderAttachment(attached: Boolean) {
+        readerAttached = attached
+        if (attached) {
+            followReaderPageTurns = true
+            return
+        }
+        val pending = pendingPageTurn
+        cancelPageTurnAckTimeout()
+        pendingPageTurn = null
+        clearPageTurnReplay()
+        acknowledgedPageTurn = null
+        pageTurnSequence++
+        if (pending?.resumeWhenAcknowledged == true &&
+            _playbackState.value == TtsPlaybackState.PLAYING && activeUtteranceId == null
+        ) speakCurrentSegment()
     }
 
     /** A visual lease only: source, timer, user follow policy and engine stay alive. */

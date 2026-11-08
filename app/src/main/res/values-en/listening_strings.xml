@@ -14,11 +14,4 @@
     <string name="tts_start_setting">Listening start position</string>
     <string name="tts_start_ask_each_time">Ask each time</string>
     <string name="tts_listening_resume_show_prompt">Show return hint</string>
-    <string name="tts_exit_title">Keep listening outside the book?</string>
-    <string name="tts_exit_setting">Listening when leaving a book</string>
-    <string name="tts_exit_message">Floating subtitles stay visible outside the reader. Opening another book stops playback.</string>
-    <string name="tts_exit_message_without_subtitles">Playback continues in the background with floating subtitles off. Opening another book stops playback.</string>
-    <string name="tts_exit_continue">Keep listening</string>
-    <string name="tts_exit_stop">Stop and exit</string>
-    <string name="tts_overlay_permission_needed">Allow floating windows to keep listening</string>
 </resources>

@@ -16,6 +16,16 @@ val releaseStartupTrace = providers.gradleProperty("lumiStartupTrace")
     .map { it.toBooleanStrict() }
     .orElse(false)
 
+// 本地正式签名（可选）：在 local.properties 里配置 MYBOOKS_KEYSTORE_FILE 等四项后生效。
+// local.properties 已被 git 忽略，密码不会进入仓库；未配置时保持原样（产出 unsigned 包）。
+val signingProperties = Properties()
+val signingPropertiesFile = rootProject.file("local.properties")
+if (signingPropertiesFile.exists()) {
+    signingPropertiesFile.inputStream().use { input -> signingProperties.load(input) }
+}
+val releaseKeystorePath = signingProperties.getProperty("MYBOOKS_KEYSTORE_FILE").orEmpty()
+val hasReleaseSigning = releaseKeystorePath.isNotBlank()
+
 // The optional private checkout supplies the official edition. A public clone builds on its own.
 val forceOss = providers.gradleProperty("lumi.oss").map { it.toBooleanStrict() }.orElse(false)
 val premiumEdition = !forceOss.get() && file("src/premium/java").isDirectory

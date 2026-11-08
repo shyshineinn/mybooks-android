@@ -668,7 +668,8 @@ class PortableSnapshotManager internal constructor(
     private fun BookEntity.toPortable(bodyAssetId: String?, coverAssetId: String?) = PortableBook(
         id, title, author, format, lastReadTime, readingProgress, locatorJson, createdAt, isFavorite,
         isCloudOnly, metadataUpdatedAt, bodyAssetId, coverAssetId, remoteLibraryKey, remoteFileName,
-        remoteFileSize, remoteFileSha256, isPinned, isManuallyMarkedRead, isHidden, isArchived
+        remoteFileSize, remoteFileSha256, isPinned, isManuallyMarkedRead, isHidden, isArchived,
+        archiveUpdatedAt
     )
 
 }
@@ -688,7 +689,8 @@ internal fun PortableBook.toEntity(
     remoteFileSize = remoteFileSize, remoteFileSha256 = remoteFileSha256,
     metadataUpdatedAt = metadataUpdatedAt, isPinned = isPinned,
     isManuallyMarkedRead = isManuallyMarkedRead, isHidden = isHidden,
-    isArchived = isArchived ?: existingIsArchived
+    isArchived = isArchived ?: existingIsArchived,
+    archiveUpdatedAt = archiveUpdatedAt ?: 0L
 )
 
 private fun stableSuffix(value: String): String = MessageDigest.getInstance("SHA-256")

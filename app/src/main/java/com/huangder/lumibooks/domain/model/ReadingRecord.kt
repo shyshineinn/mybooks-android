@@ -14,6 +14,5 @@ data class ReadingRecord(
 
 data class DailyTotal(
     val date: String,
-    val totalDuration: Long,
-    val listeningDuration: Long = 0
+    val totalDuration: Long
 )

@@ -84,7 +84,6 @@ internal fun CoverFlowActionBar(
     val archiveLabel = stringResource(R.string.archive_book)
     val hideLabel = stringResource(R.string.hidden_library_hide)
     val deleteLabel = stringResource(R.string.delete)
-    val archiveLabel = stringResource(R.string.archive_book)
     var ownsMenu by remember { mutableStateOf(false) }
     DisposableEffect(menuHost) {
         onDispose { if (ownsMenu) menuHost?.dismiss() }

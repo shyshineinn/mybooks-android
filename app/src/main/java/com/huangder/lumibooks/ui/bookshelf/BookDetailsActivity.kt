@@ -42,10 +42,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -60,15 +63,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -88,7 +93,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -113,6 +117,10 @@ import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.InformationCard
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassButton
+import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
+import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
+import com.huangder.lumibooks.ui.components.LiquidGlassMenuHost
+import com.huangder.lumibooks.ui.components.LiquidGlassMorphPopupHost
 import com.huangder.lumibooks.ui.components.LiquidGlassTextButton
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
@@ -131,6 +139,8 @@ import com.huangder.lumibooks.ui.theme.effectiveAppTheme
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.huangder.lumibooks.ui.theme.rememberLiquidGlassCapability
 import com.huangder.lumibooks.util.FileUtils
+import com.huangder.lumibooks.util.TimeUtils
+import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dagger.hilt.android.AndroidEntryPoint
@@ -505,7 +515,7 @@ fun BookDetailsScreen(
                 bottom = com.huangder.lumibooks.ui.components.LocalCollapsingPageBottomInset.current + AppSpace.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpace.md)
         ) {
-            item { BookHero(book, folderName, onCover = { coverOpen = true }) }
+            item { BookHero(book, folderName, heroFormatLabel, compact = false, onCover = { coverOpen = true }) }
             item {
                 MetricGrid(book, details.totalReadingTime, details.activeDays, details.bookmarkCount, details.noteCount)
                 Text(stringResource(R.string.activity_duration_breakdown,
@@ -664,6 +674,68 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
     }
 }
 
+@Composable internal fun MetricGrid(book: Book, duration: Long, days: Int, bookmarks: Int, notes: Int) {
+    val coreMetrics = listOf(
+        stringResource(R.string.book_detail_progress) to AnnotatedString("${(book.readingProgress * 100).toInt()}%"),
+        stringResource(R.string.book_detail_reading_time) to compactReadingDuration(duration, AppColors.TextSecondary),
+        stringResource(R.string.book_detail_active_days) to AnnotatedString(days.toString())
+    )
+    val valueStyle = LocalTextStyle.current.copy(
+        fontSize = AppType.Section, lineHeight = 26.sp,
+        fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center
+    )
+    val labelStyle = LocalTextStyle.current.copy(
+        fontSize = AppType.Caption, lineHeight = 16.sp, textAlign = TextAlign.Center
+    )
+    val auxiliaryStyle = labelStyle.copy(fontSize = AppType.BodySmall, lineHeight = 20.sp)
+    val auxiliaryMetrics = listOf(
+        stringResource(R.string.book_detail_bookmarks) to bookmarks,
+        stringResource(R.string.book_detail_notes) to notes
+    ).map { (label, count) ->
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)) {
+                append(count.toString())
+            }
+            append(' ')
+            withStyle(SpanStyle(fontSize = AppType.Caption)) { append(label) }
+        }
+    }
+    val textMeasurer = rememberTextMeasurer()
+    val coreWidths = coreMetrics.map { (label, value) ->
+        maxOf(
+            textMeasurer.measure(value, style = valueStyle, softWrap = false).size.width,
+            textMeasurer.measure(label, style = labelStyle, softWrap = false).size.width
+        )
+    }
+    val auxiliaryWidths = auxiliaryMetrics.map {
+        textMeasurer.measure(it, style = auxiliaryStyle, softWrap = false).size.width
+    }
+    InformationCard(
+        title = stringResource(R.string.book_detail_reading_statistics),
+        contentPadding = PaddingValues(AppSpace.md),
+        verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
+    ) {
+        ReadingMetricRow(coreWidths) { index, modifier ->
+            val (label, value) = coreMetrics[index]
+            Column(
+                modifier.semantics(mergeDescendants = true) {},
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(value, modifier = Modifier.fillMaxWidth(), style = valueStyle, color = AppColors.TextPrimary)
+                Text(label, modifier = Modifier.fillMaxWidth(), style = labelStyle, color = AppColors.TextSecondary)
+            }
+        }
+        HorizontalDivider(color = AppColors.Divider)
+        ReadingMetricRow(auxiliaryWidths) { index, modifier ->
+            Text(
+                auxiliaryMetrics[index], modifier = modifier,
+                style = auxiliaryStyle, color = AppColors.TextSecondary
+            )
+        }
+    }
+}
+
 /** Keep equal columns when every value and translated label fits at the current font scale. */
 @Composable private fun ReadingMetricRow(
     requiredWidths: List<Int>,
@@ -786,8 +858,7 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
                 stringResource(R.string.book_review),
                 stringResource(R.string.book_review_open),
                 true,
-                onReview,
-                showChevron = true
+                onReview
             )
         }
         val showRetry = serverBook && meta == null && !metaState.loading

@@ -75,7 +75,6 @@ sealed class ContextMenuAction {
     data object Tags : ContextMenuAction()
     data object EditInfo : ContextMenuAction()
     data object ToggleHidden : ContextMenuAction()
-    data object Archive : ContextMenuAction()
 }
 
 /**
@@ -160,7 +159,6 @@ fun BookContextMenuOverlay(
                         is ContextMenuAction.ToggleReadStatus -> onToggleReadStatus(book)
                         is ContextMenuAction.MoveToFolder -> onMoveToFolder(book)
                         is ContextMenuAction.Delete -> onDelete(book)
-                        is ContextMenuAction.Archive -> onToggleArchive(book)
                         is ContextMenuAction.Favorite -> onFavorite(book)
                         is ContextMenuAction.Pin -> onPin(book)
                         is ContextMenuAction.CustomCover -> onCustomCover(book)

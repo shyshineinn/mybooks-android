@@ -159,6 +159,8 @@ internal fun Modifier.liquidGlassBackdrop(
     controlEdge: Boolean = false,
     controlEdgeColor: Color = tintColor ?: contentScrimColor,
     controlEdgeForceCanvas: Boolean = false,
+    /** The body keeps its material; only the rim/highlight fades with this value. */
+    outlineAlpha: Float = 1f,
     blurBoostPxProvider: (() -> Float)? = null
 ): Modifier {
     val lensSupported = Build.VERSION.SDK_INT >= 33 && !reduceTransparency && supportsLiquidGlassLens(lensShape)
@@ -481,8 +483,11 @@ fun LiquidGlassSurface(
     blurBoostProvider: (() -> Dp)? = null,
     /** Animated clipping outline, resolved in the layer instead of composition. */
     shapeProvider: (() -> Shape)? = null,
+    /** The body keeps its material; only the rim/highlight fades with this value. */
+    outlineAlpha: Float = 1f,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val resolvedOutlineAlpha = outlineAlpha.coerceIn(0f, 1f)
     val glassLayer = LocalLiquidGlassLayer.current + if (role == AppSurfaceRole.Content) 0 else 1
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" &&
         role != AppSurfaceRole.Content &&

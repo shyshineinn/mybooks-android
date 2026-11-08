@@ -168,13 +168,12 @@ object PortableSnapshotMerger {
                         .maxWithOrNull(compareBy<PortableBook> { it.archiveUpdatedAt ?: it.metadataUpdatedAt }
                             .thenBy { it.isArchived == true })
                     metadataWinner.copy(
-                        isArchived = archiveWinner?.isArchived,
+                        isArchived = archiveWinner?.isArchived ?: localBook.isArchived ?: remoteBook.isArchived,
                         archiveUpdatedAt = archiveWinner?.let { it.archiveUpdatedAt ?: it.metadataUpdatedAt },
                         lastReadTime = progressWinner.lastReadTime,
                         readingProgress = progressWinner.readingProgress,
                         isManuallyMarkedRead = progressWinner.isManuallyMarkedRead,
                         isHidden = metadataWinner.isHidden,
-                        isArchived = metadataWinner.isArchived ?: localBook.isArchived ?: remoteBook.isArchived,
                         locatorJson = progressWinner.locatorJson,
                         bodyAssetId = localBook.bodyAssetId ?: remoteBook.bodyAssetId,
                         isCloudOnly = localBook.bodyAssetId == null && remoteBook.bodyAssetId == null,

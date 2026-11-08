@@ -8,7 +8,6 @@ import com.huangder.lumibooks.ui.components.AppDialogAction
 import com.huangder.lumibooks.ui.components.AppDialogActionRole
 
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
-import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.domain.model.SelectionMenuAction
 import com.huangder.lumibooks.domain.model.SelectionMenuSettings
 import com.huangder.lumibooks.ui.components.SelectionMenuSettingsDialog
@@ -4764,7 +4763,6 @@ private fun ReaderScreenContent(
                     onPlayPause = viewModel::toggleTtsPlayPause,
                     onOpenFullscreen = { viewModel.openFullscreenListening(context) },
                     onStop = viewModel::stopTts,
-                    onOpenFullscreen = { viewModel.openFullScreenTts(context) },
                     onSkipForward = viewModel::ttsSkipForward,
                     onSkipBackward = viewModel::ttsSkipBackward,
                     onRateChange = viewModel::setTtsSpeechRate,

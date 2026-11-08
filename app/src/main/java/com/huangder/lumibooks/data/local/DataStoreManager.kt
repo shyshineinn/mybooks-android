@@ -1353,15 +1353,6 @@ class DataStoreManager @Inject constructor(
         }
     }
 
-    val ttsContinueOnReaderExit: Flow<Boolean?> = context.dataStore.data.map { it[TTS_CONTINUE_ON_READER_EXIT] }
-
-    suspend fun saveTtsContinueOnReaderExit(choice: Boolean?) {
-        context.dataStore.edit {
-            if (choice == null) it.remove(TTS_CONTINUE_ON_READER_EXIT)
-            else it[TTS_CONTINUE_ON_READER_EXIT] = choice
-        }
-    }
-
     val ttsReaderResumeChoice: Flow<TtsReaderResumeChoice?> = context.dataStore.data.onStart {
         // Reset choices remembered by the old opening dialog once, before any reader
         // sees them. Choices made in settings after this upgrade continue to persist.
@@ -2187,10 +2178,12 @@ class DataStoreManager @Inject constructor(
         layout: ReaderLayoutTarget,
         preset: ReaderBackgroundPreset,
         modeDark: Boolean? = null
-    ) {
+    ): Boolean {
+        var added = false
         context.dataStore.edit { preferences ->
             val suites = readThemeSuites(preferences)
             if (suites.none { it.id == suiteId }) return@edit
+            added = true
             val updated = suites.map { suite ->
                 if (suite.id != suiteId) suite else {
                     val current = if (modeDark != null) suite.settingsFor(layout, modeDark)
@@ -2218,6 +2211,7 @@ class DataStoreManager @Inject constructor(
                 preferences.applyReaderThemeSettings(updated.first { it.id == suiteId }.settings)
             }
         }
+        return added
     }
 
     suspend fun renameReaderThemeSuite(suiteId: String, name: String) {

@@ -572,7 +572,7 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
             } ?: return@launch
             // Publish the asset and its selection together, using the target
             // chosen before the photo picker copy, and the latest saved settings.
-            dataStoreManager.addReaderThemeSuiteBackground(
+            val added = dataStoreManager.addReaderThemeSuiteBackground(
                 suiteId,
                 layout,
                 preset,
@@ -613,13 +613,25 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
         }
     }
 
-    private fun prepareProcessedBackground(preset: ReaderBackgroundPreset, blur: Float): ReaderBackgroundPreset? {
-        if (blur < 0.01f) return null
+    private fun prepareProcessedBackground(
+        settings: ReaderThemeSettings,
+        backgrounds: List<ReaderBackgroundPreset>
+    ): List<ReaderBackgroundPreset> {
+        val preset = backgrounds.firstOrNull {
+            it.selectionKey == settings.backgroundSelection && it.type == ReaderBackgroundType.IMAGE
+        } ?: return backgrounds
+        val blur = settings.backgroundImageBlurDp.coerceIn(0f, 40f)
+        if (blur < 0.01f) {
+            preset.processedValue?.let { runCatching { File(it).delete() } }
+            return backgrounds.map {
+                if (it.id == preset.id) it.copy(processedValue = null, processedBlurDp = null) else it
+            }
+        }
         if (preset.processedValue != null &&
             preset.processedBlurDp != null &&
             kotlin.math.abs(preset.processedBlurDp - blur) < 0.01f &&
             File(preset.processedValue).isFile
-        ) return null
+        ) return backgrounds
         val blurKey = "%.2f".format(java.util.Locale.US, blur)
             .replace('.', '_')
         val target = File(
@@ -633,8 +645,16 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
                 blurDp = blur,
                 density = context.resources.displayMetrics.density
             )
-        if (!generated) return null
-        return preset.copy(processedValue = target.absolutePath, processedBlurDp = blur)
+        if (!generated) return backgrounds
+        preset.processedValue?.takeUnless { it == target.absolutePath }?.let {
+            runCatching { File(it).delete() }
+        }
+        return backgrounds.map {
+            if (it.id == preset.id) it.copy(
+                processedValue = target.absolutePath,
+                processedBlurDp = blur
+            ) else it
+        }
     }
 
     fun selectBackgroundColor(selection: String) {

@@ -94,6 +94,7 @@ internal data class LiquidGlassDialogSpec(
     val maxWidth: Dp,
     /** A bottom sheet presented as a centered card on tablets. */
     val cardSheet: Boolean = false,
+    val motion: LiquidGlassDialogMotion = LiquidGlassDialogMotion.DIALOG,
     val content: @Composable BoxScope.() -> Unit
 )
 
@@ -379,6 +380,7 @@ fun LiquidGlassDialog(
     transparencyOverride: Float? = null,
     properties: DialogProperties = DialogProperties(),
     maxWidth: Dp = AppPresentation.SheetMaxWidth,
+    motion: LiquidGlassDialogMotion = LiquidGlassDialogMotion.DIALOG,
     content: @Composable BoxScope.() -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
@@ -432,6 +434,7 @@ fun LiquidGlassDialog(
                     properties = properties,
                     maxWidth = maxWidth,
                     cardSheet = cardSheet,
+                    motion = motion,
                     content = { latestContent() }
                 )
             )

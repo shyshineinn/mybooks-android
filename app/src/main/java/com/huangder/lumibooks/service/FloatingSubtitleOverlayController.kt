@@ -59,6 +59,7 @@ class FloatingSubtitleOverlayController @Inject constructor(
     private var started = false
     private var appInForeground = false
     private var readerVisible = false
+    private var fullscreenVisible = false
     private var previewActive = false
     private var persistedSettings = FloatingSubtitleSettings()
     private var previewSettings: FloatingSubtitleSettings? = null
@@ -161,11 +162,6 @@ class FloatingSubtitleOverlayController @Inject constructor(
         } else {
             cancelSubtitleScroll(reset = false)
         }
-        reconcile()
-    }
-
-    fun setReaderVisible(visible: Boolean) {
-        readerVisible = visible
         reconcile()
     }
 

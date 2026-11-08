@@ -105,6 +105,14 @@ interface BookDao {
     @Query("UPDATE books SET coverPath = :coverPath WHERE id = :bookId")
     suspend fun updateBookCoverPath(bookId: String, coverPath: String)
 
+    @Query("UPDATE books SET title = :title, author = :author, metadataUpdatedAt = :metadataUpdatedAt WHERE id = :bookId")
+    suspend fun updateBookTitleAuthor(
+        bookId: String,
+        title: String,
+        author: String,
+        metadataUpdatedAt: Long
+    )
+
     @Query("UPDATE books SET sourceSha256 = :sha256 WHERE id = :bookId")
     suspend fun updateSourceSha256(bookId: String, sha256: String)
 

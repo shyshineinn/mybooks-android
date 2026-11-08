@@ -16,6 +16,8 @@ interface BookRepository {
     suspend fun applySyncedMetadata(book: Book, expected: Book) { updateBook(book) }
     suspend fun updateSourceSha256(bookId: String, sha256: String)
     suspend fun updateBookMetadata(book: Book)
+    suspend fun updateBookTitleAuthor(bookId: String, title: String, author: String)
+    suspend fun updateBookCover(bookId: String, coverPath: String)
     /** Moves books into or out of the hidden library in one write. */
     suspend fun setBooksHidden(bookIds: Collection<String>, hidden: Boolean)
     /** Archives without changing reading history or shelf organisation. */

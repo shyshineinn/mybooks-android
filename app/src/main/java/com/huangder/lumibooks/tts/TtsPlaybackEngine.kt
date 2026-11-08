@@ -93,7 +93,6 @@ interface TtsPlaybackListener {
      * A transient system interruption paused speech. The controller retains the current segment
      * and may restart it when the user resumes.
      */
-    fun onPlaybackActivity(utteranceId: String, active: Boolean) = Unit
     fun onPlaybackInterrupted()
 
     /** Android engines may report a finer spoken range within the complete utterance. */

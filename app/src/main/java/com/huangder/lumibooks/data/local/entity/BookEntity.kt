@@ -35,7 +35,9 @@ data class BookEntity(
     val isHidden: Boolean = false,
     val isManuallyMarkedRead: Boolean = false,
     @androidx.room.ColumnInfo(defaultValue = "0")
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val archiveUpdatedAt: Long = 0L
 )
 
 enum class BookFormat {
