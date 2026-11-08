@@ -19,7 +19,7 @@
     <string name="settings_section_services_listening">読み上げサービス</string>
     <string name="settings_section_services_sync">同期とリモート書庫</string>
     <string name="settings_find_reader_layout">読書テーマ・見開き表示</string>
-    <string name="settings_find_listening_preferences">読み上げの開始・再開設定</string>
+    <string name="settings_find_listening_preferences">読み上げの開始・再開・終了設定</string>
     <string name="settings_find_visual_motion">視覚効果とモーションの設定</string>
     <string name="settings_find_visual_glass">Liquid Glass とモーションの設定</string>
 </resources>

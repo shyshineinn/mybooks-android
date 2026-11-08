@@ -19,7 +19,7 @@
     <string name="settings_section_services_listening">듣기 서비스</string>
     <string name="settings_section_services_sync">동기화 및 원격 서재</string>
     <string name="settings_find_reader_layout">기본 읽기 테마와 두 쪽 보기</string>
-    <string name="settings_find_listening_preferences">듣기 시작 및 재개 설정</string>
+    <string name="settings_find_listening_preferences">듣기 시작, 재개 및 종료 설정</string>
     <string name="settings_find_visual_motion">시각 효과와 모션 설정</string>
     <string name="settings_find_visual_glass">Liquid Glass와 모션 설정</string>
 </resources>

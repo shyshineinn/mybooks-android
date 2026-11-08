@@ -41,18 +41,21 @@ class SettingsPreferenceScreensTest {
         val manager = DataStoreManager(context)
         manager.saveTtsStartChoice(TtsStartChoice.SAVED_POSITION)
         manager.saveTtsReaderResumeChoice(TtsReaderResumeChoice.KEEP_READING)
+        manager.saveTtsContinueOnReaderExit(true)
         var showPreferences by mutableStateOf(true)
         compose.setContent {
             val start by manager.ttsStartChoice.collectAsState(TtsStartChoice.SAVED_POSITION)
             val resume by manager.ttsReaderResumeChoice.collectAsState(TtsReaderResumeChoice.KEEP_READING)
+            val exit by manager.ttsContinueOnReaderExit.collectAsState(true)
             val scope = rememberCoroutineScope()
             EBookReaderTheme(appTheme = "lumi", motionPreference = MotionPreference.REDUCED) {
                 if (showPreferences) {
                     DetailPage(label(R.string.settings_listening_preferences), {}) {
                         ListeningPreferencesContent(
-                            SettingsUiState(ttsStartChoice = start, ttsReaderResumeChoice = resume),
+                            SettingsUiState(ttsStartChoice = start, ttsReaderResumeChoice = resume, ttsContinueOnReaderExit = exit),
                             { value -> scope.launch { manager.saveTtsStartChoice(value) } },
-                            { value -> scope.launch { manager.saveTtsReaderResumeChoice(value) } }
+                            { value -> scope.launch { manager.saveTtsReaderResumeChoice(value) } },
+                            { value -> scope.launch { manager.saveTtsContinueOnReaderExit(value) } }
                         )
                     }
                 } else Text("Other page")
@@ -62,15 +65,25 @@ class SettingsPreferenceScreensTest {
         compose.onNodeWithText(label(R.string.tts_start_current_page)).performClick()
         compose.onNodeWithText(label(R.string.tts_listening_resume_setting)).performClick()
         compose.onNodeWithText(label(R.string.tts_listening_resume_jump)).performClick()
+        compose.onNodeWithText(label(R.string.tts_exit_setting)).performClick()
+        compose.onNodeWithText(label(R.string.tts_exit_stop)).performClick()
         compose.waitForIdle()
         val reloaded = DataStoreManager(context)
         assertEquals(TtsStartChoice.CURRENT_PAGE, reloaded.ttsStartChoice.first())
         assertEquals(TtsReaderResumeChoice.LISTENING_POSITION, reloaded.ttsReaderResumeChoice.first())
+        assertEquals(false, reloaded.ttsContinueOnReaderExit.first())
         compose.runOnIdle { showPreferences = false }
         compose.onNodeWithText("Other page").assertIsDisplayed()
         compose.runOnIdle { showPreferences = true }
         compose.onNodeWithText(label(R.string.tts_start_current_page)).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.tts_listening_resume_jump)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.tts_exit_stop)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.tts_exit_setting)).performClick()
+        compose.onNodeWithText(label(R.string.tts_start_ask_each_time)).performClick()
+        compose.waitForIdle()
+        assertNull(reloaded.ttsContinueOnReaderExit.first())
+        reloaded.saveTtsContinueOnReaderExit(true)
+        compose.onNodeWithText(label(R.string.tts_exit_continue)).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.tts_start_setting)).performClick()
         compose.onNodeWithText(label(R.string.tts_start_ask_each_time)).performClick()
         compose.waitForIdle()

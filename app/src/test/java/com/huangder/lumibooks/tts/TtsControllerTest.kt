@@ -1832,6 +1832,51 @@ class TtsControllerTest {
         } finally { Dispatchers.resetMain() }
     }
 
+    @Test fun readerExitKeepsPagingUntilAnotherBookOpens() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        val source = FakePageSource(
+            page(0, "First page.", next = TtsPageLocation(0, 1)),
+            page(1, "Second page.", previous = TtsPageLocation(0, 0))
+        )
+        try {
+            assertTrue(controller.start("book", source, 0, 0).isSuccess)
+            var ready = false
+            controller.finishReaderExit("book", keepListening = true) { ready = source.detached }
+            runCurrent()
+            assertTrue(ready)
+            assertFalse(source.closed)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            assertEquals("Second page.", engine.spokenTexts.last())
+            controller.stopForOtherReader("book")
+            runCurrent()
+            assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
+            controller.stopForOtherReader("other")
+            runCurrent()
+            assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+            assertTrue(source.closed)
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
+    @Test fun stoppingOnExitClosesOnlyTheExitingBooksSession() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val controller = controller(FakePlaybackEngine())
+        val source = FakePageSource(page(0, "Still listening."))
+        try {
+            assertTrue(controller.start("book", source, 0, 0).isSuccess)
+            controller.finishReaderExit("other", keepListening = false) {}
+            runCurrent()
+            assertFalse(source.closed)
+            var ready = false
+            controller.finishReaderExit("book", keepListening = false) { ready = source.closed }
+            runCurrent()
+            assertTrue(ready)
+            assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
     private fun controller(
         systemEngine: FakePlaybackEngine,
         externalEngine: FakePlaybackEngine = FakePlaybackEngine(isExternal = true),
@@ -1862,6 +1907,9 @@ class TtsControllerTest {
         private val pages = pages.associateBy { it.location }
         val requests = mutableListOf<TtsPageLocation>()
         var closed = false
+        var detached = false
+        override fun detachReader() { detached = true }
+
 
 
         override suspend fun getPage(chapterIndex: Int, pageIndex: Int): TtsPageContent? {

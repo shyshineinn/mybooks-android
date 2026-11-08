@@ -329,6 +329,7 @@ class DataStoreManager @Inject constructor(
         private val PREFERRED_TTS_ENGINE = stringPreferencesKey("preferred_tts_engine")
         private val TTS_PROVIDER_SELECTION = stringPreferencesKey("tts_provider_selection")
         private val TTS_START_CHOICE = stringPreferencesKey("tts_start_choice")
+        private val TTS_CONTINUE_ON_READER_EXIT = booleanPreferencesKey("tts_continue_on_reader_exit")
         private val TTS_READER_RESUME_CHOICE = stringPreferencesKey("tts_reader_resume_choice")
         private val TTS_READER_RESUME_HINT_MIGRATED = booleanPreferencesKey("tts_reader_resume_hint_migrated_v1")
         private val BODY_FONT_WEIGHT = intPreferencesKey("body_font_weight")
@@ -1224,6 +1225,15 @@ class DataStoreManager @Inject constructor(
         context.dataStore.edit { preferences ->
             if (choice == null) preferences.remove(TTS_START_CHOICE)
             else preferences[TTS_START_CHOICE] = choice.storedValue
+        }
+    }
+
+    val ttsContinueOnReaderExit: Flow<Boolean?> = context.dataStore.data.map { it[TTS_CONTINUE_ON_READER_EXIT] }
+
+    suspend fun saveTtsContinueOnReaderExit(choice: Boolean?) {
+        context.dataStore.edit {
+            if (choice == null) it.remove(TTS_CONTINUE_ON_READER_EXIT)
+            else it[TTS_CONTINUE_ON_READER_EXIT] = choice
         }
     }
 

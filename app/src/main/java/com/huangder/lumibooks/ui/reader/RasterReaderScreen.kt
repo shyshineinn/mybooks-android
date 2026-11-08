@@ -514,12 +514,25 @@ fun RasterReaderScreen(
     var selectedInkColorSlot by remember(bookId) { mutableStateOf(0) }
     var inkColorExpanded by remember(bookId) { mutableStateOf(false) }
     var conversionSheet by remember { mutableStateOf<PdfConversionSheet?>(null) }
+    var showTtsExitDialog by remember(bookId) { mutableStateOf(false) }
+    var exitRequested by remember(bookId) { mutableStateOf(false) }
+    val floatingSubtitlesEnabled by viewModel.floatingSubtitlesEnabled.collectAsState(initial = true)
+    val completeReaderExit: (Boolean) -> Unit = { keepListening ->
+        if (!exitRequested) {
+            exitRequested = true
+            showTtsExitDialog = false
+            viewModel.finishReaderExit(keepListening) {
+                if (uiState.epubComicReader) scope.launch {
+                    viewModel.flushEpubComicProgress()
+                    onNavigateBack()
+                } else onNavigateBack()
+            }
+        }
+    }
     val exitReader: () -> Unit = {
-        viewModel.stopTts()
-        if (uiState.epubComicReader) scope.launch {
-            viewModel.flushEpubComicProgress()
-            onNavigateBack()
-        } else onNavigateBack()
+        if (!exitRequested && !showTtsExitDialog) {
+            viewModel.requestReaderExit(onAsk = { showTtsExitDialog = true }, onExit = completeReaderExit)
+        }
     }
     val openBookFromReader: (String) -> Unit = { targetBookId ->
         viewModel.stopTts()
@@ -1198,6 +1211,14 @@ fun RasterReaderScreen(
         paperColor = rasterBackgroundColor, contentColor = AppColors.TextPrimary,
         eInkMode = eInkMode, backdrop = pdfGlassBackdrop.takeIf { capturePdfBackdrop },
         onDismiss = viewModel::dismissTtsStart, onChoose = viewModel::chooseTtsStart
+    )
+    TtsExitDialog(
+        visible = showTtsExitDialog && readerActive,
+        floatingSubtitlesEnabled = floatingSubtitlesEnabled,
+        paperColor = rasterBackgroundColor, contentColor = AppColors.TextPrimary,
+        eInkMode = eInkMode, backdrop = pdfGlassBackdrop.takeIf { capturePdfBackdrop },
+        onDismiss = { showTtsExitDialog = false },
+        onExit = { keep, remember -> viewModel.chooseReaderExit(keep, remember, completeReaderExit) }
     )
     androidx.compose.runtime.CompositionLocalProvider(LocalRasterPagePrepared provides reportPagePrepared) {
     LiquidGlassMenuHost(Modifier.fillMaxSize(), backdrop = pdfGlassBackdrop.takeIf { capturePdfBackdrop }) {

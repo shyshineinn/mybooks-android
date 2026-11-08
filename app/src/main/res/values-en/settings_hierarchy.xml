@@ -19,7 +19,7 @@
     <string name="settings_section_services_listening">Listening services</string>
     <string name="settings_section_services_sync">Sync and remote libraries</string>
     <string name="settings_find_reader_layout">the default reading theme and two-page spread</string>
-    <string name="settings_find_listening_preferences">listening start and resume settings</string>
+    <string name="settings_find_listening_preferences">listening start, resume and exit settings</string>
     <string name="settings_find_visual_motion">visual effects and motion settings</string>
     <string name="settings_find_visual_glass">Liquid Glass and motion settings</string>
 </resources>

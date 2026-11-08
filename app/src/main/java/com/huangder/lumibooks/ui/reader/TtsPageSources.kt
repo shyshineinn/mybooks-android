@@ -292,11 +292,15 @@ internal class OriginalLayoutEpubTtsPageSource(
         }
     }
 
+    override fun detachReader() {
+        prefetchJob?.cancel()
+        webPageProvider = null
+    }
+
     override fun close() {
         closed = true
-        prefetchJob?.cancel()
+        detachReader()
         scope.cancel()
-        webPageProvider = null
         chapterTextProvider = null
         pageCache.clear()
         chapterSnapshots.clear()

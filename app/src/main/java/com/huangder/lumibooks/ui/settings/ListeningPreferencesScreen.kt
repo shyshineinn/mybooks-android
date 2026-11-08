@@ -22,7 +22,8 @@ fun ListeningPreferencesDetail(viewModel: SettingsViewModel) {
     ListeningPreferencesContent(
         uiState,
         viewModel::saveTtsStartChoice,
-        viewModel::saveTtsReaderResumeChoice
+        viewModel::saveTtsReaderResumeChoice,
+        viewModel::saveTtsContinueOnReaderExit
     )
 }
 
@@ -30,10 +31,13 @@ fun ListeningPreferencesDetail(viewModel: SettingsViewModel) {
 internal fun ListeningPreferencesContent(
     uiState: SettingsUiState,
     onStartChoice: (TtsStartChoice?) -> Unit,
-    onResumeChoice: (TtsReaderResumeChoice?) -> Unit
+    onResumeChoice: (TtsReaderResumeChoice?) -> Unit,
+    onContinueOnExit: (Boolean?) -> Unit
 ) {
     var showStartDialog by remember { mutableStateOf(false) }
     var showResumeDialog by remember { mutableStateOf(false) }
+
+    var showExitDialog by remember { mutableStateOf(false) }
 
     val startOptions = listOf(
         null to stringResource(R.string.tts_start_ask_each_time),
@@ -45,6 +49,12 @@ internal fun ListeningPreferencesContent(
         TtsReaderResumeChoice.KEEP_READING to stringResource(R.string.tts_listening_resume_keep),
         TtsReaderResumeChoice.LISTENING_POSITION to stringResource(R.string.tts_listening_resume_jump),
         TtsReaderResumeChoice.FURTHEST_PROGRESS to stringResource(R.string.tts_listening_resume_furthest)
+    )
+
+    val exitOptions = listOf(
+        null to stringResource(R.string.tts_start_ask_each_time),
+        true to stringResource(R.string.tts_exit_continue),
+        false to stringResource(R.string.tts_exit_stop)
     )
 
     SettingsSectionTitle(
@@ -61,6 +71,11 @@ internal fun ListeningPreferencesContent(
             stringResource(R.string.tts_listening_resume_setting),
             resumeOptions.first { it.first == uiState.ttsReaderResumeChoice }.second
         ) { showResumeDialog = true }
+        SettingsDivider()
+        SettingsNavigationRow(
+            stringResource(R.string.tts_exit_setting),
+            exitOptions.first { it.first == uiState.ttsContinueOnReaderExit }.second
+        ) { showExitDialog = true }
     }
 
     if (showStartDialog) {
@@ -79,6 +94,15 @@ internal fun ListeningPreferencesContent(
             options = resumeOptions,
             onSelect = onResumeChoice,
             onDismiss = { showResumeDialog = false }
+        )
+    }
+    if (showExitDialog) {
+        ChoiceDialog(
+            title = stringResource(R.string.tts_exit_setting),
+            selected = uiState.ttsContinueOnReaderExit,
+            options = exitOptions,
+            onSelect = onContinueOnExit,
+            onDismiss = { showExitDialog = false }
         )
     }
 }

@@ -3881,6 +3881,7 @@ class ReaderViewModel @Inject constructor(
                 readerCacheStore.currentGeneration()
             }.getOrDefault(observedCacheGeneration)
             if (isCacheRecovery) closeActiveBookSession()
+            if (book != null) ttsController.stopForOtherReader(book.id)
             _uiState.value = _uiState.value.copy(isLoading = true, epubComicReader = false, epubComicIndex = null)
             ReaderOpenPerformance.updateState(
                 bookId = bookId,
@@ -4914,14 +4915,20 @@ class ReaderViewModel @Inject constructor(
             TtsForegroundService.startIntent(context, bookTitle)
         )
         viewModelScope.launch {
-            val result = ttsController.start(
-                bookId = bookId,
-                source = source,
-                startChapter = startChapter,
-                startPage = startPage,
-                startCharacterOffset = startCharacterOffset,
-                restoreSavedPosition = restoreSavedPosition
-            )
+            val retained = ttsSourceLifetime.retain(source)
+            val result = try {
+                ttsController.start(
+                    bookId = bookId,
+                    source = retained,
+                    startChapter = startChapter,
+                    startPage = startPage,
+                    startCharacterOffset = startCharacterOffset,
+                    restoreSavedPosition = restoreSavedPosition
+                )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                ttsController.cancelReaderStart(retained)
+                throw cancelled
+            }
             if (result.isFailure) {
                 _ttsState.value = _ttsState.value.copy(
                     errorMessage = ttsErrorMessage(result.exceptionOrNull())
@@ -4990,6 +4997,48 @@ class ReaderViewModel @Inject constructor(
         if (ttsController.activeBookId.value == bookId) {
             FullScreenTtsActivity.launch(context, bookId, ttsController.currentSessionId)
         }
+    }
+
+    val floatingSubtitlesEnabled = dataStoreManager.ttsFloatingWindow
+    private var readerExitDecisionBusy = false
+
+    fun requestReaderExit(onAsk: () -> Unit, onExit: (Boolean) -> Unit) {
+        if (readerExitDecisionBusy) return
+        if (ttsController.activeBookId.value != bookId) {
+            onExit(false)
+            return
+        }
+        readerExitDecisionBusy = true
+        viewModelScope.launch {
+            try {
+                val choice = dataStoreManager.ttsContinueOnReaderExit.first()
+                when {
+                    ttsController.activeBookId.value != bookId -> onExit(false)
+                    choice == null || (choice && dataStoreManager.ttsFloatingWindow.first() &&
+                        !android.provider.Settings.canDrawOverlays(context)) -> onAsk()
+                    else -> onExit(choice)
+                }
+            } finally {
+                readerExitDecisionBusy = false
+            }
+        }
+    }
+
+    fun chooseReaderExit(keepListening: Boolean, remember: Boolean, onExit: (Boolean) -> Unit) {
+        if (readerExitDecisionBusy) return
+        readerExitDecisionBusy = true
+        viewModelScope.launch {
+            try {
+                if (remember) dataStoreManager.saveTtsContinueOnReaderExit(keepListening)
+                onExit(keepListening)
+            } finally {
+                readerExitDecisionBusy = false
+            }
+        }
+    }
+
+    fun finishReaderExit(keepListening: Boolean, onReady: () -> Unit) {
+        ttsController.finishReaderExit(bookId, keepListening, onReady)
     }
 
     fun stopTts() {
@@ -6837,13 +6886,7 @@ class ReaderViewModel @Inject constructor(
         } else 0
     }
 
-    override fun onCleared() {
-        stopReadingActivity()
-        flushNativePageIndex()
-        nativePageIndexCache?.close()
-        cancelOpenDeferredWork()
-        cacheRecoveryJob?.cancel()
-        largeTxtIndexJob?.cancel()
+    private val ttsSourceLifetime = TtsSourceLifetime {
         val closingParser = parser
         val closingSession = renderSession
         val closeResources = {
@@ -6855,6 +6898,16 @@ class ReaderViewModel @Inject constructor(
         if (pendingSave != null && !pendingSave.isCompleted) pendingSave.invokeOnCompletion { closeResources() }
         else closeResources()
         renderSession = null
+    }
+
+    override fun onCleared() {
+        stopReadingActivity()
+        flushNativePageIndex()
+        nativePageIndexCache?.close()
+        cancelOpenDeferredWork()
+        cacheRecoveryJob?.cancel()
+        largeTxtIndexJob?.cancel()
+        ttsSourceLifetime.releaseReader()
         preloadCache.clear()
         super.onCleared()
     }

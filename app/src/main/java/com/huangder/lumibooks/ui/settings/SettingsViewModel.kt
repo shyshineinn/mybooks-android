@@ -429,6 +429,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.ttsContinueOnReaderExit.collectLatest { choice ->
+                _uiState.update { it.copy(ttsContinueOnReaderExit = choice) }
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.ttsReaderResumeChoice.collectLatest { choice ->
                 _uiState.value = _uiState.value.copy(ttsReaderResumeChoice = choice)
             }
@@ -595,6 +600,10 @@ class SettingsViewModel @Inject constructor(
 
     fun saveTtsStartChoice(choice: com.huangder.lumibooks.tts.TtsStartChoice?) {
         viewModelScope.launch { dataStoreManager.saveTtsStartChoice(choice) }
+    }
+
+    fun saveTtsContinueOnReaderExit(choice: Boolean?) {
+        viewModelScope.launch { dataStoreManager.saveTtsContinueOnReaderExit(choice) }
     }
 
     fun saveTtsReaderResumeChoice(choice: com.huangder.lumibooks.tts.TtsReaderResumeChoice?) {

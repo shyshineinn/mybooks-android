@@ -2323,13 +2323,22 @@ fun ReaderScreen(
     }
     var exitRequested by remember(bookId) { mutableStateOf(false) }
     var epubReleaseHandler by remember(bookId) { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
-    val exitReader: () -> Unit = {
+    var showTtsExitDialog by remember(bookId) { mutableStateOf(false) }
+    val floatingSubtitlesEnabled by viewModel.floatingSubtitlesEnabled.collectAsState(initial = true)
+    val completeReaderExit: (Boolean) -> Unit = { keepListening ->
         if (!exitRequested) {
             exitRequested = true
+            showTtsExitDialog = false
             viewModel.keepReadingPosition()
-            viewModel.stopTts()
-            val release = epubReleaseHandler.takeIf { isBookLayout }
-            if (release != null) release(onNavigateBack) else onNavigateBack()
+            viewModel.finishReaderExit(keepListening) {
+                val release = epubReleaseHandler.takeIf { isBookLayout }
+                if (release != null) release(onNavigateBack) else onNavigateBack()
+            }
+        }
+    }
+    val exitReader: () -> Unit = {
+        if (!exitRequested && !showTtsExitDialog) {
+            viewModel.requestReaderExit(onAsk = { showTtsExitDialog = true }, onExit = completeReaderExit)
         }
     }
     ConfigurableBackHandler(
@@ -5385,6 +5394,14 @@ fun ReaderScreen(
         )
     }
 
+    TtsExitDialog(
+        visible = showTtsExitDialog && readerActive,
+        floatingSubtitlesEnabled = floatingSubtitlesEnabled,
+        paperColor = Color(customBackgroundThemeColorInt), contentColor = Color(readerTextColorInt),
+        eInkMode = eInkMode, backdrop = activeReaderGlassBackdrop,
+        onDismiss = { showTtsExitDialog = false },
+        onExit = { keep, remember -> viewModel.chooseReaderExit(keep, remember, completeReaderExit) }
+    )
     ReaderTxtConfigurationDialogs(
         uiState = uiState,
         showEncoding = showTxtEncodingDialog,

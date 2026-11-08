@@ -567,22 +567,57 @@ class TtsController(
         scope.launch {
             commandMutex.withLock {
                 if (_activeBookId.value != bookId) return@withLock
-                readerAttached = attached
-                if (attached) {
-                    followReaderPageTurns = true
-                    return@withLock
-                }
-                val pending = pendingPageTurn
-                cancelPageTurnAckTimeout()
-                pendingPageTurn = null
-                clearPageTurnReplay()
-                acknowledgedPageTurn = null
-                pageTurnSequence++
-                if (pending?.resumeWhenAcknowledged == true &&
-                    _playbackState.value == TtsPlaybackState.PLAYING && activeUtteranceId == null
-                ) speakCurrentSegment()
+                updateReaderAttachment(attached)
             }
         }
+    }
+
+    internal fun cancelReaderStart(source: TtsPageSource) {
+        scope.launch {
+            commandMutex.withLock {
+                if (pageSource === source) stopInternal()
+                else source.close()
+            }
+        }
+    }
+
+    fun finishReaderExit(bookId: String, keepListening: Boolean, onReady: () -> Unit) {
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value == bookId) {
+                    if (keepListening) {
+                        pageSource?.detachReader()
+                        updateReaderAttachment(false)
+                    } else stopInternal()
+                }
+            }
+            onReady()
+        }
+    }
+
+    fun stopForOtherReader(bookId: String) {
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value?.let { it != bookId } == true) stopInternal()
+            }
+        }
+    }
+
+    private suspend fun updateReaderAttachment(attached: Boolean) {
+        readerAttached = attached
+        if (attached) {
+            followReaderPageTurns = true
+            return
+        }
+        val pending = pendingPageTurn
+        cancelPageTurnAckTimeout()
+        pendingPageTurn = null
+        clearPageTurnReplay()
+        acknowledgedPageTurn = null
+        pageTurnSequence++
+        if (pending?.resumeWhenAcknowledged == true &&
+            _playbackState.value == TtsPlaybackState.PLAYING && activeUtteranceId == null
+        ) speakCurrentSegment()
     }
 
     /** A visual lease only: source, timer, user follow policy and engine stay alive. */
