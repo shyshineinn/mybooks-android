@@ -27,7 +27,7 @@ class AnnotationTagsMigrationTest {
             val db = helper.writableDatabase
             db.execSQL("INSERT INTO notes VALUES ('[\"复习\",\"人物\"]', 10)")
             db.execSQL("INSERT INTO bookmarks VALUES ('[\"人物\",\"引文\"]', 20)")
-            DatabaseMigrations.MIGRATION_20_21.migrate(db)
+            DatabaseMigrations.MIGRATION_19_20.migrate(db)
             db.query("SELECT name, isDeleted FROM annotation_tags").use { cursor ->
                 val names = mutableSetOf<String>()
                 while (cursor.moveToNext()) {

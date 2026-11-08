@@ -42,11 +42,10 @@ object PortableSnapshotMerger {
             { it.id },
             { it.updatedAt },
             tombstoneMap
-        ).distinctByLatest({ it.normalizedName }, { it.updatedAt }).map { tag ->
+        ).map { tag ->
             val groupId = knownBookAssignments[tag.id]?.groupId
             tag.copy(groupId = groupId?.takeIf { it in bookGroups })
         }
-        val validTagIds = tags.mapTo(mutableSetOf()) { it.id }
         val folders = mergeLive(
             local.folders,
             remote.folders,
@@ -90,11 +89,11 @@ object PortableSnapshotMerger {
             books = books,
             folders = folders,
             bookFolderLinks = folderLinks,
-            tags = tags,
+            tags = tagMerge.tags,
             tagGroups = groups,
             hasTagGroups = local.hasTagGroups || remote.hasTagGroups,
             bookTagsWithoutGroupId = if (!local.hasTagGroups && !remote.hasTagGroups) emptySet() else
-                tags.filterNot { it.id in knownBookAssignments }.mapTo(mutableSetOf()) { it.id },
+                tagMerge.tags.filterNot { it.id in knownBookAssignments }.mapTo(mutableSetOf()) { it.id },
             annotationTagsWithoutGroupId = if (!local.hasTagGroups && !remote.hasTagGroups) emptySet() else
                 (local.annotationTags + remote.annotationTags)
                     .filterNot { it.name in knownAnnotationAssignments }.mapTo(mutableSetOf()) { it.name },
@@ -105,7 +104,7 @@ object PortableSnapshotMerger {
                 val groupId = knownAnnotationAssignments[tag.name]?.groupId
                 tag.copy(groupId = groupId?.takeIf { it in annotationGroups })
             },
-            bookTagLinks = tagLinks,
+            bookTagLinks = tagMerge.links,
             readingRecords = mergeReadingRecords(local.readingRecords, remote.readingRecords)
                 .filter { it.bookId in validBookIds },
             bookmarks = mergeLive(

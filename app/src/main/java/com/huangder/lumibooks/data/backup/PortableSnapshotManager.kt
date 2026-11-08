@@ -361,21 +361,19 @@ class PortableSnapshotManager internal constructor(
                         hasTagGroups = true,
                         bookTagsWithoutGroupId = emptySet(),
                         annotationTagsWithoutGroupId = emptySet()
-                    ), snapshot
+                    ), snapshot.copy(tombstones = effectiveTombstones)
                 )
                 database.tagGroupDao().upsertGroups(tagCatalog.tagGroups)
-                if (tagCatalog.tags.isNotEmpty()) syncDao.upsertTags(tagCatalog.tags)
-                if (snapshot.bookFolderLinks.isNotEmpty()) syncDao.upsertBookFolderLinks(snapshot.bookFolderLinks)
-                if (snapshot.bookTagLinks.isNotEmpty()) syncDao.upsertBookTagLinks(snapshot.bookTagLinks)
-                if (snapshot.readingRecords.isNotEmpty()) syncDao.upsertReadingRecords(snapshot.readingRecords.map {
-                    val key = "${it.bookId}\u0000${it.date}\u0000${it.sourceDeviceId}"
-                    val existing = existingRecords[key]
-                    it.copy(id = if (replace) 0 else existing?.id ?: 0,
-                        duration = if (replace) it.duration else maxOf(it.duration, existing?.duration ?: 0),
-                        listeningDuration = if (replace) it.listeningDuration else maxOf(it.listeningDuration, existing?.listeningDuration ?: 0),
-                        startTime = if (replace || existing == null) it.startTime else minOf(it.startTime, existing.startTime),
-                        endTime = if (replace || existing == null) it.endTime else maxOf(it.endTime, existing.endTime),
-                        updatedAt = if (replace || existing == null) it.updatedAt else maxOf(it.updatedAt, existing.updatedAt))
+                val groupAssignments = tagCatalog.tags.associateBy { it.id }
+                // Rebuild the catalog and its remapped links together to avoid a unique-name collision.
+                syncDao.clearBookTagLinks()
+                syncDao.clearTags()
+                if (tagMerge.tags.isNotEmpty()) syncDao.upsertTags(tagMerge.tags.map { tag ->
+                    tag.copy(groupId = groupAssignments[tag.id]?.groupId)
+                })
+                if (folderLinks.isNotEmpty()) syncDao.upsertBookFolderLinks(folderLinks.map { incoming ->
+                    existingFolderLinks[incoming.bookId]?.takeIf { preserveNewerRows && !replace && it.updatedAt > incoming.updatedAt }
+                        ?: incoming
                 })
                 if (tagLinks.isNotEmpty()) syncDao.upsertBookTagLinks(tagLinks)
                 if (readingRecords.isNotEmpty()) syncDao.upsertReadingRecords(readingRecords.map {
@@ -411,7 +409,7 @@ class PortableSnapshotManager internal constructor(
                     AnnotationTags.decode(bookmark.tagsJson).map { AnnotationTagEntity(it, bookmark.updatedAt) }
                 }).distinctBy { it.name })
                 tagDao.upsertTags(tagCatalog.annotationTags)
-                if (snapshot.tombstones.isNotEmpty()) syncDao.upsertTombstones(snapshot.tombstones)
+                if (effectiveTombstones.isNotEmpty()) syncDao.upsertTombstones(effectiveTombstones)
                 if (snapshot.highlightRules.isNotEmpty()) {
                     database.highlightRuleDao().upsertRules(snapshot.highlightRules)
                 }

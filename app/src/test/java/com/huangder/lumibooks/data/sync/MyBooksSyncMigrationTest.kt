@@ -34,10 +34,19 @@ class MyBooksSyncMigrationTest {
                 deletedAt INTEGER NOT NULL, lastAttemptAt INTEGER NOT NULL DEFAULT 0, lastError TEXT)""")
             sql.execSQL("""INSERT INTO mybooks_sync_state(bookId,remoteId,overridesJson) VALUES('mybooks-1',1,'{"title":"pending"}')""")
             sql.execSQL("INSERT INTO mybooks_pending_delete(remoteId,bookId,deletedAt) VALUES(2,'mybooks-2',123)")
+            sql.execSQL("ALTER TABLE books DROP COLUMN isManuallyMarkedRead")
+            sql.execSQL("ALTER TABLE highlight_rules DROP COLUMN highlightMode")
+            sql.execSQL("ALTER TABLE highlight_rules DROP COLUMN highlightColor")
+            sql.execSQL("ALTER TABLE reading_records DROP COLUMN listeningDuration")
             sql.version = 21
             db.close()
             db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(DatabaseMigrations.MIGRATION_21_22).allowMainThreadQueries().build()
+                .addMigrations(
+                    DatabaseMigrations.MIGRATION_21_22, DatabaseMigrations.MIGRATION_22_23,
+                    DatabaseMigrations.MIGRATION_23_24, DatabaseMigrations.MIGRATION_24_25,
+                    DatabaseMigrations.MIGRATION_25_26, DatabaseMigrations.MIGRATION_26_27,
+                    DatabaseMigrations.MIGRATION_27_28
+                ).allowMainThreadQueries().build()
             assertEquals("{\"title\":\"pending\"}", db.myBooksSyncStateDao().get("mybooks-1")!!.overridesJson)
             assertFalse(db.myBooksSyncStateDao().get("mybooks-1")!!.remoteDeleted)
             assertNull(db.myBooksSyncStateDao().getPendingDelete(2)!!.expectedRevision)
