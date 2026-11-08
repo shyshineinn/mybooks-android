@@ -120,7 +120,9 @@ interface BookDao {
     @Query("UPDATE books SET isHidden = :hidden, metadataUpdatedAt = :updatedAt WHERE id IN (:bookIds)")
     suspend fun setBooksHidden(bookIds: List<String>, hidden: Boolean, updatedAt: Long)
 
-    @Query("UPDATE books SET isArchived = :archived, metadataUpdatedAt = :updatedAt WHERE id IN (:bookIds)")
+    @Query("""UPDATE books SET isArchived = :archived,
+        archiveUpdatedAt = MAX(:updatedAt, archiveUpdatedAt + 1)
+        WHERE id IN (:bookIds) AND isArchived != :archived""")
     suspend fun setBooksArchived(bookIds: List<String>, archived: Boolean, updatedAt: Long)
 
     @Query("UPDATE books SET filePath = '', isCloudOnly = 1 WHERE id = :bookId")

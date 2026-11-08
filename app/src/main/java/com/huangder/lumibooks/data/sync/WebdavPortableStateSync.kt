@@ -67,14 +67,21 @@ class WebdavPortableStateSync @Inject constructor(
                         }
                     } else if (assetReferenced(localPayload, asset.id)) {
                         val target = File(workDir, asset.fileName)
-                        val result = client.downloadToFile(
-                            WebdavUrl.append(serverUrl, root, "assets", asset.fileName),
-                            target,
-                            config.username,
-                            password,
-                            asset.sizeBytes
-                        )
-                        require(result.sha256 == asset.sha256) { "Synced asset checksum mismatch" }
+                        val result = try {
+                            client.downloadToFile(
+                                WebdavUrl.append(serverUrl, root, "assets", asset.fileName),
+                                target,
+                                config.username,
+                                password,
+                                asset.sizeBytes
+                            )
+                        } catch (error: WebdavException) {
+                            if (asset.kind == "reader_background" && error.statusCode in listOf(404, 410)) continue
+                            throw error
+                        }
+                        val valid = result.sha256 == asset.sha256 && result.bytesWritten == asset.sizeBytes
+                        if (!valid && asset.kind == "reader_background") continue
+                        require(valid) { "Synced asset checksum mismatch" }
                         files[asset.id] = target
                         downloadedAssets++
                     }

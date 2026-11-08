@@ -348,6 +348,20 @@ fun ThirdPartyServicesDetail(viewModel: SettingsViewModel) {
     SettingsSectionTitle(stringResource(R.string.settings_section_services_sync), "services_sync")
     SettingsCategoryGroup {
         CategoryItem(
+            label = stringResource(R.string.mybooks_server_title),
+            supportingText = stringResource(
+                when {
+                    myBooksConnection.loggedIn && myBooksSyncEnabled -> R.string.mybooks_server_connected
+                    myBooksConnection.loggedIn -> R.string.mybooks_disabled
+                    else -> R.string.mybooks_server_disconnected
+                }
+            ),
+            grouped = true
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "mybooks"))
+        }
+        SettingsGroupDivider()
+        CategoryItem(
             label = stringResource(R.string.category_webdav),
             supportingText = when {
                 uiState.webdavConfig.enabled -> stringResource(R.string.webdav_enabled_status)

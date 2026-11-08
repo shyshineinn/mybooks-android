@@ -122,6 +122,7 @@ import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookshelfLayout
 import com.huangder.lumibooks.domain.model.BookDeleteMode
 import com.huangder.lumibooks.data.sync.BookDownloadState
+import com.huangder.lumibooks.data.sync.MyBooksConfig
 import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.domain.model.FolderMoveResult
 import com.huangder.lumibooks.domain.model.LibraryFolder
@@ -224,6 +225,15 @@ fun BookshelfScreen(
     val folderTransitionOffset = remember { Animatable(0f) }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val syncBackends by viewModel.availableLibrarySyncBackends.collectAsStateWithLifecycle(initialValue = emptyList())
+    var chooseSyncBackend by remember { mutableStateOf(false) }
+    val requestLibrarySync: () -> Unit = {
+        when (syncBackends.size) {
+            0 -> onMessage(context.getString(R.string.library_sync_configure_hint))
+            1 -> viewModel.syncLibraryNow(syncBackends.single())
+            else -> chooseSyncBackend = true
+        }
+    }
     val contextMenuState = rememberBookContextMenuState()
     var coverFlowMenuVisible by remember { mutableStateOf(false) }
     val folderContextMenuState = rememberFolderContextMenuState()
@@ -424,6 +434,17 @@ fun BookshelfScreen(
     // 编辑书本信息对话框状态
     var showEditDialog by remember { mutableStateOf(false) }
     var editingBook by remember { mutableStateOf<Book?>(null) }
+    var editingMyBooksBook by remember { mutableStateOf<Book?>(null) }
+    val openBookEditor: (Book) -> Unit = { book ->
+        expandedSearchBookId = null
+        expandedListBookId = null
+        if (MyBooksConfig.isMyBooks(book)) {
+            editingMyBooksBook = book
+        } else {
+            editingBook = book
+            showEditDialog = true
+        }
+    }
 
     // 自定义封面：记录正在操作的书本
     var coverTargetBook by remember { mutableStateOf<Book?>(null) }
@@ -503,10 +524,7 @@ fun BookshelfScreen(
                     tagTargetBook = currentBook
                     showTagSheet = true
                 }
-                PendingBookMenuActionType.EditInfo -> {
-                    editingBook = currentBook
-                    showEditDialog = true
-                }
+                PendingBookMenuActionType.EditInfo -> openBookEditor(currentBook)
                 PendingBookMenuActionType.BookDetails ->
                     BookDetailsActivity.start(context, currentBook.id)
                 PendingBookMenuActionType.ToggleReadStatus ->
@@ -730,11 +748,6 @@ fun BookshelfScreen(
         } else {
             filteredBooks.mapTo(linkedSetOf()) { it.id }
         }
-    }
-    val editBookFromList: (Book) -> Unit = { book ->
-        expandedListBookId = null
-        editingBook = book
-        showEditDialog = true
     }
     val openDetailsFromList: (Book) -> Unit = { book ->
         expandedListBookId = null
@@ -965,7 +978,7 @@ fun BookshelfScreen(
                         onFolderRemoveCover = removeFolderCoverFromList,
                         onFolderMove = moveFolderFromList,
                         onAddBook = { onAddBook(renderedFolderId) },
-                        onEditInfo = editBookFromList,
+                        onEditInfo = openBookEditor,
                         onBookDetails = openDetailsFromList,
                         onMoveToFolder = moveBookFromList,
                         onDelete = deleteBookFromList,
@@ -1038,10 +1051,10 @@ fun BookshelfScreen(
                             expandedSearchBookId = null
                             isSearchActive = true
                         },
-                        onSyncClick = { viewModel.syncWebdavNow() },
+                        onSyncClick = requestLibrarySync,
                         onRefreshClick = onRefreshAuthorizedDirectories,
                         layoutMode = effectiveLayoutMode,
-                        isWebdavSyncing = uiState.isWebdavSyncing,
+                        isLibrarySyncing = uiState.isLibrarySyncing,
                         onSelectAll = toggleSelectAll,
                         onLayoutModeChange = changeLayout,
                         sortBy = uiState.sortBy,
@@ -1101,7 +1114,7 @@ fun BookshelfScreen(
                         onFolderRemoveCover = removeFolderCoverFromList,
                         onFolderMove = moveFolderFromList,
                         onAddBook = { onAddBook(renderedFolderId) },
-                        onEditInfo = editBookFromList,
+                        onEditInfo = openBookEditor,
                         onBookDetails = openDetailsFromList,
                         onMoveToFolder = moveBookFromList,
                         onDelete = deleteBookFromList,
@@ -1188,10 +1201,10 @@ fun BookshelfScreen(
                         expandedSearchBookId = null
                         isSearchActive = true
                     },
-                    onSyncClick = { viewModel.syncWebdavNow() },
+                    onSyncClick = requestLibrarySync,
                     onRefreshClick = onRefreshAuthorizedDirectories,
                     layoutMode = effectiveLayoutMode,
-                    isWebdavSyncing = uiState.isWebdavSyncing,
+                    isLibrarySyncing = uiState.isLibrarySyncing,
                     onSelectAll = toggleSelectAll,
                     onLayoutModeChange = changeLayout,
                     sortBy = uiState.sortBy,
@@ -1244,11 +1257,7 @@ fun BookshelfScreen(
                 onBookClick = { book ->
                     onNavigateToReader(book, null)
                 },
-                onEditInfo = { book ->
-                    expandedSearchBookId = null
-                    editingBook = book
-                    showEditDialog = true
-                },
+                onEditInfo = openBookEditor,
                 onBookDetails = { book ->
                     expandedSearchBookId = null
                     BookDetailsActivity.start(context, book.id)
@@ -1400,6 +1409,9 @@ fun BookshelfScreen(
         }
 
         // ── 编辑书本信息对话框（卡片风格） ──
+        editingMyBooksBook?.let { book ->
+            MyBooksEditSheet(book = book, meta = null, onDismiss = { editingMyBooksBook = null })
+        }
         editingBook?.takeIf { showEditDialog }?.let { currentEditingBook ->
             com.huangder.lumibooks.ui.components.LiquidGlassDialog(
                 onDismissRequest = {
@@ -1461,6 +1473,23 @@ fun BookshelfScreen(
                 onDeleteTag = { tag, deleteChildren ->
                     viewModel.deleteTag(tag.id, deleteChildren)
                 }
+            )
+        }
+
+        if (chooseSyncBackend) {
+            com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog(
+                onDismissRequest = { chooseSyncBackend = false },
+                title = { Text(stringResource(R.string.library_sync_choose)) },
+                text = { Column {
+                    syncBackends.forEach { backend ->
+                        com.huangder.lumibooks.ui.components.LiquidGlassTextButton(
+                            text = stringResource(if (backend == HomeViewModel.LibrarySyncBackend.MYBOOKS) R.string.mybooks_server_title else R.string.title_webdav),
+                            onClick = { chooseSyncBackend = false; viewModel.syncLibraryNow(backend) }
+                        )
+                    }
+                } },
+                confirmButton = {},
+                dismissButton = { com.huangder.lumibooks.ui.components.LiquidGlassTextButton(text = stringResource(R.string.cancel), onClick = { chooseSyncBackend = false }) }
             )
         }
 
@@ -1618,6 +1647,7 @@ fun BookshelfScreen(
             CloudAwareBookDeleteDialog(
                 bookCount = targets.size,
                 hasRemoteBooks = targets.any { it.remoteFileName != null },
+                hasMyBooksBooks = targets.any(MyBooksConfig::isMyBooks),
                 onDismiss = {
                     showBatchDeleteConfirm = false
                     booksPendingDeletion = emptyList()
@@ -2102,7 +2132,7 @@ private fun BookshelfHeaderActions(
     val menuHost = LocalLiquidGlassMenuHost.current
     var menuExpanded by remember { mutableStateOf(false) }
     var menuAnchorBounds by remember { mutableStateOf(Rect.Zero) }
-    val syncLabel = stringResource(if (isSyncing) R.string.webdav_syncing else R.string.webdav_sync_now)
+    val syncLabel = stringResource(if (isSyncing) R.string.sync_running else R.string.sync_now)
     val standardGridLabel = stringResource(R.string.bookshelf_standard_grid)
     val compactGridLabel = stringResource(R.string.bookshelf_compact_grid)
     val listLayoutLabel = stringResource(R.string.bookshelf_list_layout)
@@ -2279,7 +2309,7 @@ private fun BookshelfCapsuleHeader(
     onRefreshClick: () -> Unit,
     onSelectAll: () -> Unit,
     layoutMode: Int,
-    isWebdavSyncing: Boolean,
+    isLibrarySyncing: Boolean,
     onLayoutModeChange: (Int) -> Unit,
     onSearchBoundsChanged: (Rect) -> Unit,
     sortBy: SortBy = SortBy.DATE_ADDED,
@@ -2312,7 +2342,7 @@ private fun BookshelfCapsuleHeader(
         Column(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
             .padding(horizontal = 16.dp, vertical = 6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BookshelfHeaderActions(layoutMode, isWebdavSyncing, onSyncClick, onRefreshClick,
+                BookshelfHeaderActions(layoutMode, isLibrarySyncing, onSyncClick, onRefreshClick,
                     onLayoutModeChange, onCreateFolder, onAddBook = onCoverFlowAddBook, onEdit = onEditToggle,
                     sortBy = sortBy, onSortByChange = onSortByChange,
                     modifier = Modifier.coverFlowEntranceItem(0))
@@ -2353,7 +2383,7 @@ private fun BookshelfCapsuleHeader(
             eyebrow = if (folderPath.isEmpty()) stringResource(R.string.bookshelf_library_summary,
                 libraryBookCount, libraryFinishedBookCount) else null,
             trailing = {
-                BookshelfSyncProgressIndicator(isSyncing = isWebdavSyncing)
+                BookshelfSyncProgressIndicator(isSyncing = isLibrarySyncing)
                 Spacer(Modifier.width(6.dp))
                 androidx.compose.animation.AnimatedVisibility(
                     visible = !isEditing,
@@ -2377,7 +2407,7 @@ private fun BookshelfCapsuleHeader(
                 Spacer(Modifier.width(6.dp))
                 BookshelfHeaderActions(
                     layoutMode = layoutMode,
-                    isSyncing = isWebdavSyncing,
+                    isSyncing = isLibrarySyncing,
                     onSyncClick = onSyncClick,
                     onRefreshClick = onRefreshClick,
                     onLayoutModeChange = onLayoutModeChange,

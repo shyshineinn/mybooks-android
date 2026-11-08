@@ -67,9 +67,9 @@ class ArchivedBookQueriesTest {
         db.openHelper.writableDatabase.execSQL("INSERT INTO book_folder_cross_refs (bookId, folderId, updatedAt) VALUES ('visible', 'folder', 1)")
         db.bookDao().setBooksArchived(listOf("visible"), true, 900)
         db.bookDao().updateReadingProgress("visible", .7f, "new-position")
-        db.bookDao().setBooksArchived(listOf("visible"), false, 901)
+        db.bookDao().setBooksArchived(listOf("visible"), false, 899)
         val restored = db.bookDao().getBookById("visible")!!
-        assertEquals(original.copy(readingProgress = .7f, locatorJson = "new-position", metadataUpdatedAt = 901), restored)
+        assertEquals(original.copy(readingProgress = .7f, locatorJson = "new-position", archiveUpdatedAt = 901), restored)
         assertEquals("folder", db.folderDao().getAllBookFolderLinks().first().single().folderId)
         assertEquals(1, db.noteDao().getNotesByBookId("visible").first().size)
     }
@@ -85,6 +85,10 @@ class ArchivedBookQueriesTest {
             .callback(object : SupportSQLiteOpenHelper.Callback(26) {
                 override fun onCreate(db: SupportSQLiteDatabase) {
                     db.execSQL("CREATE TABLE books (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, readingProgress REAL NOT NULL, isHidden INTEGER NOT NULL)")
+                    db.execSQL("CREATE TABLE reading_records (listeningDuration INTEGER NOT NULL DEFAULT 0)")
+                    db.execSQL("CREATE TABLE annotation_tags (name TEXT NOT NULL PRIMARY KEY)")
+                    db.execSQL("CREATE TABLE tags (id TEXT NOT NULL PRIMARY KEY, parentId TEXT)")
+                    db.execSQL("CREATE TABLE book_tag_cross_refs (bookId TEXT, tagId TEXT, updatedAt INTEGER)")
                 }
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
             }).build()

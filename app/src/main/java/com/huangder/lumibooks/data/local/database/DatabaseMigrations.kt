@@ -15,6 +15,7 @@ object DatabaseMigrations {
             if (!db.hasColumn("reading_records", "listeningDuration")) {
                 db.execSQL("ALTER TABLE reading_records ADD COLUMN listeningDuration INTEGER NOT NULL DEFAULT 0")
             }
+            ensureAnnotationTags(db)
             // 上游 26 → 27 已包含 tag_groups；本地 2.3.10 线的 26 尚未包含，
             // 用 IF NOT EXISTS + 列检查让两条升级路径都能通过。
             db.execSQL("CREATE TABLE IF NOT EXISTS tag_groups (id TEXT NOT NULL PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL, normalizedName TEXT NOT NULL, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
@@ -32,9 +33,73 @@ object DatabaseMigrations {
 
     val MIGRATION_27_28 = object : Migration(27, 28) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            if (!db.hasColumn("books", "archiveUpdatedAt")) {
-                db.execSQL("ALTER TABLE books ADD COLUMN archiveUpdatedAt INTEGER NOT NULL DEFAULT 0")
+            // My Books and upstream used the same version numbers for different schemas.
+            db.addColumnIfMissing("books", "archiveUpdatedAt", "INTEGER NOT NULL DEFAULT 0")
+            db.addColumnIfMissing("books", "isHidden", "INTEGER NOT NULL DEFAULT 0")
+            ensureManualReadStatus(db)
+            db.addColumnIfMissing("highlight_rules", "highlightMode", "INTEGER NOT NULL DEFAULT 0")
+            db.addColumnIfMissing("highlight_rules", "highlightColor", "INTEGER")
+            ensureMyBooksTables(db)
+        }
+    }
+
+    private fun ensureAnnotationTags(db: SupportSQLiteDatabase) {
+        if (db.hasColumn("annotation_tags", "name")) return
+        db.execSQL("CREATE TABLE IF NOT EXISTS annotation_tags (name TEXT NOT NULL PRIMARY KEY, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
+        // Android SQLite versions do not all provide json_each; decode in Kotlin.
+        db.query("SELECT tagsJson, updatedAt FROM notes UNION ALL SELECT tagsJson, updatedAt FROM bookmarks").use { cursor ->
+            while (cursor.moveToNext()) {
+                AnnotationTags.decode(cursor.getString(0)).forEach { name ->
+                    db.execSQL("INSERT OR IGNORE INTO annotation_tags (name, updatedAt, isDeleted) VALUES (?, ?, 0)",
+                        arrayOf<Any>(name, cursor.getLong(1)))
+                }
             }
+        }
+    }
+
+    private fun ensureMyBooksTables(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `mybooks_sync_state` (" +
+                "`bookId` TEXT NOT NULL, " +
+                "`remoteId` INTEGER NOT NULL, " +
+                "`serverUpdatedAt` TEXT NOT NULL DEFAULT '', " +
+                "`baseJson` TEXT NOT NULL DEFAULT '', " +
+                "`overridesJson` TEXT NOT NULL DEFAULT '{}', " +
+                "`editedAtJson` TEXT NOT NULL DEFAULT '{}', " +
+                "`baseTagsJson` TEXT NOT NULL DEFAULT '[]', " +
+                "`coverDirty` INTEGER NOT NULL DEFAULT 0, " +
+                "`coverEditedAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`lastSyncAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`lastError` TEXT, " +
+                "PRIMARY KEY(`bookId`))"
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `mybooks_pending_delete` (" +
+                "`remoteId` INTEGER NOT NULL, " +
+                "`bookId` TEXT NOT NULL, " +
+                "`deletedAt` INTEGER NOT NULL, " +
+                "`lastAttemptAt` INTEGER NOT NULL DEFAULT 0, " +
+                "`lastError` TEXT, " +
+                "PRIMARY KEY(`remoteId`))"
+        )
+        db.addColumnIfMissing("mybooks_sync_state", "remoteDeleted", "INTEGER NOT NULL DEFAULT 0")
+        db.addColumnIfMissing("mybooks_sync_state", "conflictFieldsJson", "TEXT NOT NULL DEFAULT '[]'")
+        db.addColumnIfMissing("mybooks_pending_delete", "expectedRevision", "INTEGER")
+        db.addColumnIfMissing("mybooks_pending_delete", "expectedUuid", "TEXT NOT NULL DEFAULT ''")
+        db.addColumnIfMissing("mybooks_pending_delete", "expectedUpdatedAt", "TEXT NOT NULL DEFAULT ''")
+        db.addColumnIfMissing("mybooks_pending_delete", "title", "TEXT NOT NULL DEFAULT ''")
+    }
+
+    private fun SupportSQLiteDatabase.addColumnIfMissing(table: String, column: String, definition: String) {
+        if (!hasColumn(table, column)) {
+            execSQL("ALTER TABLE $table ADD COLUMN $column $definition")
+        }
+    }
+
+    private fun ensureManualReadStatus(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("books", "isManuallyMarkedRead")) {
+            db.execSQL("ALTER TABLE books ADD COLUMN isManuallyMarkedRead INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE books SET isManuallyMarkedRead = 1 WHERE readingProgress >= 1")
         }
     }
 
@@ -52,8 +117,9 @@ object DatabaseMigrations {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS tag_groups (id TEXT NOT NULL PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL, normalizedName TEXT NOT NULL, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
             db.execSQL("CREATE INDEX IF NOT EXISTS index_tag_groups_type_normalizedName ON tag_groups (type, normalizedName)")
-            db.execSQL("ALTER TABLE tags ADD COLUMN groupId TEXT")
-            db.execSQL("ALTER TABLE annotation_tags ADD COLUMN groupId TEXT")
+            ensureAnnotationTags(db)
+            db.addColumnIfMissing("tags", "groupId", "TEXT")
+            db.addColumnIfMissing("annotation_tags", "groupId", "TEXT")
             // A secondary label previously implied its parent; make that membership explicit before flattening.
             db.execSQL("INSERT OR IGNORE INTO book_tag_cross_refs (bookId, tagId, updatedAt) SELECT links.bookId, parents.id, links.updatedAt FROM book_tag_cross_refs AS links INNER JOIN tags AS children ON children.id = links.tagId INNER JOIN tags AS parents ON parents.id = children.parentId WHERE children.parentId IS NOT NULL")
             db.execSQL("UPDATE tags SET parentId = NULL")
@@ -93,41 +159,8 @@ object DatabaseMigrations {
 
     val MIGRATION_19_20 = object : Migration(19, 20) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("CREATE TABLE IF NOT EXISTS annotation_tags (name TEXT NOT NULL PRIMARY KEY, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
-            // Android SQLite versions do not all provide json_each; decode in Kotlin.
-            db.query("SELECT tagsJson, updatedAt FROM notes UNION ALL SELECT tagsJson, updatedAt FROM bookmarks").use { cursor ->
-                while (cursor.moveToNext()) {
-                    AnnotationTags.decode(cursor.getString(0)).forEach { name ->
-                        db.execSQL("INSERT OR IGNORE INTO annotation_tags (name, updatedAt, isDeleted) VALUES (?, ?, 0)",
-                            arrayOf<Any>(name, cursor.getLong(1)))
-                    }
-                }
-            }
-            // 本地 mybooks 同步链路在 19 → 20 引入的两张表；与上游 annotation_tags 合并为同一迁移。
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS `mybooks_sync_state` (" +
-                    "`bookId` TEXT NOT NULL, " +
-                    "`remoteId` INTEGER NOT NULL, " +
-                    "`serverUpdatedAt` TEXT NOT NULL DEFAULT '', " +
-                    "`baseJson` TEXT NOT NULL DEFAULT '', " +
-                    "`overridesJson` TEXT NOT NULL DEFAULT '{}', " +
-                    "`editedAtJson` TEXT NOT NULL DEFAULT '{}', " +
-                    "`baseTagsJson` TEXT NOT NULL DEFAULT '[]', " +
-                    "`coverDirty` INTEGER NOT NULL DEFAULT 0, " +
-                    "`coverEditedAt` INTEGER NOT NULL DEFAULT 0, " +
-                    "`lastSyncAt` INTEGER NOT NULL DEFAULT 0, " +
-                    "`lastError` TEXT, " +
-                    "PRIMARY KEY(`bookId`))"
-            )
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS `mybooks_pending_delete` (" +
-                    "`remoteId` INTEGER NOT NULL, " +
-                    "`bookId` TEXT NOT NULL, " +
-                    "`deletedAt` INTEGER NOT NULL, " +
-                    "`lastAttemptAt` INTEGER NOT NULL DEFAULT 0, " +
-                    "`lastError` TEXT, " +
-                    "PRIMARY KEY(`remoteId`))"
-            )
+            ensureAnnotationTags(db)
+            ensureMyBooksTables(db)
         }
     }
 
