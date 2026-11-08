@@ -37,7 +37,7 @@ import com.huangder.lumibooks.domain.model.Bookmark
 import com.huangder.lumibooks.domain.model.Note
 import com.huangder.lumibooks.domain.model.HighlightRule
 import com.huangder.lumibooks.domain.model.RuleStyle
-import com.huangder.lumibooks.domain.model.ReadingRecord
+import com.huangder.lumibooks.reading.ReadingActivityTracker
 import com.huangder.lumibooks.domain.model.ReaderBackgroundPreset
 import com.huangder.lumibooks.domain.model.ReaderBackgroundType
 import com.huangder.lumibooks.domain.model.ReaderCornerContent
@@ -84,7 +84,6 @@ import com.huangder.lumibooks.util.DownloadedFonts
 import com.huangder.lumibooks.util.BookFileAccess
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.ReaderBackgroundImageProcessor
-import com.huangder.lumibooks.util.TimeUtils
 import com.huangder.lumibooks.util.cache.ReaderCacheStore
 import com.huangder.lumibooks.util.performance.ReaderOpenPerformance
 import com.huangder.lumibooks.util.performance.ReaderOpenStage
@@ -589,6 +588,7 @@ class ReaderViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bookRepository: BookRepository,
     private val readingRepository: ReadingRepository,
+    private val activityTracker: ReadingActivityTracker,
     private val dataStoreManager: DataStoreManager,
     private val ttsController: TtsController,
     private val pdfConversionManager: PdfConversionManager,
@@ -879,30 +879,34 @@ class ReaderViewModel @Inject constructor(
     private var observedCacheGeneration = readerCacheStore.currentGeneration()
     private var cacheRecoveryJob: Job? = null
     private val bookLoadMutex = Mutex()
-    private var sessionStartTime: Long = System.currentTimeMillis()
-    private var pausedTime: Long = 0L  // 进入后台的时间戳
-    private var isPaused: Boolean = false
+    private var readerForeground = false
 
-    /** 应用进入后台：暂停计时 */
-    fun onAppBackgrounded() {
-        flushNativePageIndex()
-        if (!isPaused) {
-            pausedTime = System.currentTimeMillis()
-            isPaused = true
-            // 保存当前会话，防止进程被杀丢失数据
-            saveReadingCheckpoint()
-            android.util.Log.e("READING", "App backgrounded, session saved")
+    init {
+        viewModelScope.launch {
+            _uiState.map { it.canTrackReading() }.distinctUntilChanged().collect { ready ->
+                if (readerForeground) activityTracker.setReaderVisible(this@ReaderViewModel, bookId, ready)
+            }
         }
     }
 
-    /** 应用回到前台：恢复计时 */
+    private fun ReaderUiState.canTrackReading() = book != null && !isLoading && error == null
+
+    private fun stopReadingActivity() {
+        readerForeground = false
+        activityTracker.setReaderVisible(this, bookId, false)
+    }
+
+    fun onAppBackgrounded() {
+        flushNativePageIndex()
+        val wasForeground = readerForeground
+        stopReadingActivity()
+        if (wasForeground) saveReadingCheckpoint()
+    }
+
     fun onAppForegrounded() {
-        if (isPaused) {
-            // 重置会话起始时间，不计入后台时间
-            sessionStartTime = System.currentTimeMillis()
-            isPaused = false
-            pausedTime = 0L
-            android.util.Log.e("READING", "App foregrounded, timer reset")
+        if (!readerForeground) {
+            readerForeground = true
+            activityTracker.setReaderVisible(this, bookId, _uiState.value.canTrackReading())
         }
         recoverReaderAfterCacheClearIfNeeded()
     }
@@ -3797,6 +3801,7 @@ class ReaderViewModel @Inject constructor(
 
     /** 用户离开阅读页时调用（DisposableEffect.onDispose） */
     fun saveAndPause() {
+        stopReadingActivity()
         flushNativePageIndex()
         continuousProgressJob?.cancel()
         saveReadingCheckpoint()
@@ -6572,11 +6577,8 @@ class ReaderViewModel @Inject constructor(
     private fun saveReadingCheckpoint() {
         if (!_uiState.value.book.let { it != null && MyBooksConfig.isMyBooks(it) }) {
             saveProgress()
-            saveReadingSession()
             return
         }
-        // Capture the session before dispatch so pause + disposal never count it twice.
-        saveReadingSession()
         val state = _uiState.value
         val writeVersion = ++progressWriteVersion
         exitProgressSave = myBooksRealtimeSync.saveReaderState {
@@ -6835,44 +6837,8 @@ class ReaderViewModel @Inject constructor(
         } else 0
     }
 
-    private fun saveReadingSession() {
-        val endTime = if (isPaused) pausedTime else System.currentTimeMillis()
-        val duration = endTime - sessionStartTime
-        android.util.Log.e("READING", "saveReadingSession: duration=${duration}ms, bookId=$bookId")
-        if (duration < 5000) {
-            android.util.Log.e("READING", "Session too short, skipping")
-            return
-        }
-
-        val today = TimeUtils.getCurrentDate()
-        try {
-            kotlinx.coroutines.runBlocking {
-                val existing = readingRepository.getRecordByBookAndDate(bookId, today)
-                if (existing != null) {
-                    // 同一天同一本书：累加时长
-                    readingRepository.updateRecordDuration(existing.id, duration, endTime)
-                    android.util.Log.e("READING", "Record updated: +${duration}ms, total=${existing.duration + duration}ms")
-                } else {
-                    // 新记录
-                    val record = ReadingRecord(
-                        bookId = bookId,
-                        date = today,
-                        duration = duration,
-                        startTime = sessionStartTime,
-                        endTime = endTime
-                    )
-                    readingRepository.insertRecord(record)
-                    android.util.Log.e("READING", "Record inserted: ${record.date} ${record.duration}ms")
-                }
-            }
-            // 重置会话起始时间，为下一段阅读做准备
-            sessionStartTime = endTime
-        } catch (e: Exception) {
-            android.util.Log.e("READING", "Save failed: ${e.message}")
-        }
-    }
-
     override fun onCleared() {
+        stopReadingActivity()
         flushNativePageIndex()
         nativePageIndexCache?.close()
         cancelOpenDeferredWork()

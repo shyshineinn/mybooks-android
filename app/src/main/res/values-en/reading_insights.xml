@@ -10,4 +10,5 @@
     <string name="insights_comparison">Compared with previous period</string>
     <string name="insights_current_period">This period</string>
     <string name="insights_previous_period">Previous period</string>
+    <string name="insights_listening_duration">Listening time %1$s</string>
 </resources>

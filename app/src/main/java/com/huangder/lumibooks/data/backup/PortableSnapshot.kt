@@ -219,12 +219,14 @@ private fun bookTagLinkFromJson(json: JSONObject) = BookTagCrossRefEntity(
 
 internal fun readingRecordToJson(item: ReadingRecordEntity) = JSONObject().apply {
     put("bookId", item.bookId); put("date", item.date); put("duration", item.duration)
+    if (item.listeningDuration > 0) put("listeningDuration", item.listeningDuration)
     put("startTime", item.startTime); put("endTime", item.endTime)
     put("sourceDeviceId", item.sourceDeviceId); put("updatedAt", item.updatedAt)
 }
 
 internal fun readingRecordFromJson(json: JSONObject) = ReadingRecordEntity(
     bookId = json.getString("bookId"), date = json.getString("date"), duration = json.optLong("duration"),
+    listeningDuration = json.optLong("listeningDuration").coerceAtLeast(0),
     startTime = json.optLong("startTime"), endTime = json.optLong("endTime"),
     sourceDeviceId = json.optString("sourceDeviceId"), updatedAt = json.optLong("updatedAt")
 )

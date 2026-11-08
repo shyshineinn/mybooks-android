@@ -173,6 +173,7 @@ object PortableSnapshotMerger {
                 merged[key] = latest.copy(
                     id = 0,
                     duration = maxOf(old.duration, item.duration),
+                    listeningDuration = maxOf(old.listeningDuration, item.listeningDuration),
                     startTime = minOf(old.startTime, item.startTime),
                     endTime = maxOf(old.endTime, item.endTime),
                     updatedAt = maxOf(old.updatedAt, item.updatedAt)

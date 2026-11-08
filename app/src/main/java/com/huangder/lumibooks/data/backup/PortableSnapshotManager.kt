@@ -309,7 +309,16 @@ class PortableSnapshotManager @Inject constructor(
                 if (tagLinks.isNotEmpty()) syncDao.upsertBookTagLinks(tagLinks)
                 if (readingRecords.isNotEmpty()) syncDao.upsertReadingRecords(readingRecords.map {
                     val key = "${it.bookId}\u0000${it.date}\u0000${it.sourceDeviceId}"
-                    it.copy(id = if (replace) 0 else existingRecords[key]?.id ?: 0)
+                    val existing = existingRecords[key]?.takeUnless { replace }
+                    if (existing == null) it.copy(id = 0)
+                    else it.copy(
+                        id = existing.id,
+                        duration = maxOf(existing.duration, it.duration),
+                        listeningDuration = maxOf(existing.listeningDuration, it.listeningDuration),
+                        startTime = minOf(existing.startTime, it.startTime),
+                        endTime = maxOf(existing.endTime, it.endTime),
+                        updatedAt = maxOf(existing.updatedAt, it.updatedAt)
+                    )
                 })
                 if (bookmarks.isNotEmpty()) syncDao.upsertBookmarks(bookmarks.map {
                     val existing = existingBookmarks[it.syncId]

@@ -10,4 +10,5 @@
     <string name="insights_comparison">前の期間との比較</string>
     <string name="insights_current_period">今期</string>
     <string name="insights_previous_period">前期</string>
+    <string name="insights_listening_duration">朗読時間 %1$s</string>
 </resources>

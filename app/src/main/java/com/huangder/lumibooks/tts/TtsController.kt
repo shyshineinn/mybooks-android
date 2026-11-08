@@ -28,7 +28,8 @@ class TtsController(
     private val systemTtsEngine: TtsPlaybackEngine,
     private val externalTtsEngine: TtsPlaybackEngine,
     private val textExtractor: TtsTextExtractor,
-    private val dataStoreManager: TtsSettingsStore
+    private val dataStoreManager: TtsSettingsStore,
+    private val onListeningActivity: (String?) -> Unit = {}
 ) {
     val currentSessionId: Long get() = sessionGeneration
     private val _providerSelection = MutableStateFlow<TtsProviderSelection>(TtsProviderSelection.SystemDefault)
@@ -100,6 +101,10 @@ class TtsController(
     private var clauseIndex = 0
     private var playbackSentence: TtsTextSegment? = null
     private var activeUtteranceId: String? = null
+        set(value) {
+            if (field != null && field != value) onListeningActivity(null)
+            field = value
+        }
     /** Number of recovery attempts for the currently spoken sentence. */
     private var utteranceRetryCount = 0
     private var nextSentencePrefetchJob: Job? = null
@@ -188,6 +193,7 @@ class TtsController(
 
         override fun onDone(utteranceId: String) {
             scope.launch {
+                if (engine === activeEngine && utteranceId == activeUtteranceId) onListeningActivity(null)
                 commandMutex.withLock {
                     logTtsEvent(
                         event = "utterance_done",
@@ -202,6 +208,7 @@ class TtsController(
 
         override fun onError(utteranceId: String, throwable: Throwable) {
             scope.launch {
+                if (engine === activeEngine && utteranceId == activeUtteranceId) onListeningActivity(null)
                 commandMutex.withLock {
                     logTtsEvent(
                         event = "utterance_error",
@@ -225,6 +232,14 @@ class TtsController(
             }
         }
 
+        override fun onPlaybackActivity(utteranceId: String, active: Boolean) {
+            scope.launch {
+                if (engine !== activeEngine || utteranceId != activeUtteranceId) return@launch
+                if (active && _playbackState.value != TtsPlaybackState.PLAYING) return@launch
+                onListeningActivity(if (active) _activeBookId.value else null)
+            }
+        }
+
         override fun onPlaybackInterrupted() {
             scope.launch {
                 commandMutex.withLock {
@@ -234,6 +249,7 @@ class TtsController(
                         callbackSource = callbackSource
                     )
                     if (_playbackState.value == TtsPlaybackState.PLAYING) {
+                        onListeningActivity(null)
                         clearQueuedSentence()
                         _playbackState.value = TtsPlaybackState.PAUSED
                         logTtsEvent("state_changed", state = TtsPlaybackState.PAUSED)
@@ -442,6 +458,7 @@ class TtsController(
                 return@withLock
             }
             logTtsCommand("PAUSE", accepted = true)
+            onListeningActivity(null)
             val engine = activeEngine
             if (!engine.canResumeWithoutRestart) activeUtteranceId = null
             engine.pause()
@@ -1719,6 +1736,7 @@ class TtsController(
     }
 
     fun shutdown() {
+        activeUtteranceId = null
         cancelSleepTimer()
         scope.cancel()
         systemTtsEngine.shutdown()

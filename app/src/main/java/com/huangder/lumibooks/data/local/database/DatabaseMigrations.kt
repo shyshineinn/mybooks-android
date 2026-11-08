@@ -27,6 +27,12 @@ object DatabaseMigrations {
     val MIGRATION_23_25: Migration = addBookArchive(23)
     val MIGRATION_24_25: Migration = addBookArchive(24)
 
+    val MIGRATION_25_26 = object : Migration(25, 26) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE reading_records ADD COLUMN listeningDuration INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val MIGRATION_21_22 = object : Migration(21, 22) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE mybooks_sync_state ADD COLUMN remoteDeleted INTEGER NOT NULL DEFAULT 0")

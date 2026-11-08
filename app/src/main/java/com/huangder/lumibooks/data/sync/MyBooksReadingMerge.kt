@@ -36,6 +36,9 @@ internal fun validateMyBooksReading(data: JSONObject) {
         require(items.size <= 10000 && items.map { readingItemKey(section, it) }.distinct().size == items.size)
         items.forEach { require(readingItemKey(section, it).isNotBlank()) }
     }
+    readingItems(data, "reading_records").forEach {
+        if (it.has("listeningDuration")) require(it.getLong("listeningDuration") >= 0)
+    }
     readingItems(data, "positions").forEach {
         require(it.getDouble("readingProgress").isFinite() && it.getDouble("readingProgress") in 0.0..1.0)
         require(it.getLong("lastReadTime") >= 0 && it.getString("format") in setOf("EPUB","PDF","TXT","MOBI","AZW","AZW3","CBZ","MARKDOWN"))
@@ -95,6 +98,8 @@ internal fun mergeMyBooksReading(base: JSONObject, local: JSONObject, remote: JS
         val newest = values.maxBy { it.optLong("duration") }
         result.getJSONArray("reading_records").put(JSONObject(newest.toString()).apply {
             put("duration", values.maxOf { it.getLong("duration") })
+            val listening = values.maxOf { it.optLong("listeningDuration") }
+            if (listening > 0) put("listeningDuration", listening) else remove("listeningDuration")
             put("startTime", values.minOf { it.getLong("startTime") })
             put("endTime", values.maxOf { it.getLong("endTime") })
             put("updatedAt", values.maxOf { it.getLong("updatedAt") })

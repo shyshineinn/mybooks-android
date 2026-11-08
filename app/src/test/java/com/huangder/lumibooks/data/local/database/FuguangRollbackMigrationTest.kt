@@ -5,6 +5,9 @@ import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import com.huangder.lumibooks.data.local.entity.BookEntity
+import com.huangder.lumibooks.data.local.entity.ReadingRecordEntity
+import com.huangder.lumibooks.domain.model.DailyTotal
+import kotlinx.coroutines.flow.first
 import com.huangder.lumibooks.data.local.entity.MyBooksSyncStateEntity
 import com.huangder.lumibooks.data.local.entity.SyncStateEntity
 import kotlinx.coroutines.runBlocking
@@ -21,6 +24,27 @@ class FuguangRollbackMigrationTest {
     @Test fun v23LibraryUpgradesWithoutDeletingData() = verify(23)
     @Test fun v24LibraryUpgradesWithoutDeletingData() = verify(24)
 
+    @Test fun v25LibraryUpgradesWithoutDeletingData() = verify(25)
+
+    @Test fun readingAndListeningContributeToDailyTotalsAndListeningOnlyBooksAreActive() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val dao = db.readingRecordDao()
+            val date = "2026-11-02"
+            dao.insertRecord(ReadingRecordEntity(bookId = "read", date = date,
+                duration = 30_000, startTime = 10, endTime = 30_010, sourceDeviceId = "device"))
+            dao.insertRecord(ReadingRecordEntity(bookId = "listen", date = date,
+                duration = 0, listeningDuration = 60_000, startTime = 10, endTime = 60_010, sourceDeviceId = "device"))
+            assertEquals(DailyTotal(date, 90_000, 60_000), dao.getDailyTotalsBetween(date, date).first().single())
+            assertEquals(1, dao.getActiveDaysByBookId("listen").first())
+            assertEquals(60_000L, dao.getTotalDurationByBookId("listen").first())
+            assertEquals("listen", dao.getMostReadBooksBetween(date, date).first().first().bookId)
+        } finally {
+            db.close()
+        }
+    }
+
     private fun verify(previousVersion: Int) = runBlocking {
         val context=ApplicationProvider.getApplicationContext<Application>()
         val name="fuguang-rollback-" + previousVersion + ".db"
@@ -34,16 +58,19 @@ class FuguangRollbackMigrationTest {
             db.syncStateDao().putState(SyncStateEntity("book_import_metadata:local-book","{\"fields\":{\"translators\":[\"丙\"]}}"))
             val sql=db.openHelper.writableDatabase
             sql.execSQL("INSERT INTO reading_records(bookId,date,duration,startTime,endTime,sourceDeviceId,updatedAt) VALUES('mybooks-1','2026-11-02',30000,100,30100,'device',30100)")
-            sql.execSQL("ALTER TABLE books DROP COLUMN isArchived")
-            sql.execSQL("ALTER TABLE books DROP COLUMN archiveUpdatedAt")
-            if(previousVersion>=23) createRetiredSessions(sql,previousVersion)
             val before=rows(sql,"reading_records")
+            sql.execSQL("ALTER TABLE reading_records DROP COLUMN listeningDuration")
+            if (previousVersion < 25) {
+                sql.execSQL("ALTER TABLE books DROP COLUMN isArchived")
+                sql.execSQL("ALTER TABLE books DROP COLUMN archiveUpdatedAt")
+            }
+            if(previousVersion>=23) createRetiredSessions(sql,previousVersion)
             val sessionsBefore=if(previousVersion>=23) rows(sql,"reading_sessions") else emptyList()
             sql.execSQL("UPDATE room_master_table SET identity_hash='legacy-library-schema' WHERE id=42")
             sql.version=previousVersion
             db.close()
             db=Room.databaseBuilder(context,AppDatabase::class.java,name)
-                .addMigrations(DatabaseMigrations.MIGRATION_22_25, DatabaseMigrations.MIGRATION_23_25, DatabaseMigrations.MIGRATION_24_25)
+                .addMigrations(DatabaseMigrations.MIGRATION_22_25, DatabaseMigrations.MIGRATION_23_25, DatabaseMigrations.MIGRATION_24_25, DatabaseMigrations.MIGRATION_25_26)
                 .allowMainThreadQueries().build()
             val restored=db.bookDao().getBookById("mybooks-1")!!
             assertEquals(.75f,restored.readingProgress,0f)
@@ -52,7 +79,7 @@ class FuguangRollbackMigrationTest {
             assertEquals("{\"translators\":[\"甲\",\"乙\"]}",db.myBooksSyncStateDao().get("mybooks-1")!!.overridesJson)
             assertEquals("{\"fields\":{\"translators\":[\"丙\"]}}",db.syncStateDao().getValue("book_import_metadata:local-book"))
             val after=db.openHelper.readableDatabase
-            assertEquals(25,after.version)
+            assertEquals(26,after.version)
             assertFalse(restored.isArchived)
             assertEquals(0L, restored.archiveUpdatedAt)
             assertEquals(before,rows(after,"reading_records"))

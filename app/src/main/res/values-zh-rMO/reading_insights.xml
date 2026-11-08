@@ -10,4 +10,5 @@
     <string name="insights_comparison">與上一週期對比</string>
     <string name="insights_current_period">本期</string>
     <string name="insights_previous_period">上一期</string>
+    <string name="insights_listening_duration">聽書時長 %1$s</string>
 </resources>

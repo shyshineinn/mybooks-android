@@ -1737,6 +1737,101 @@ class TtsControllerTest {
         } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
     }
 
+    @Test fun accountingFollowsRenderedAudioAndRejectsStaleCallbacksForBothEngines() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            for (external in listOf(false, true)) {
+                val system = FakePlaybackEngine(canResumeWithoutRestart = true)
+                val remote = FakePlaybackEngine(isExternal = true, canResumeWithoutRestart = true)
+                val active = if (external) remote else system
+                val inactive = if (external) system else remote
+                val events = mutableListOf<String?>()
+                val settings = FakeSettingsStore(if (external) TtsProviderSelection.AiModel else TtsProviderSelection.SystemDefault)
+                val controller = TtsController(system, remote, TtsTextExtractor(), settings, events::add)
+                try {
+                    controller.start("book-a", FakePageSource(page(0, "First. Second.")), 0, 0)
+                    runCurrent()
+                    assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
+                    assertFalse(events.contains("book-a")) // Synthesis/session start isn't audio.
+                    val first = active.lastUtteranceId
+                    active.activity(first, true)
+                    runCurrent()
+                    assertEquals("book-a", events.last())
+                    active.activity(first, false) // Buffer starvation.
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(first, true)
+                    runCurrent()
+                    controller.pause()
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(first, true) // Queued start after pause must be ignored.
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    controller.resume()
+                    runCurrent()
+                    assertEquals(null, events.last()) // Resume waits for actual rendered frames.
+                    active.activity(first, true)
+                    runCurrent()
+                    assertEquals("book-a", events.last())
+                    controller.skip(true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(first, true)
+                    inactive.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals("book-a", events.last())
+                    controller.start("book-b", FakePageSource(page(0, "Other book.")), 0, 0)
+                    runCurrent()
+                    active.activity(first, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals("book-b", events.last())
+                    active.interrupt()
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    controller.resume()
+                    runCurrent()
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    active.complete(active.lastUtteranceId)
+                    runCurrent()
+                    assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+                    assertEquals(null, events.last())
+                    controller.start("book-c", FakePageSource(page(0, "Retry on error.")), 0, 0)
+                    runCurrent()
+                    val failed = active.lastUtteranceId
+                    active.activity(failed, true)
+                    runCurrent()
+                    active.error(failed)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(failed, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    if (external) {
+                        assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+                        controller.start("book-c", FakePageSource(page(0, "Restart after error.")), 0, 0)
+                        runCurrent()
+                    }
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals("book-c", events.last())
+                    controller.stop()
+                    runCurrent()
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                } finally { controller.shutdown(); runCurrent() }
+            }
+        } finally { Dispatchers.resetMain() }
+    }
+
     private fun controller(
         systemEngine: FakePlaybackEngine,
         externalEngine: FakePlaybackEngine = FakePlaybackEngine(isExternal = true),
@@ -1859,6 +1954,7 @@ class TtsControllerTest {
         }
 
         fun start(utteranceId: String) = listener.onStart(utteranceId)
+        fun activity(utteranceId: String, active: Boolean) = listener.onPlaybackActivity(utteranceId, active)
         fun complete(utteranceId: String) = listener.onDone(utteranceId)
         fun error(utteranceId: String, error: Throwable = SystemTtsException.Playback()) =
             listener.onError(utteranceId, error)

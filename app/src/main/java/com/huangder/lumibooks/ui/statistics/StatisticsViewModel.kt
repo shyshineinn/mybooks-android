@@ -86,7 +86,9 @@ class StatisticsViewModel @Inject constructor(
         readingRepository.getDailyTotalsBetween(previous.startDate, minOf(period.endInclusive, today).recordDate())
             .map<List<DailyTotal>, ReadingInsights?> { totals ->
                 val byDate = totals.associate { it.date to it.totalDuration }
+                val listening = totals.filter { it.date >= period.startDate }.sumOf { it.listeningDuration }
                 readingInsights(period, previous, today) { byDate[it.recordDate()] ?: 0L }
+                    .copy(listeningDuration = listening)
             }.reportErrors()
             .onStart { emit(null) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)

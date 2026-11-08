@@ -11,7 +11,8 @@ internal data class ReadingInsights(
     val weekdayAverage: Long,
     val weekendAverage: Long,
     val bestDay: Pair<LocalDate, Long>?,
-    val comparison: Pair<Long, Long>?
+    val comparison: Pair<Long, Long>?,
+    val listeningDuration: Long = 0
 )
 
 internal fun StatisticsPeriod.previousPeriod(tab: Int): StatisticsPeriod = when (tab) {
@@ -54,7 +55,8 @@ internal fun readingInsights(
 internal data class ReadingDayBook(
     val book: Book,
     val duration: Long,
-    val annotations: AnnotationPeriodSummary
+    val annotations: AnnotationPeriodSummary,
+    val listeningDuration: Long = 0
 )
 
 internal data class ReadingDay(
@@ -69,13 +71,15 @@ internal fun readingDayBooks(
     notes: List<Note>,
     bookmarks: List<Bookmark>
 ): List<ReadingDayBook> {
-    val durations = records.groupBy { it.bookId }.mapValues { (_, rows) -> rows.sumOf { it.duration } }
+    val recordsByBook = records.groupBy { it.bookId }
     val notesByBook = notes.groupBy { it.bookId }
     val bookmarksByBook = bookmarks.groupBy { it.bookId }
     return books.mapNotNull { book ->
-        val duration = durations[book.id] ?: 0L
+        val rows = recordsByBook[book.id].orEmpty()
+        val listening = rows.sumOf { it.listeningDuration }
+        val duration = rows.sumOf { it.duration } + listening
         val annotations = summarizeAnnotations(notesByBook[book.id].orEmpty(), bookmarksByBook[book.id].orEmpty(), 0)
         if (duration <= 0L && annotations == AnnotationPeriodSummary()) null
-        else ReadingDayBook(book, duration, annotations)
+        else ReadingDayBook(book, duration, annotations, listening)
     }.sortedWith(compareByDescending<ReadingDayBook> { it.duration }.thenBy { it.book.title }.thenBy { it.book.id })
 }

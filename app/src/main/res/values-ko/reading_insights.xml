@@ -10,4 +10,5 @@
     <string name="insights_comparison">이전 기간과 비교</string>
     <string name="insights_current_period">이번 기간</string>
     <string name="insights_previous_period">이전 기간</string>
+    <string name="insights_listening_duration">듣기 시간 %1$s</string>
 </resources>

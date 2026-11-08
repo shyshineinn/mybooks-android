@@ -51,6 +51,7 @@ internal fun ReadingInsightsCard(data: ReadingInsights, onDay: (LocalDate) -> Un
             InsightMetric(R.string.insights_weekday, data.weekdayAverage, Modifier.weight(1f))
             InsightMetric(R.string.insights_weekend, data.weekendAverage, Modifier.weight(1f))
         }
+        if (data.listeningDuration > 0) ListeningDuration(data.listeningDuration)
         data.bestDay?.let { (date, duration) ->
             Text(
                 stringResource(R.string.insights_best_day, insightDate(date), insightDuration(duration)),
@@ -99,6 +100,7 @@ internal fun ReadingDaySheet(day: ReadingDay, onDismiss: () -> Unit, onBook: (St
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (entry.duration > 0L) Text(insightDuration(entry.duration),
                             color = AppColors.TextSecondary, fontSize = AppType.Caption)
+                        if (entry.listeningDuration > 0) ListeningDuration(entry.listeningDuration)
                         if (marks > 0) Text(stringResource(R.string.insights_marks_count, marks),
                             color = AppColors.TextSecondary, fontSize = AppType.Caption)
                     }
@@ -106,6 +108,15 @@ internal fun ReadingDaySheet(day: ReadingDay, onDismiss: () -> Unit, onBook: (St
             }
         }
     }
+}
+
+@Composable
+private fun ListeningDuration(duration: Long) {
+    Text(
+        stringResource(R.string.insights_listening_duration, insightDuration(duration)),
+        color = AppColors.TextSecondary,
+        fontSize = AppType.Caption
+    )
 }
 
 @Composable

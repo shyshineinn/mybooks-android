@@ -16,10 +16,10 @@ interface ReadingRecordDao {
     @Query("SELECT * FROM reading_records WHERE date BETWEEN :startDate AND :endDate")
     fun getRecordsBetweenDates(startDate: String, endDate: String): Flow<List<ReadingRecordEntity>>
 
-    @Query("SELECT SUM(duration) FROM reading_records WHERE date = :date")
+    @Query("SELECT SUM(duration + listeningDuration) FROM reading_records WHERE date = :date")
     fun getTotalDurationByDate(date: String): Flow<Long?>
 
-    @Query("SELECT SUM(duration) FROM reading_records WHERE date BETWEEN :startDate AND :endDate")
+    @Query("SELECT SUM(duration + listeningDuration) FROM reading_records WHERE date BETWEEN :startDate AND :endDate")
     fun getTotalDurationBetweenDates(startDate: String, endDate: String): Flow<Long?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -42,19 +42,19 @@ interface ReadingRecordDao {
     suspend fun updateRecordDuration(recordId: Long, additionalDuration: Long, endTime: Long)
 
     @Query(
-        "SELECT bookId, SUM(duration) as totalDuration FROM reading_records " +
+        "SELECT bookId, SUM(duration + listeningDuration) as totalDuration FROM reading_records " +
             "WHERE date BETWEEN :startDate AND :endDate GROUP BY bookId " +
             "HAVING totalDuration > 0 ORDER BY totalDuration DESC LIMIT :limit"
     )
     fun getMostReadBooksBetween(startDate: String, endDate: String, limit: Int = 5): Flow<List<BookDuration>>
 
-    @Query("SELECT date, SUM(duration) as totalDuration FROM reading_records WHERE date BETWEEN :startDate AND :endDate GROUP BY date")
+    @Query("SELECT date, SUM(duration + listeningDuration) as totalDuration, SUM(listeningDuration) as listeningDuration FROM reading_records WHERE date BETWEEN :startDate AND :endDate GROUP BY date")
     fun getDailyTotalsBetween(startDate: String, endDate: String): Flow<List<DailyTotal>>
 
-    @Query("SELECT SUM(duration) FROM reading_records WHERE bookId = :bookId")
+    @Query("SELECT SUM(duration + listeningDuration) FROM reading_records WHERE bookId = :bookId")
     fun getTotalDurationByBookId(bookId: String): Flow<Long?>
 
-    @Query("SELECT COUNT(DISTINCT date) FROM reading_records WHERE bookId = :bookId AND duration > 0")
+    @Query("SELECT COUNT(DISTINCT date) FROM reading_records WHERE bookId = :bookId AND duration + listeningDuration > 0")
     fun getActiveDaysByBookId(bookId: String): Flow<Int>
 }
 

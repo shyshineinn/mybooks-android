@@ -257,7 +257,10 @@ class MyBooksReadingSync @Inject constructor(
             readingRecordToJson(it).apply { remove("bookId"); if (optString("sourceDeviceId").isBlank()) put("sourceDeviceId", "legacy") }
         }.groupBy { readingItemKey("reading_records", it) }
         for ((_, items) in records) {
-            result.getJSONArray("reading_records").put(items.maxBy { it.getLong("duration") })
+            val record = items.maxBy { it.getLong("duration") }
+            val listening = items.maxOf { it.optLong("listeningDuration") }
+            if (listening > 0) record.put("listeningDuration", listening)
+            result.getJSONArray("reading_records").put(record)
         }
         for (t in snapshot.tombstones) {
             val section = when (t.namespace) { "bookmark" -> "bookmarks"; "note" -> "notes"; else -> continue }
@@ -334,6 +337,7 @@ class MyBooksReadingSync @Inject constructor(
             val row = readingRecordFromJson(JSONObject(it.toString()).put("bookId", bookId))
             val old = existing[readingItemKey("reading_records", it)]
             row.copy(id = old?.id ?: 0, duration = maxOf(old?.duration ?: 0, row.duration),
+                listeningDuration = maxOf(old?.listeningDuration ?: 0, row.listeningDuration),
                 startTime = minOf(old?.startTime ?: row.startTime, row.startTime),
                 endTime = maxOf(old?.endTime ?: 0, row.endTime), updatedAt = maxOf(old?.updatedAt ?: 0, row.updatedAt))
         }

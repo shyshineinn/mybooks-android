@@ -355,7 +355,8 @@ class TtsEngine internal constructor(
         }
     }
 
-    override val canResumeWithoutRestart: Boolean get() = !usesNativePlayback
+    override val canResumeWithoutRestart: Boolean
+        get() = !usesNativePlayback
 
     override val supportsQueuedPlayback: Boolean get() = usesNativePlayback
 
@@ -470,6 +471,7 @@ class TtsEngine internal constructor(
             if (activeSynthesis == null) return@withContext
             activePaused = true
             localAudioPlayer.pause()
+            activeSynthesis?.playbackId?.let { playbackListener?.onPlaybackActivity(it, false) }
         }
     }
 
@@ -582,6 +584,7 @@ class TtsEngine internal constructor(
                         "startedAtMs" to startedAt,
                         "gapMs" to lastNativeDoneMs?.let { (startedAt - it).coerceAtLeast(0L) }))
                     playbackListener?.onStart(id)
+                    playbackListener?.onPlaybackActivity(id, true)
                 }
             }
 
@@ -592,6 +595,7 @@ class TtsEngine internal constructor(
                     nativeCurrent = null
                     lastNativeDoneMs = doneAt
                     logNativePlayback("native_playback_done", id, extra = mapOf("doneAtMs" to doneAt))
+                    playbackListener?.onPlaybackActivity(id, false)
                     playbackListener?.onDone(id)
                 }
                 postSynthesisCallback(utteranceId) { task ->
@@ -674,6 +678,7 @@ class TtsEngine internal constructor(
                 postNativeCallback(utteranceId, terminal = true) { id ->
                     stopNativePlayback()
                     logNativePlayback("native_playback_interrupted", id)
+                    playbackListener?.onPlaybackActivity(id, false)
                     playbackListener?.onPlaybackInterrupted()
                 }
             }
@@ -705,13 +710,21 @@ class TtsEngine internal constructor(
                     val frames = localAudioPlayer.renderedFrameOffset()
                     logSynthesis("audio_rendered_done", task, mapOf("renderedFrames" to frames,
                         "audioDurationMs" to (frames * 1_000L / task.sampleRate.coerceAtLeast(1))))
-                    task.playbackId?.let { playbackListener?.onDone(it) }
+                    task.playbackId?.let {
+                        playbackListener?.onPlaybackActivity(it, false)
+                        playbackListener?.onDone(it)
+                    }
                 }
             },
             onError = { error -> if (task === activeSynthesis) failLocalSynthesis(task, error) },
             onRenderedStart = {
                 if (task === activeSynthesis) logSynthesis("audio_first_frame_rendered", task,
                     mapOf("startLatencyMs" to (SystemClock.elapsedRealtime() - task.playbackRequestedAtMs)))
+            },
+            onPlaybackActivity = { active ->
+                if (task === activeSynthesis && !task.playbackDone) {
+                    task.playbackId?.let { playbackListener?.onPlaybackActivity(it, active) }
+                }
             }
         )
         if (!localAudioPlayer.begin(task.sampleRate, task.encoding, task.channels)) {
@@ -777,10 +790,12 @@ class TtsEngine internal constructor(
     }
 
     private fun stopNativePlayback() {
+        val id = nativeUtteranceId
         nativeUtteranceId = null // Invalidate callbacks before stop can deliver onStop/onDone.
         nativeCurrent = null
         nativeNext = null
         lastNativeDoneMs = null
+        id?.let { playbackListener?.onPlaybackActivity(it, false) }
         engine?.stop()
     }
 
@@ -803,6 +818,7 @@ class TtsEngine internal constructor(
         postNativeCallback(utteranceId, terminal = true) { id ->
             stopNativePlayback()
             logNativePlayback("native_playback_failed", id, error)
+            playbackListener?.onPlaybackActivity(id, false)
             playbackListener?.onError(id, error)
         }
     }
@@ -848,6 +864,7 @@ class TtsEngine internal constructor(
             return
         }
         val id = task.playbackId
+        id?.let { playbackListener?.onPlaybackActivity(it, false) }
         stopLocalSynthesis()
         id?.let { playbackListener?.onError(it,
             error as? SystemTtsException ?: SystemTtsException.Playback(cause = error)) }
@@ -862,6 +879,7 @@ class TtsEngine internal constructor(
         pendingPrefetchText = null
         localAudioPlayer.stop()
         activePaused = false
+        nativeUtteranceId?.let { playbackListener?.onPlaybackActivity(it, false) }
         nativeUtteranceId = null
         nativeCurrent = null
         nativeNext = null

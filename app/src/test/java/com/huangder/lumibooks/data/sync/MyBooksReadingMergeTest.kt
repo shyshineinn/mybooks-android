@@ -44,13 +44,14 @@ class MyBooksReadingMergeTest {
         val base = data(note("n", "retained"))
         assertEquals(1, readingItems(mergeMyBooksReading(base, emptyMyBooksReading(), base).data, "notes").size)
     }
-    @Test fun dailyDurationUsesMaximumPerDeviceAndPreservesOtherDevices() {
-        val local = emptyMyBooksReading().put("reading_records", JSONArray().put(record("a", 50)))
-        val remote = emptyMyBooksReading().put("reading_records", JSONArray().put(record("a", 70)).put(record("b", 30)))
+    @Test fun dailyReadingAndListeningUseIndependentMaximumsPerDevice() {
+        val local = emptyMyBooksReading().put("reading_records", JSONArray().put(record("a", 50).put("listeningDuration", 90)))
+        val remote = emptyMyBooksReading().put("reading_records", JSONArray().put(record("a", 70)).put(record("b", 30).put("listeningDuration", 40)))
         val result = mergeMyBooksReading(emptyMyBooksReading(), local, remote)
         assertEquals(100L, readingItems(result.data, "reading_records").sumOf { it.getLong("duration") })
+        assertEquals(130L, readingItems(result.data, "reading_records").sumOf { it.optLong("listeningDuration") })
         val replay = mergeMyBooksReading(result.data, local, result.data)
-        assertEquals(100L, readingItems(replay.data, "reading_records").sumOf { it.getLong("duration") })
+        assertEquals(readingCanonical(result.data), readingCanonical(replay.data))
     }
     @Test fun progressForDifferentFormatsOrBodiesNeverOverwritesAnotherPosition() {
         val local = emptyMyBooksReading().put("positions", JSONArray().put(position("EPUB", .4, "a".repeat(64))))

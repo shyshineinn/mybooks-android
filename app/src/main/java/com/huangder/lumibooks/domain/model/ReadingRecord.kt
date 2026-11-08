@@ -8,10 +8,12 @@ data class ReadingRecord(
     val startTime: Long,
     val endTime: Long,
     val sourceDeviceId: String = "",
-    val updatedAt: Long = endTime
+    val updatedAt: Long = endTime,
+    val listeningDuration: Long = 0
 )
 
 data class DailyTotal(
     val date: String,
-    val totalDuration: Long
+    val totalDuration: Long,
+    val listeningDuration: Long = 0
 )
