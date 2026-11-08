@@ -1,6 +1,9 @@
 package com.huangder.lumibooks.ui.components
 
+import android.os.Build
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+import com.huangder.lumibooks.ui.theme.AppPresentation
+import com.huangder.lumibooks.ui.theme.AppSurfaceRole
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import com.huangder.lumibooks.ui.animation.VisualMotion.tween
@@ -69,6 +72,9 @@ import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 
 val LocalLiquidGlassBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+
+internal fun resolveGlassBackdrop(explicit: Backdrop?, local: Backdrop?, artwork: Backdrop?): Backdrop? =
+    explicit ?: local ?: artwork
 /** Visible glass depth. The first surface is level 1; level 4 degrades to a
  * normal surface so a dialog can never become an unreadable stack of glass. */
 val LocalLiquidGlassLayer = staticCompositionLocalOf { 0 }
@@ -145,17 +151,17 @@ internal fun Modifier.liquidGlassBackdrop(
     reduceTransparency: Boolean = false,
     /** Extra blur on top of the transparency-derived amount, for animated glass. */
     blurBoostPx: Float = 0f,
+    fallbackBlurRadius: Dp = AppPresentation.ControlFallbackBlur,
+    refractionState: GlassRefractionState,
     shadowRadius: Dp = 24.dp,
     shadowAlpha: Float = 0.16f,
     pressedShadowAlpha: Float = 0.08f,
     controlEdge: Boolean = false,
     controlEdgeColor: Color = tintColor ?: contentScrimColor,
     controlEdgeForceCanvas: Boolean = false,
-    /** Animated surfaces can fade their rim in without changing the glass body. */
-    outlineAlpha: Float = 1f
+    blurBoostPxProvider: (() -> Float)? = null
 ): Modifier {
-    val lensSupported = !reduceTransparency && supportsLiquidGlassLens(lensShape)
-    val effectiveBlurBoostPx = if (reduceTransparency) 0f else blurBoostPx.coerceAtLeast(0f)
+    val lensSupported = Build.VERSION.SDK_INT >= 33 && !reduceTransparency && supportsLiquidGlassLens(lensShape)
     val nativeOutlineSupported = supportsLiquidGlassHighlight(shape)
     val surfaceColor = if (isDark) {
         Color(0xFF101012).copy(alpha = 0.34f - transparency * 0.24f)
@@ -167,23 +173,34 @@ internal fun Modifier.liquidGlassBackdrop(
         // The lens library only accepts rounded rectangular/corner-based shapes. A G2
         // superellipse is clipped and outlined with its real path outside this effect;
         // the same-radius rounded rectangle is only the SDF proxy used by the lens.
+        // CornerBasedShape supplies its radii to the lens SDF while createOutline keeps
+        // the real continuous mask. Do not clip this layer: buttons expand on press.
         shape = { lensShape },
         effects = {
+            val effectiveBlurBoostPx = if (reduceTransparency) 0f
+                else (blurBoostPxProvider?.invoke() ?: blurBoostPx).coerceAtLeast(0f)
             vibrancy()
-            if (transparency < 1f || effectiveBlurBoostPx > 0f) {
-                blur((6.dp * (1f - transparency)).toPx() + effectiveBlurBoostPx)
-            }
-            if (lensSupported && shape !is ContinuousCornerBasedShape) {
-                if (buttonInteraction) {
-                    lens(12.dp.toPx(), 24.dp.toPx())
-                } else {
-                    lens(
-                        (12.dp + 4.dp * pressProgress).toPx(),
-                        (24.dp + 4.dp * pressProgress).toPx(),
-                        chromaticAberration = pressProgress > 0.05f
-                    )
-                }
-            }
+            val baseEffect = renderEffect
+            val basePadding = padding
+            refractionState.render(
+                supported = lensSupported,
+                normalBlurPx = liquidGlassBlurRadius(transparency).dp.toPx() + effectiveBlurBoostPx,
+                fallbackBlurPx = fallbackBlurRadius.toPx() + effectiveBlurBoostPx,
+                resetEffects = { renderEffect = baseEffect; padding = basePadding },
+                blur = { radius -> blur(radius) },
+                refract = {
+                    if (buttonInteraction) {
+                        lens(12.dp.toPx(), 24.dp.toPx())
+                    } else {
+                        lens(
+                            (12.dp + 4.dp * pressProgress).toPx(),
+                            (24.dp + 4.dp * pressProgress).toPx(),
+                            chromaticAberration = pressProgress > 0.05f
+                        )
+                    }
+                },
+                onFailure = { android.util.Log.w("LiquidGlass", "Refraction unavailable; using blur fallback", it) }
+            )
         },
         layerBlock = {
             if (buttonInteraction && applyButtonTransform) {
@@ -273,22 +290,25 @@ fun Modifier.liquidGlassSheetSurface(
     fallbackColor: Color,
     shape: Shape,
     backdrop: Backdrop? = null,
-    forceFallback: Boolean = false
+    forceFallback: Boolean = false,
+    /** Tablet cards are already inset by their frame; only edge-anchored sheets float off the edge. */
+    cardSheet: Boolean = usesCardSheets()
 ): Modifier {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val isDark = LocalIsDarkTheme.current
     val transparency = LocalLiquidGlassTransparency.current
     val activeBackdrop = backdrop ?: LocalLiquidGlassBackdrop.current
+    val refractionState = remember { GlassRefractionState() }
     val contrastScrim = liquidGlassContrastScrim(LocalLiquidGlassContrastEnabled.current, fallbackColor)
 
     return if (isLiquidGlass) {
-        val floatingShape = AppRoundedCornerShape(28.dp)
+        val floatingShape = AppRoundedCornerShape(AppPresentation.SheetCorner)
         val sheetTransparency = liquidGlassContrastTransparency(
             LocalLiquidGlassContrastEnabled.current,
             (transparency - 0.10f).coerceIn(0f, 0.90f)
         )
         val scrimAlpha = (0.81f - sheetTransparency * 0.25f).coerceIn(0.58f, 0.81f)
-        val floatingSurface = padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+        val floatingSurface = (if (cardSheet) this else padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
             .shadow(
                 elevation = 22.dp,
                 shape = floatingShape,
@@ -304,6 +324,8 @@ fun Modifier.liquidGlassSheetSurface(
                 isDark = isDark,
                 transparency = sheetTransparency,
                 reduceTransparency = LocalReduceTransparency.current,
+                fallbackBlurRadius = AppPresentation.OverlayFallbackBlur,
+                refractionState = refractionState,
                 contentScrimColor = fallbackColor.copy(alpha = scrimAlpha),
                 contrastScrimColor = contrastScrim,
                 scaleOnPress = false
@@ -320,13 +342,14 @@ fun Modifier.liquidGlassSheetSurface(
                 )
         }
     } else {
+        val surfaceShape = if (cardSheet) AppRoundedCornerShape(AppPresentation.SheetCorner) else shape
         shadow(
             elevation = 24.dp,
-            shape = shape,
+            shape = surfaceShape,
             ambientColor = Color.Black.copy(alpha = 0.12f),
             spotColor = Color.Black.copy(alpha = 0.16f)
         )
-            .clip(shape)
+            .clip(surfaceShape)
             .background(fallbackColor)
     }
 }
@@ -341,18 +364,20 @@ fun LiquidGlassSheetContainer(
     forceFallback: Boolean = false,
     surfaceVisible: Boolean = true,
     contentAlignment: Alignment = Alignment.TopStart,
+    /** Tablet card sheet (see adaptiveSheetFrame); non-sheet panels pass false. */
+    cardSheet: Boolean = usesCardSheets(),
     content: @Composable BoxScope.() -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val parentBackdrop = backdrop ?: LocalLiquidGlassBackdrop.current
     val containerBackdrop = rememberLayerBackdrop()
-    val contentShape = if (isLiquidGlass) AppRoundedCornerShape(28.dp) else shape
+    val contentShape = if (isLiquidGlass || cardSheet) AppRoundedCornerShape(AppPresentation.SheetCorner) else shape
 
     // 弹层保持手机端宽度（平板不拉长，避免内容排版被拉伸）。
     // widthIn 必须位于调用方 fillMaxWidth 之前（外层）才能生效，
     // 因此用外层 Box 居中 + 内层限宽容器实现。
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Box(modifier = Modifier.widthIn(max = 480.dp)) {
+        Box(modifier = Modifier.widthIn(max = AppPresentation.SheetMaxWidth)) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -365,7 +390,8 @@ fun LiquidGlassSheetContainer(
                                 fallbackColor = fallbackColor,
                                 shape = shape,
                                 backdrop = parentBackdrop,
-                                forceFallback = forceFallback
+                                forceFallback = forceFallback,
+                                cardSheet = cardSheet
                             )
                         } else {
                             Modifier
@@ -377,7 +403,7 @@ fun LiquidGlassSheetContainer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
-                            if (isLiquidGlass) {
+                            if (isLiquidGlass && !cardSheet) {
                                 Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                             } else {
                                 Modifier
@@ -441,17 +467,25 @@ fun LiquidGlassSurface(
     effectPadding: Dp = 0.dp,
     /** Extra blur used by animated glass (menus); 0 keeps the surface untouched. */
     blurBoost: Dp = 0.dp,
+    /** Used only when refraction is unavailable; normal glass follows transparency. */
+    fallbackBlurRadius: Dp? = null,
     decorationModifier: Modifier? = null,
     contentAlignment: Alignment = Alignment.Center,
     /** Optical control rim; large surfaces keep their existing edge unless explicitly opted in. */
     controlEdge: Boolean = false,
-    /** The body keeps its material; only the rim/highlight fades with this value. */
-    outlineAlpha: Float = 1f,
+    /** Record only the finished surface, so child controls cannot sample the raw page. */
+    provideSurfaceBackdrop: Boolean = false,
+    /** Material is independent of click handling; containers opt into Overlay explicitly. */
+    role: AppSurfaceRole = AppSurfaceRole.Control,
+    /** Animated extra blur, resolved only when drawing; replaces [blurBoost] when supplied. */
+    blurBoostProvider: (() -> Dp)? = null,
+    /** Animated clipping outline, resolved in the layer instead of composition. */
+    shapeProvider: (() -> Shape)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val resolvedOutlineAlpha = outlineAlpha.coerceIn(0f, 1f)
-    val glassLayer = LocalLiquidGlassLayer.current + 1
+    val glassLayer = LocalLiquidGlassLayer.current + if (role == AppSurfaceRole.Content) 0 else 1
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" &&
+        role != AppSurfaceRole.Content &&
         LocalLiquidGlassCapability.current.supported &&
         !forceFallback && glassLayer <= 3
     val isDark = LocalIsDarkTheme.current
@@ -472,8 +506,14 @@ fun LiquidGlassSurface(
     val globalBackdrop = LocalLumiBackgroundBackdrop.current
     // A caller-provided or locally provided backdrop belongs to the surface's
     // actual page. The global Lumi artwork is only the final fallback.
-    val activeBackdrop = backdrop ?: inheritedBackdrop ?: globalBackdrop
+    val activeBackdrop = resolveGlassBackdrop(backdrop, inheritedBackdrop, globalBackdrop)
+    val refractionState = remember { GlassRefractionState() }
+    val surfaceBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
+    val surfaceClip = if (shapeProvider == null) Modifier.clip(shape) else Modifier.graphicsLayer {
+        this.shape = shapeProvider()
+        clip = true
+    }
     val clickInteractionSource = remember { MutableInteractionSource() }
     val pressed by clickInteractionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
@@ -520,16 +560,7 @@ fun LiquidGlassSurface(
     } else {
         Modifier
     }
-    // Neutral cards use the artwork's soft 8dp glass. Action surfaces keep their
-    // explicit tint/scrim: their foreground colors depend on that contrast.
-    val surfaceModifier = if (
-        isLiquidGlass && backdrop == null && inheritedBackdrop == null &&
-            globalBackdrop != null &&
-        !interactive && onClick == null && tintColor == null
-    ) {
-        Modifier.lumiCardSurface(fallbackColor, shape, controlEdge = useControlEdge)
-            .background(contrastScrim, shape)
-    } else if (isLiquidGlass && activeBackdrop != null) {
+    val surfaceModifier = if (isLiquidGlass && activeBackdrop != null) {
         Modifier.liquidGlassBackdrop(
             backdrop = activeBackdrop,
             shape = shape,
@@ -546,6 +577,11 @@ fun LiquidGlassSurface(
             applyButtonTransform = false,
             motionEnabled = motionEnabled,
             blurBoostPx = with(density) { blurBoost.toPx() },
+            blurBoostPxProvider = blurBoostProvider?.let { provider ->
+                { with(density) { provider().toPx() } }
+            },
+            fallbackBlurRadius = liquidGlassFallbackBlurRadius(role, fallbackBlurRadius?.value).dp,
+            refractionState = refractionState,
             shadowRadius = 24.dp,
             shadowAlpha = 0f,
             pressedShadowAlpha = 0.02f,
@@ -563,7 +599,8 @@ fun LiquidGlassSurface(
             fallbackColor.copy(alpha = 0.42f)
         }
         Modifier
-            .clip(shape)
+            .then(surfaceClip)
+            .background(fallbackColor)
             .background(
                 Brush.verticalGradient(
                     listOf(
@@ -588,7 +625,7 @@ fun LiquidGlassSurface(
             )
     } else {
         Modifier
-            .clip(shape)
+            .then(surfaceClip)
             .background(fallbackColor)
     }
     val activeInteractionState = interactionState.takeIf { handlesButtonGesture }
@@ -637,9 +674,10 @@ fun LiquidGlassSurface(
             modifier = Modifier
                 .matchParentSize()
                 .padding(effectPadding)
+                .then(if (provideSurfaceBackdrop && isLiquidGlass) Modifier.layerBackdrop(surfaceBackdrop) else Modifier)
                 .then(surfaceTransformModifier)
                 .then(surfaceModifier)
-                .clip(shape)
+                .then(surfaceClip)
                 .drawWithContent {
                 val pressProgress = interactionState?.pressProgress ?: 0f
                 val highlightPosition = interactionState?.position
@@ -694,7 +732,7 @@ fun LiquidGlassSurface(
         )
         val surfaceScope = this
         CompositionLocalProvider(
-            LocalLiquidGlassBackdrop provides activeBackdrop,
+            LocalLiquidGlassBackdrop provides if (provideSurfaceBackdrop && isLiquidGlass) surfaceBackdrop else activeBackdrop,
             LocalLiquidGlassLayer provides glassLayer
         ) {
             Box(

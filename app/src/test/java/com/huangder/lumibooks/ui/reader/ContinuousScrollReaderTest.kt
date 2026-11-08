@@ -32,7 +32,9 @@ import com.huangder.lumibooks.ui.reader.engine.ResolvedReaderTypeface
 import com.huangder.lumibooks.util.parser.EpubParser
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.math.roundToInt
 import org.junit.Assert.*
@@ -54,6 +56,7 @@ class ContinuousScrollReaderTest {
     private val list = LazyListState()
     private var restored = false
     private lateinit var composeRoot: View
+    private lateinit var readerScope: CoroutineScope
     private var chapterCount = 3
     private var currentChapter = 1
     private var loadChapter: (Int, Int?) -> CharSequence? = { _, _ -> text }
@@ -77,7 +80,7 @@ class ContinuousScrollReaderTest {
         background: androidx.compose.runtime.State<Int> = mutableStateOf(Color.WHITE),
         revision: androidx.compose.runtime.State<Long> = mutableStateOf(0L),
         fontSize: androidx.compose.runtime.State<Float> = mutableStateOf(18f),
-        bodyFontWeight: androidx.compose.runtime.State<Int> = mutableStateOf(400),
+        bodyFontWeight: androidx.compose.runtime.State<Float> = mutableStateOf(400f),
         lineHeight: Float = 1.5f,
         lineGuide: Boolean = false,
         bionic: Boolean = false,
@@ -89,12 +92,14 @@ class ContinuousScrollReaderTest {
         onMenuToggle: () -> Unit = {},
         ttsSentence: androidx.compose.runtime.State<TtsSentencePosition?> = mutableStateOf(null),
         ttsFollow: androidx.compose.runtime.State<Boolean> = mutableStateOf(true),
+        ttsFollowUserPageTurns: Boolean = false,
         onManualScrollStarted: () -> Unit = {},
         notes: List<com.huangder.lumibooks.domain.model.Note> = emptyList(),
         onChapterVisible: (Int, Float) -> Unit = { _, _ -> }
     ) {
         val reported = mutableStateOf(currentChapter to 0f)
         compose.setContent {
+            readerScope = androidx.compose.runtime.rememberCoroutineScope()
             composeRoot = androidx.compose.ui.platform.LocalView.current
             Box(Modifier.fillMaxSize()) {
                 if (mounted.value) ContinuousScrollReader(
@@ -132,9 +137,53 @@ class ContinuousScrollReaderTest {
                     bodyFontWeight = bodyFontWeight.value,
                     ttsCurrentSentence = ttsSentence.value,
                     ttsFollowEnabled = ttsFollow.value,
+                    ttsFollowUserPageTurns = ttsFollowUserPageTurns,
                     onManualScrollStarted = onManualScrollStarted
                 )
             }
+        }
+    }
+
+    @Test fun adjacentChaptersArePreparedBeforeAnOngoingScrollStops() {
+        currentChapter = 0
+        chapterCount = 8
+        val loaded = ConcurrentHashMap.newKeySet<Int>()
+        val scrollGate = CompletableDeferred<Unit>()
+        loadChapter = { index, _ -> loaded.add(index); text }
+        show()
+        compose.waitUntil(15_000) { restored && loaded.containsAll(listOf(0, 1, 2)) }
+        compose.runOnIdle {
+            readerScope.launch {
+                list.scrollToItem(4)
+                list.scroll { scrollGate.await() }
+            }
+        }
+        try {
+            compose.waitUntil(15_000) {
+                list.firstVisibleItemIndex == 4 && list.isScrollInProgress && loaded.contains(3)
+            }
+            compose.runOnIdle {
+                assertTrue("Previous chapter must be ready while the fling is still active", loaded.contains(3))
+                assertTrue(list.isScrollInProgress)
+            }
+        } finally {
+            scrollGate.complete(Unit)
+        }
+    }
+
+    @Test fun continuousTextUsesThePagedReadersLineSpacingMetrics() {
+        currentChapter = 0
+        chapterCount = 1
+        val requestedLineHeight = 1.7f
+        show(lineHeight = requestedLineHeight)
+        compose.waitUntil(15_000) { restored }
+
+        compose.runOnIdle {
+            val view = visibleTextView()
+            val measuredLineHeight = view.layout.getLineTop(1) - view.layout.getLineTop(0)
+            val expectedLineHeight = view.paint.fontSpacing * requestedLineHeight +
+                2.5f * view.resources.displayMetrics.density
+            assertEquals(expectedLineHeight, measuredLineHeight.toFloat(), 3f)
         }
     }
 
@@ -504,17 +553,20 @@ class ContinuousScrollReaderTest {
         currentChapter = 0
         chapterCount = 1
         val font = mutableStateOf(18f)
-        val weight = mutableStateOf(400)
+        val weight = mutableStateOf(400f)
         show(fontSize = font, bodyFontWeight = weight)
         compose.waitUntil(15_000) { restored }
         compose.waitUntil(15_000) {
             runCatching { visibleTextView().text.isNotEmpty() }.getOrDefault(false)
         }
 
-        val initialSize = compose.runOnIdle { visibleTextView().textSize }
+        val initialSize = compose.runOnIdle {
+            visibleTextView().let { it.textSize to it.resources.displayMetrics.density }
+        }
+        assertEquals(18f * initialSize.second, initialSize.first, 0.01f)
         compose.runOnIdle {
             font.value = 24f
-            weight.value = 700
+            weight.value = 700f
         }
 
         compose.mainClock.advanceTimeBy(1_000)
@@ -526,7 +578,7 @@ class ContinuousScrollReaderTest {
                 .toList()
             assertTrue(
                 "initial=$initialSize attached=${views.map { it.textSize to it.text.length }}",
-                views.any { it.text.isNotEmpty() && it.textSize > initialSize }
+                views.any { it.text.isNotEmpty() && it.textSize > initialSize.first }
             )
             assertTrue(
                 "attached=${views.map { it.paint.isFakeBoldText to it.text.length }}",
@@ -890,6 +942,34 @@ class ContinuousScrollReaderTest {
         compose.runOnIdle {
             assertTrue("Explicit return should advance from $browsingOffset toward paragraph 100; " +
                 "actual=${list.firstVisibleItemScrollOffset}, scrolling=${list.isScrollInProgress}",
+                list.firstVisibleItemScrollOffset > browsingOffset + 500)
+        }
+    }
+
+    @Test fun enabledPageFollowResumesAfterAudioAdoptsTheManualScrollDestination() {
+        currentChapter = 0
+        chapterCount = 1
+        fun sentence(paragraph: Int): TtsSentencePosition {
+            val start = text.indexOf("Paragraph $paragraph:")
+            return TtsSentencePosition(0, start, text.indexOf('\n', start).takeIf { it >= 0 } ?: text.length)
+        }
+        val highlighted = mutableStateOf<TtsSentencePosition?>(sentence(70))
+        var manualScrollStarted = false
+        var manualPositionReported = false
+        show(ttsSentence = highlighted, ttsFollowUserPageTurns = true,
+            onManualScrollStarted = { manualScrollStarted = true },
+            onChapterVisible = { _, _ -> if (manualScrollStarted) manualPositionReported = true })
+        compose.waitUntil(15_000) { restored && list.firstVisibleItemScrollOffset > 1_000 }
+        compose.onRoot().performTouchInput { swipeUp(durationMillis = 300) }
+        compose.waitUntil(15_000) { manualPositionReported }
+        var browsingOffset = 0
+        compose.runOnIdle {
+            browsingOffset = list.firstVisibleItemScrollOffset
+            highlighted.value = sentence(100)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertTrue("Following should resume with the new audio position",
                 list.firstVisibleItemScrollOffset > browsingOffset + 500)
         }
     }

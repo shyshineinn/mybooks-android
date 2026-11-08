@@ -71,6 +71,16 @@ class BookRepositoryImpl @Inject constructor(
         bookDao.updateBookCoverPath(bookId, coverPath)
     }
 
+    override suspend fun setBooksHidden(bookIds: Collection<String>, hidden: Boolean) {
+        if (bookIds.isEmpty()) return
+        bookDao.setBooksHidden(bookIds.distinct(), hidden, System.currentTimeMillis())
+    }
+
+    override suspend fun setBooksArchived(bookIds: Collection<String>, archived: Boolean) {
+        if (bookIds.isEmpty()) return
+        bookDao.setBooksArchived(bookIds.distinct(), archived, System.currentTimeMillis())
+    }
+
     override suspend fun deleteBook(book: Book) {
         syncStateDao.upsertTombstones(
             listOf(
@@ -105,6 +115,10 @@ class BookRepositoryImpl @Inject constructor(
         bookDao.updateReadingProgress(bookId, progress, locatorJson)
     }
 
+    override suspend fun updateReadingPosition(bookId: String, progress: Float, locatorJson: String?) {
+        bookDao.updateReadingPosition(bookId, progress, locatorJson)
+    }
+
     private fun BookEntity.toDomain(): Book {
         return Book(
             id = id,
@@ -132,8 +146,9 @@ class BookRepositoryImpl @Inject constructor(
             sourceDisplayName = sourceDisplayName,
             sourceLastModified = sourceLastModified,
             isMissing = isMissing,
-            isArchived = isArchived,
-            archiveUpdatedAt = archiveUpdatedAt
+            isHidden = isHidden,
+            isManuallyMarkedRead = isManuallyMarkedRead,
+            isArchived = isArchived
         )
     }
 
@@ -164,8 +179,9 @@ class BookRepositoryImpl @Inject constructor(
             sourceDisplayName = sourceDisplayName,
             sourceLastModified = sourceLastModified,
             isMissing = isMissing,
-            isArchived = isArchived,
-            archiveUpdatedAt = archiveUpdatedAt
+            isHidden = isHidden,
+            isManuallyMarkedRead = isManuallyMarkedRead,
+            isArchived = isArchived
         )
     }
 }

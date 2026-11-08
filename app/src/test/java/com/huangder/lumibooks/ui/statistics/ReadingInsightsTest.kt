@@ -1,63 +1,76 @@
 package com.huangder.lumibooks.ui.statistics
 
-import com.huangder.lumibooks.domain.model.Book
-import com.huangder.lumibooks.domain.model.BookFormat
-import com.huangder.lumibooks.domain.model.Bookmark
-import com.huangder.lumibooks.domain.model.ReadingRecord
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.huangder.lumibooks.domain.model.*
 import java.time.LocalDate
+import org.junit.Assert.*
+import org.junit.Test
 
 class ReadingInsightsTest {
-    @Test fun activeWeekIncludesTodayInAveragesButNotInComparison() {
-        val today = LocalDate.of(2026, 11, 3)
-        val week = StatisticsPeriod.week(today, 0)
-        val previous = week.previousPeriod(0)
-        val records = mapOf(
-            week.start to 180L,
-            today to 300L,
-            today.plusDays(1) to 10_000L,
-            previous.start to 60L,
-            previous.start.plusDays(2) to 10_000L
-        )
-
-        val insights = readingInsights(week, previous, today) { records[it] ?: 0L }
-
-        assertEquals(160L, insights.dailyAverage)
-        assertEquals(150L, insights.weekdayAverage)
-        assertEquals(180L, insights.weekendAverage)
-        assertEquals(today to 300L, insights.bestDay)
-        assertEquals(180L to 60L, insights.comparison)
-        assertNull(readingInsights(week, previous, week.start) { 10L }.comparison)
+    @Test fun currentPeriodComparesCompletedDaysOnly() {
+        val today = LocalDate.of(2026, 11, 4)
+        val (current, previous) = comparisonPeriods(StatisticsSelection(StatisticsScope.MONTH, 2026, 10), today)!!
+        assertEquals(StatisticsPeriod(LocalDate.of(2026,11,1), LocalDate.of(2026,11,3)), current)
+        assertEquals(StatisticsPeriod(LocalDate.of(2026,10,1), LocalDate.of(2026,10,3)), previous)
+        assertNull(comparisonPeriods(StatisticsSelection(StatisticsScope.MONTH, 2026, 10), LocalDate.of(2026,11,1)))
     }
-
-    @Test fun activeMonthCapsBothSidesToTheShorterPreviousMonth() {
-        val march = StatisticsPeriod.month(2027, 2)
-        val february = march.previousPeriod(1)
-        val today = LocalDate.of(2027, 3, 31)
-        val insights = readingInsights(march, february, today) { day ->
-            if (day.monthValue == 3) 20L else 10L
-        }
-        assertEquals(560L to 280L, insights.comparison)
-
-        val completed = readingInsights(march, february, today.plusDays(1)) { 10L }
-        assertEquals(310L to 280L, completed.comparison)
+    @Test fun comparisonsHandleShortPreviousMonthsAndHistoricalPeriods() {
+        val current = comparisonPeriods(StatisticsSelection(StatisticsScope.MONTH, 2028, 2), LocalDate.of(2028,3,31))!!
+        assertEquals(LocalDate.of(2028,2,29), current.second.endInclusive)
+        assertEquals(LocalDate.of(2028,3,30), current.first.endInclusive)
+        val historical = comparisonPeriods(StatisticsSelection(StatisticsScope.MONTH, 2028, 1), LocalDate.of(2028,4,2))!!
+        assertEquals(29, historical.first.days.size)
+        assertEquals(31, historical.second.days.size)
     }
-
-    @Test fun dayGroupsSessionsAcrossDevicesAndKeepsBooksWithOnlyMarks() {
-        fun book(id: String) = Book(id, id, "", "", null, BookFormat.EPUB, 0L, 0f, createdAt = 0L)
-        fun session(bookId: String, duration: Long, device: String) =
-            ReadingRecord(bookId = bookId, date = "2026-11-03", duration = duration,
-                startTime = 0L, endTime = duration, sourceDeviceId = device)
-        val records = listOf(session("read", 100L, "a"), session("read", 200L, "b"), session("deleted", 400L, "a"))
-        val bookmark = Bookmark(bookId = "marked", chapterIndex = 0, position = 0f, title = "", createdAt = 1L)
-
-        val result = readingDayBooks(records, listOf(book("marked"), book("read"), book("inactive")),
-            emptyList(), listOf(bookmark))
-
-        assertEquals(listOf("read", "marked"), result.map { it.book.id })
-        assertEquals(listOf(300L, 0L), result.map { it.duration })
-        assertEquals(1, result.last().annotations.bookmarks)
+    @Test fun annualComparisonUsesTheSameCalendarDateAcrossLeapYears() {
+        val periods = comparisonPeriods(StatisticsSelection(StatisticsScope.YEAR, 2028), LocalDate.of(2028,3,2))!!
+        assertEquals(LocalDate.of(2028,3,1), periods.first.endInclusive)
+        assertEquals(LocalDate.of(2027,3,1), periods.second.endInclusive)
+        assertEquals(61, periods.first.days.size)
+        assertEquals(60, periods.second.days.size)
+    }
+    @Test fun weekCrossesYearWithoutChangingSundayAnchor() {
+        val period = StatisticsSelection(StatisticsScope.WEEK).range(LocalDate.of(2027,1,1))
+        assertEquals(LocalDate.of(2026,12,27), period.start)
+        assertEquals(LocalDate.of(2027,1,2), period.endInclusive)
+        assertEquals(period, StatisticsSelection(StatisticsScope.WEEK).shift(1, LocalDate.of(2027,1,1)).range(LocalDate.of(2027,1,1)))
+    }
+    @Test fun dailyAndBookAggregationDeduplicateDaysAcrossDevicesAndIncludeListening() {
+        val rows = listOf(
+            ReadingRecord(bookId="a", date="2026-11-01", duration=60_000, listeningDuration=30_000, startTime=0,endTime=1,sourceDeviceId="a"),
+            ReadingRecord(bookId="a", date="2026-11-01", duration=0, listeningDuration=120_000, startTime=0,endTime=1,sourceDeviceId="b"),
+            ReadingRecord(bookId="a", date="2026-11-02", duration=0, startTime=0,endTime=1),
+            ReadingRecord(bookId="b", date="2026-11-03", duration=0, listeningDuration=90_000, startTime=0,endTime=1))
+        assertEquals(listOf(210_000L,90_000L), aggregateReadingDays(rows).map { it.totalDuration })
+        val books = aggregateReadingBooks(rows)
+        assertEquals(2, books.size)
+        assertEquals(1, books.first().activeDays)
+        assertEquals("2026-11-01", books.first().lastDate)
+    }
+    @Test fun averagesIncludeZeroDaysAndSeparateWeekdaysFromWeekends() {
+        val sunday = LocalDate.of(2026,11,1)
+        val data = ReadingInsights(StatisticsPeriod(sunday,sunday.plusDays(6)), sunday.plusDays(2),
+            mapOf(sunday to ActivityDuration(60_000,60_000), sunday.plusDays(1) to ActivityDuration(180_000,0)), goalMinutes=2)
+        assertEquals(100_000L, data.dailyAverage)
+        assertEquals(90_000L, data.averageForWeekend(false))
+        assertEquals(120_000L, data.averageForWeekend(true))
+        assertEquals(2, data.readingDays)
+        assertEquals(2, data.longestStreak)
+        assertEquals(2, data.currentStreak)
+    }
+    @Test fun emptyInsightsHaveFiniteZeroAverages() {
+        val day = LocalDate.of(2026,11,4)
+        val data = ReadingInsights(StatisticsPeriod(day,day),day)
+        assertEquals(0L,data.dailyAverage)
+        assertEquals(0L,data.averageForWeekend(true))
+        assertNull(data.bestDay)
+        assertEquals(0,data.longestStreak)
+    }
+    @Test fun annualWallGroupsByFirstReadingAndKeepsStableTitleOrder() {
+        fun item(id:String,title:String,date:String) = InsightsBook(
+            Book(id=id,title=title,author="",filePath="",coverPath=null,format=BookFormat.EPUB,lastReadTime=0,readingProgress=0f,createdAt=0),
+            ReadingBookActivity(id,date,date,60_000,0,1))
+        val result = annualBooksByMonth(listOf(item("b","B","2026-02-01"),item("c","C","2026-01-02"),item("a","A","2026-01-02")))
+        assertEquals(listOf(1,2),result.keys.toList())
+        assertEquals(listOf("A","C"),result[1]!!.map { it.book.title })
     }
 }

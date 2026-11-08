@@ -59,6 +59,7 @@ import com.huangder.lumibooks.ui.animation.bookCoverMemoryCacheKey
 import com.huangder.lumibooks.ui.animation.bookCoverTransitionAnchor
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
+import com.huangder.lumibooks.ui.theme.AppType
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.abs
 import kotlin.math.floor
@@ -111,7 +112,8 @@ internal fun CoverFlowScene(
     onOpen: (Book, Rect?) -> Unit,
     onHaptic: () -> Unit,
     modifier: Modifier = Modifier,
-    sceneAlpha: () -> Float = { 1f }
+    sceneAlpha: () -> Float = { 1f },
+    menusEnabled: Boolean = true
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -196,8 +198,8 @@ internal fun CoverFlowScene(
                     coversLayer.record { this@drawWithContent.drawContent() }
                     drawLayer(coversLayer)
                 } else Modifier)
-                .then(if (enabled) Modifier.pointerInput(state, books, geometry, direction, motionEnabled) {
-                    coverFlowGestures(books, state, layout, scope, motionEnabled,
+                .then(if (enabled) Modifier.pointerInput(state, books, geometry, direction, motionEnabled, menusEnabled) {
+                    coverFlowGestures(books, state, layout, scope, motionEnabled, menusEnabled,
                         onOpen = { book, rect -> currentOpen(book, rect) }, onHaptic = { currentHaptic() })
                 } else Modifier)
                 .then(if (enabled && books.isNotEmpty()) Modifier.semantics(mergeDescendants = true) {
@@ -216,7 +218,7 @@ internal fun CoverFlowScene(
                         }
                         true
                     }
-                    onLongClick(menuLabel) { state.settle(scope, center, motionEnabled, showMenuAfter = true); true }
+                    if (menusEnabled) onLongClick(menuLabel) { state.settle(scope, center, motionEnabled, showMenuAfter = true); true }
                 } else Modifier.clearAndSetSemantics { })
         ) {
             order.forEachIndexed { rank, index ->
@@ -281,7 +283,7 @@ internal fun CoverFlowCover(book: Book, modifier: Modifier = Modifier) {
         ambientColor = Color.Black.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.20f))
         .clip(shape).background(AppColors.BgGray), contentAlignment = Alignment.Center) {
         // The fallback remains beneath the image, including when an old cover file is unavailable.
-        Text(book.title.take(40), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+        Text(book.title.take(40), fontSize = AppType.BodySmall, fontWeight = FontWeight.SemiBold,
             color = AppColors.TextSecondary, textAlign = TextAlign.Center, maxLines = 4,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(12.dp))
         if (book.coverPath != null) AsyncImage(request, contentDescription = null,
@@ -292,7 +294,7 @@ internal fun CoverFlowCover(book: Book, modifier: Modifier = Modifier) {
 
 private suspend fun PointerInputScope.coverFlowGestures(
     books: List<Book>, state: CoverFlowState, layout: CoverFlowSceneLayout,
-    scope: CoroutineScope, motionEnabled: Boolean,
+    scope: CoroutineScope, motionEnabled: Boolean, menusEnabled: Boolean,
     onOpen: (Book, Rect?) -> Unit, onHaptic: () -> Unit
 ) {
     awaitEachGesture {
@@ -329,7 +331,7 @@ private suspend fun PointerInputScope.coverFlowGestures(
             result
         }
         if (decision == null) {
-            if (hit != null) {
+            if (menusEnabled && hit != null) {
                 onHaptic()
                 if (state.isCentered(hit)) state.showMenu()
                 else state.settle(scope, hit, motionEnabled, showMenuAfter = true)

@@ -129,3 +129,4 @@ class ProgressiveBlurFallbackRenderTest {
         pixels { bitmap, b -> assertEquals(AndroidColor.RED, bitmap.getPixel(b.center.x.toInt(), b.bottom.toInt() - 1)) }
     }
 }
+

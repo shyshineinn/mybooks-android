@@ -2,6 +2,7 @@ package com.huangder.lumibooks.domain.model
 
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 data class ReaderThemeSettings(
     val backgroundSelection: String = ReaderThemeSuites.DAY_ID,
@@ -11,7 +12,7 @@ data class ReaderThemeSettings(
     val textColor: Int? = null,
     val fontSize: Float = 16f,
     val fontType: String = "system",
-    val bodyFontWeight: Int = 400,
+    val bodyFontWeight: Float = 400f,
     val lineHeight: Float = 1.5f,
     val letterSpacing: Float = 0f,
     val textAlignment: ReaderTextAlignment = ReaderTextAlignment.NATURAL,
@@ -20,9 +21,13 @@ data class ReaderThemeSettings(
     val marginLeft: Float = 38f,
     val marginRight: Float = 38f,
     val marginTop: Float = 64f,
-    val marginBottom: Float = 64f
+    val marginBottom: Float = 64f,
+    val cornerMargins: ReaderCornerMargins = ReaderCornerMargins()
 ) {
     companion object {
+        val LINE_HEIGHT_RANGE = 0.5f..2.5f
+        val LETTER_SPACING_RANGE = -5f..10f
+
         const val MIN_MARGIN_DP = 0f
         const val MAX_HORIZONTAL_MARGIN_DP = 160f
         const val MAX_VERTICAL_MARGIN_DP = 400f
@@ -48,7 +53,8 @@ data class ReaderThemeSuite(
     val bookLayoutSettings: ReaderThemeSettings = settings,
     /** Optional light/dark overrides. Legacy suites use [settings] for both modes. */
     val lightSettings: ReaderThemeSettings? = null,
-    val darkSettings: ReaderThemeSettings? = null
+    val darkSettings: ReaderThemeSettings? = null,
+    val darkMaskOpacity: Float = 0f
 ) {
     val isBuiltIn: Boolean get() = id in ReaderThemeSuites.BUILT_IN_IDS
 
@@ -202,7 +208,8 @@ object ReaderThemeSuites {
                     settings = suite.settings.sanitized(),
                     bookLayoutSettings = suite.bookLayoutSettings.sanitized(),
                     lightSettings = suite.lightSettings?.sanitized(),
-                    darkSettings = suite.darkSettings?.sanitized()
+                    darkSettings = suite.darkSettings?.sanitized(),
+                    darkMaskOpacity = suite.darkMaskOpacity.coerceIn(0f, 0.8f)
                 )
                 suite.customName.isNullOrBlank() -> null
                 else -> suite.copy(
@@ -210,7 +217,8 @@ object ReaderThemeSuites {
                     settings = suite.settings.sanitized(),
                     bookLayoutSettings = suite.bookLayoutSettings.sanitized(),
                     lightSettings = suite.lightSettings?.sanitized(),
-                    darkSettings = suite.darkSettings?.sanitized()
+                    darkSettings = suite.darkSettings?.sanitized(),
+                    darkMaskOpacity = suite.darkMaskOpacity.coerceIn(0f, 0.8f)
                 )
             }
         }.toMutableList()
@@ -226,29 +234,18 @@ object ReaderThemeSuites {
         backgroundColorSelection = backgroundColorSelection.takeIf(String::isNotBlank) ?: DAY_ID,
         backgroundImageOpacity = backgroundImageOpacity.coerceIn(0f, 1f),
         backgroundImageBlurDp = backgroundImageBlurDp.coerceIn(0f, 40f),
-        fontSize = fontSize.coerceIn(12f, 28f),
+        // Same limits as the theme sheet's sliders.
+        fontSize = (fontSize * 10f).roundToInt().coerceIn(120, 280) / 10f,
         fontType = fontType.takeIf(String::isNotBlank) ?: "system",
-        bodyFontWeight = bodyFontWeight.coerceIn(100, 900),
-        lineHeight = lineHeight.coerceIn(1f, 2.5f),
-        letterSpacing = letterSpacing.coerceIn(0f, 10f),
+        bodyFontWeight = (bodyFontWeight * 10f).roundToInt().coerceIn(1000, 9000) / 10f,
+        lineHeight = lineHeight.coerceIn(ReaderThemeSettings.LINE_HEIGHT_RANGE),
+        letterSpacing = letterSpacing.coerceIn(ReaderThemeSettings.LETTER_SPACING_RANGE),
         paragraphSpacing = paragraphSpacing.coerceIn(0f, 30f),
         firstLineIndent = firstLineIndent.coerceIn(0f, 4f),
-        marginLeft = marginLeft.coerceIn(
-            ReaderThemeSettings.MIN_MARGIN_DP,
-            ReaderThemeSettings.MAX_HORIZONTAL_MARGIN_DP
-        ),
-        marginRight = marginRight.coerceIn(
-            ReaderThemeSettings.MIN_MARGIN_DP,
-            ReaderThemeSettings.MAX_HORIZONTAL_MARGIN_DP
-        ),
-        marginTop = marginTop.coerceIn(
-            ReaderThemeSettings.MIN_MARGIN_DP,
-            ReaderThemeSettings.MAX_VERTICAL_MARGIN_DP
-        ),
-        marginBottom = marginBottom.coerceIn(
-            ReaderThemeSettings.MIN_MARGIN_DP,
-            ReaderThemeSettings.MAX_VERTICAL_MARGIN_DP
-        )
+        marginLeft = marginLeft.coerceIn(ReaderThemeSettings.HORIZONTAL_MARGIN_RANGE),
+        marginRight = marginRight.coerceIn(ReaderThemeSettings.HORIZONTAL_MARGIN_RANGE),
+        marginTop = marginTop.coerceIn(ReaderThemeSettings.VERTICAL_MARGIN_RANGE),
+        marginBottom = marginBottom.coerceIn(ReaderThemeSettings.VERTICAL_MARGIN_RANGE)
     )
 }
 
@@ -288,9 +285,10 @@ object ReaderThemeSuiteCodec {
                                 id = id,
                                 customName = item.optString("name").takeIf(String::isNotBlank),
                                 settings = settings,
-                                bookLayoutSettings = bookLayoutSettings
-                                , lightSettings = lightSettings
-                                , darkSettings = darkSettings
+                                bookLayoutSettings = bookLayoutSettings,
+                                lightSettings = lightSettings,
+                                darkSettings = darkSettings,
+                                darkMaskOpacity = item.optDouble("darkMaskOpacity", 0.0).toFloat()
                             )
                         )
                     }
@@ -307,7 +305,7 @@ object ReaderThemeSuiteCodec {
         textColor?.let { put("textColor", it) }
         put("fontSize", fontSize.toDouble())
         put("fontType", fontType)
-        put("bodyFontWeight", bodyFontWeight)
+        put("bodyFontWeight", bodyFontWeight.toDouble())
         put("lineHeight", lineHeight.toDouble())
         put("letterSpacing", letterSpacing.toDouble())
         put("textAlignment", textAlignment.key)
@@ -317,6 +315,12 @@ object ReaderThemeSuiteCodec {
         put("marginRight", marginRight.toDouble())
         put("marginTop", marginTop.toDouble())
         put("marginBottom", marginBottom.toDouble())
+        put("cornerMargins", JSONObject().apply {
+            cornerMargins.leftDp?.let { put("leftDp", it.toDouble()) }
+            cornerMargins.rightDp?.let { put("rightDp", it.toDouble()) }
+            cornerMargins.topDp?.let { put("topDp", it.toDouble()) }
+            cornerMargins.bottomDp?.let { put("bottomDp", it.toDouble()) }
+        })
     }
 
     private fun ReaderThemeSuite.toJsonObject() = JSONObject().apply {
@@ -326,6 +330,7 @@ object ReaderThemeSuiteCodec {
         put("bookLayoutSettings", bookLayoutSettings.toJson())
         lightSettings?.let { put("light", it.toJson()) }
         darkSettings?.let { put("dark", it.toJson()) }
+        put("darkMaskOpacity", darkMaskOpacity.toDouble())
     }
 
     private fun JSONObject.toThemeSettings(): ReaderThemeSettings {
@@ -341,7 +346,7 @@ object ReaderThemeSuiteCodec {
         textColor = if (has("textColor") && !isNull("textColor")) optInt("textColor") else null,
         fontSize = optDouble("fontSize", 16.0).toFloat(),
         fontType = optString("fontType", "system"),
-        bodyFontWeight = optInt("bodyFontWeight", 400),
+        bodyFontWeight = optDouble("bodyFontWeight", 400.0).toFloat(),
         lineHeight = optDouble("lineHeight", 1.5).toFloat(),
         letterSpacing = optDouble("letterSpacing", 0.0).toFloat(),
         textAlignment = ReaderTextAlignment.fromKey(optString("textAlignment")),
@@ -350,7 +355,17 @@ object ReaderThemeSuiteCodec {
         marginLeft = optDouble("marginLeft", 38.0).toFloat(),
         marginRight = optDouble("marginRight", 38.0).toFloat(),
         marginTop = optDouble("marginTop", 64.0).toFloat(),
-        marginBottom = optDouble("marginBottom", 64.0).toFloat()
+        marginBottom = optDouble("marginBottom", 64.0).toFloat(),
+        cornerMargins = optJSONObject("cornerMargins")?.let { margins ->
+            fun optionalMargin(key: String): Float? =
+                if (margins.has(key) && !margins.isNull(key)) margins.optDouble(key).toFloat() else null
+            ReaderCornerMargins(
+                leftDp = optionalMargin("leftDp"),
+                rightDp = optionalMargin("rightDp"),
+                topDp = optionalMargin("topDp"),
+                bottomDp = optionalMargin("bottomDp")
+            )
+        } ?: ReaderCornerMargins()
         )
     }
 }
@@ -381,6 +396,7 @@ object LumiThemeBundleCodec {
                 val theme = legacy.optJSONObject(index)
                     ?: throw IllegalArgumentException("Invalid legacy theme at index $index")
                 require(theme.optString("id").isNotBlank()) { "Missing legacy theme id" }
+                if (theme.has("darkMaskOpacity")) validateNumber(theme, "darkMaskOpacity", 0.0, 0.8, "theme")
                 validateSettings(theme.optJSONObject("settings"), "settings")
                 theme.optJSONObject("bookLayoutSettings")?.let { validateSettings(it, "bookLayoutSettings") }
             }
@@ -401,6 +417,7 @@ object LumiThemeBundleCodec {
                 ?: throw IllegalArgumentException("Invalid theme at index $index")
             val id = theme.optString("id").trim()
             require(id.isNotEmpty() && ids.add(id)) { "Invalid or duplicate theme id" }
+            if (theme.has("darkMaskOpacity")) validateNumber(theme, "darkMaskOpacity", 0.0, 0.8, "theme")
             validateSettings(theme.optJSONObject("settings"), "settings")
             theme.optJSONObject("bookLayoutSettings")?.let { validateSettings(it, "bookLayoutSettings") }
             theme.optJSONObject("light")?.let { validateSettings(it, "light") }
@@ -420,15 +437,29 @@ object LumiThemeBundleCodec {
         validateColor(settings, label)
         validateNumber(settings, "fontSize", 12.0, 28.0, label)
         if (settings.has("fontType")) validateOptionalString(settings, "fontType", label)
-        validateInteger(settings, "bodyFontWeight", 100, 900, label)
-        validateNumber(settings, "lineHeight", 1.0, 2.5, label)
-        validateNumber(settings, "letterSpacing", 0.0, 10.0, label)
+        validateNumber(settings, "bodyFontWeight", 100.0, 900.0, label)
+        validateNumber(settings, "lineHeight", ReaderThemeSettings.LINE_HEIGHT_RANGE.start.toDouble(),
+            ReaderThemeSettings.LINE_HEIGHT_RANGE.endInclusive.toDouble(), label)
+        validateNumber(settings, "letterSpacing", ReaderThemeSettings.LETTER_SPACING_RANGE.start.toDouble(),
+            ReaderThemeSettings.LETTER_SPACING_RANGE.endInclusive.toDouble(), label)
         validateNumber(settings, "paragraphSpacing", 0.0, 30.0, label)
         validateNumber(settings, "firstLineIndent", 0.0, 4.0, label)
         validateNumber(settings, "marginLeft", 0.0, ReaderThemeSettings.MAX_HORIZONTAL_MARGIN_DP.toDouble(), label)
         validateNumber(settings, "marginRight", 0.0, ReaderThemeSettings.MAX_HORIZONTAL_MARGIN_DP.toDouble(), label)
         validateNumber(settings, "marginTop", 0.0, ReaderThemeSettings.MAX_VERTICAL_MARGIN_DP.toDouble(), label)
         validateNumber(settings, "marginBottom", 0.0, ReaderThemeSettings.MAX_VERTICAL_MARGIN_DP.toDouble(), label)
+        if (settings.has("cornerMargins")) {
+            val margins = settings.optJSONObject("cornerMargins")
+            require(margins != null) { "Invalid $label cornerMargins" }
+            listOf("leftDp", "rightDp", "topDp", "bottomDp").forEach { key ->
+                if (!margins.isNull(key)) {
+                    val max = if (key == "leftDp" || key == "rightDp") {
+                        ReaderThemeSettings.MAX_HORIZONTAL_MARGIN_DP
+                    } else ReaderThemeSettings.MAX_VERTICAL_MARGIN_DP
+                    validateNumber(margins, key, 0.0, max.toDouble(), "$label cornerMargins")
+                }
+            }
+        }
     }
 
     private fun validateRequiredString(settings: JSONObject, key: String, label: String) {

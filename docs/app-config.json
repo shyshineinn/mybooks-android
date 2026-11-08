@@ -1,8 +1,11 @@
 {
-  "config_version": 2,
-  "generated_at": "2026-10-24T22:10:00+08:00",
-  "terms_version": 0,
-  "privacy_version": 0,
+  "config_version": 1,
+  "generated_at": "2026-11-03T00:00:00+08:00",
+  "latest_version": "Dream",
+  "latest_version_code": 16,
+  "release_url": "https://github.com/huangder/Lumi_Books/releases/tag/Dream",
+  "terms_version": 3,
+  "privacy_version": 4,
   "update": {
     "latest_version_code": 2210,
     "latest_version_name": "2.2.10",
@@ -31,5 +34,6 @@
         "https://cdn.jsdelivr.net/gh/shyshineinn/Mybooks@main/docs/fonts/fandol_fang.ttf"
       ]
     }
-  ]
+  ],
+  "blocked_opds_urls": []
 }

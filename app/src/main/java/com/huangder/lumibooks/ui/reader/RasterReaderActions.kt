@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.reader
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -8,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +42,7 @@ import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppType
 
 /** PDF and comic actions share the same available-width policy, including system text scaling. */
 @Composable
@@ -51,7 +53,8 @@ internal fun RasterReaderActionRow(
     onImageAdjustmentsClick: () -> Unit,
     onConversionClick: () -> Unit,
     modifier: Modifier = Modifier,
-    glassContentScrimColor: Color = AppColors.WindowBg.copy(alpha = 0.18f)
+    glassContentScrimColor: Color = AppColors.WindowBg.copy(alpha = 0.18f),
+    onNotesClick: (() -> Unit)? = null
 ) {
     val annotationLabel = stringResource(R.string.pdf_annotation_tool)
     val bookmarksLabel = stringResource(R.string.reader_bookmark)
@@ -60,7 +63,7 @@ internal fun RasterReaderActionRow(
     val density = LocalDensity.current
     val textDensity = Density(density.density, density.fontScale)
     val measurer = rememberTextMeasurer()
-    val style = LocalTextStyle.current.copy(fontSize = 13.sp)
+    val style = LocalTextStyle.current.copy(fontSize = AppType.Footnote)
     val actionWidth = with(density) {
         listOf(annotationLabel, bookmarksLabel, adjustmentLabel).maxOf {
             measurer.measure(it, style, softWrap = false, maxLines = 1, density = textDensity).size.width
@@ -72,6 +75,8 @@ internal fun RasterReaderActionRow(
     val moreExpanded = menuHost?.activeMenu?.sourceId == moreMenuId
     val currentOnAdjustmentsClick by rememberUpdatedState(onImageAdjustmentsClick)
     val currentOnConversionClick by rememberUpdatedState(onConversionClick)
+    val currentOnNotesClick by rememberUpdatedState(onNotesClick)
+    val notesLabel = stringResource(R.string.menu_note)
     val menuSurfaceColor = AppColors.CardBg
     val menuContentColor = AppColors.TextPrimary
 
@@ -84,12 +89,15 @@ internal fun RasterReaderActionRow(
                 add(LiquidGlassMenuItem(adjustmentLabel, AppIcons.Gear) { currentOnAdjustmentsClick() })
             }
             if (!isComic) {
+                if (onNotesClick != null) {
+                    add(LiquidGlassMenuItem(notesLabel, AppIcons.PencilSimple) { currentOnNotesClick?.invoke() })
+                }
                 add(LiquidGlassMenuItem(conversionLabel, AppIcons.Books) { currentOnConversionClick() })
             }
         }
         val menuWidth = maxOf(208.dp, with(density) {
             moreItems.maxOfOrNull {
-                measurer.measure(it.label, style.copy(fontSize = 14.sp), softWrap = false, density = textDensity).size.width
+                measurer.measure(it.label, style.copy(fontSize = AppType.BodySmall), softWrap = false, density = textDensity).size.width
             }?.toDp() ?: 0.dp
         } + 60.dp)
 
@@ -139,7 +147,7 @@ internal fun PdfActionCapsule(
     val density = LocalDensity.current
     val textDensity = Density(density.density, density.fontScale)
     val measurer = rememberTextMeasurer()
-    val style = LocalTextStyle.current.copy(fontSize = 13.sp)
+    val style = LocalTextStyle.current.copy(fontSize = AppType.Footnote)
     val labelWidth = with(density) {
         measurer.measure(label, style, softWrap = false, maxLines = 1, density = textDensity).size.width.toDp()
     }
@@ -158,7 +166,7 @@ internal fun PdfActionCapsule(
             val contentModifier = Modifier.fillMaxWidth()
                 .padding(horizontal = horizontalPadding, vertical = 10.dp)
             val content: @Composable () -> Unit = {
-                Icon(icon, null, tint = contentColor, modifier = Modifier.size(18.dp))
+                ControlIcon(icon, null, tint = contentColor, modifier = Modifier.size(18.dp))
                 Text(label, style = style, color = contentColor, maxLines = 1,
                     softWrap = false, overflow = TextOverflow.Ellipsis)
             }

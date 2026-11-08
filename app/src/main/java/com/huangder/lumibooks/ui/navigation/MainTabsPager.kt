@@ -53,6 +53,7 @@ import com.huangder.lumibooks.ui.animation.MainTabItemMotion
 import com.huangder.lumibooks.ui.animation.MainTabMotion
 import com.huangder.lumibooks.ui.animation.MAIN_TAB_SETTLE_LIMIT_MS
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
+import com.huangder.lumibooks.ui.theme.LocalPageVisible
 
 internal val mainTabRoutes = listOf(Screen.Home.route, Screen.Bookshelf.route, Screen.Statistics.route)
 
@@ -164,7 +165,9 @@ internal fun MainTabsPager(
             key(mainTabRoutes[page]) {
                 MainTabPage(
                     state, page, isLtr,
-                    motion.takeIf { motionEnabled && selection?.running != true }, selection, content
+                    // Selection resets the motion above. Keep the item modifier layers
+                    // attached through the fade so retained pages keep their display lists.
+                    motion.takeIf { motionEnabled }, selection, content
                 )
             }
         }
@@ -208,6 +211,7 @@ private fun MainTabPage(
     // Retained neighbours must not intercept Back or resume work for the visible tab.
     CompositionLocalProvider(
         LocalLifecycleOwner provides owner,
+        LocalPageVisible provides visible,
         LocalMainTabItemMotion provides itemMotion
     ) {
         Box(

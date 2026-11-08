@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.components
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -147,9 +149,9 @@ private fun <T> AnnotationFilterMenu(
             }
         }
         Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            fontSize = AppType.Footnote, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(4.dp))
-        Icon(AppIcons.CaretDown, null, modifier = Modifier.size(12.dp))
+        ControlIcon(AppIcons.CaretDown, null, modifier = Modifier.size(12.dp))
     }
 }
 
@@ -159,9 +161,14 @@ internal fun annotationMenuWidth(labels: List<String>, extraWidth: Dp, fontSize:
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val available = (LocalConfiguration.current.screenWidthDp.dp - 32.dp).coerceAtLeast(80.dp)
-    val textWidth = labels.maxOfOrNull {
-        measurer.measure(it, style = TextStyle(fontSize = fontSize), maxLines = 1, softWrap = false).size.width
-    } ?: 0
+    // Large catalogs use the capped width. Measuring every label here also runs while
+    // the menu is closed, and used to block opening the notes page itself.
+    if (labels.size > 24) return 320.dp.coerceAtMost(available)
+    val textWidth = remember(labels, fontSize, density, measurer) {
+        labels.maxOfOrNull {
+            measurer.measure(it, style = TextStyle(fontSize = fontSize), maxLines = 1, softWrap = false).size.width
+        } ?: 0
+    }
     return (with(density) { textWidth.toDp() } + extraWidth)
         .coerceIn(96.dp.coerceAtMost(available), 320.dp.coerceAtMost(available))
 }

@@ -1,8 +1,5 @@
 package com.huangder.lumibooks.ui.settings
 
-import com.huangder.lumibooks.ui.components.LiquidGlassTextButton
-import com.huangder.lumibooks.ui.theme.AppColors
-import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -14,6 +11,8 @@ import androidx.compose.ui.res.stringResource
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.tts.TtsReaderResumeChoice
 import com.huangder.lumibooks.tts.TtsStartChoice
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 
 @Composable
@@ -36,7 +35,6 @@ internal fun ListeningPreferencesContent(
 ) {
     var showStartDialog by remember { mutableStateOf(false) }
     var showResumeDialog by remember { mutableStateOf(false) }
-
     var showExitDialog by remember { mutableStateOf(false) }
 
     val startOptions = listOf(
@@ -50,7 +48,6 @@ internal fun ListeningPreferencesContent(
         TtsReaderResumeChoice.LISTENING_POSITION to stringResource(R.string.tts_listening_resume_jump),
         TtsReaderResumeChoice.FURTHEST_PROGRESS to stringResource(R.string.tts_listening_resume_furthest)
     )
-
     val exitOptions = listOf(
         null to stringResource(R.string.tts_start_ask_each_time),
         true to stringResource(R.string.tts_exit_continue),
@@ -63,18 +60,18 @@ internal fun ListeningPreferencesContent(
     )
     DetailCard {
         SettingsNavigationRow(
-            stringResource(R.string.tts_start_setting),
-            startOptions.first { it.first == uiState.ttsStartChoice }.second
+            label = stringResource(R.string.tts_start_setting),
+            value = startOptions.first { it.first == uiState.ttsStartChoice }.second
         ) { showStartDialog = true }
         SettingsDivider()
         SettingsNavigationRow(
-            stringResource(R.string.tts_listening_resume_setting),
-            resumeOptions.first { it.first == uiState.ttsReaderResumeChoice }.second
+            label = stringResource(R.string.tts_listening_resume_setting),
+            value = resumeOptions.first { it.first == uiState.ttsReaderResumeChoice }.second
         ) { showResumeDialog = true }
         SettingsDivider()
         SettingsNavigationRow(
-            stringResource(R.string.tts_exit_setting),
-            exitOptions.first { it.first == uiState.ttsContinueOnReaderExit }.second
+            label = stringResource(R.string.tts_exit_setting),
+            value = exitOptions.first { it.first == uiState.ttsContinueOnReaderExit }.second
         ) { showExitDialog = true }
     }
 
@@ -97,7 +94,7 @@ internal fun ListeningPreferencesContent(
         )
     }
     if (showExitDialog) {
-        ChoiceDialog(
+        ChoiceDialog<Boolean?>(
             title = stringResource(R.string.tts_exit_setting),
             selected = uiState.ttsContinueOnReaderExit,
             options = exitOptions,
@@ -117,7 +114,7 @@ private fun <T> ChoiceDialog(
 ) {
     LiquidGlassAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, color = AppColors.TextPrimary) },
+        titleText = title,
         text = {
             Column {
                 options.forEach { (value, label) ->
@@ -132,7 +129,12 @@ private fun <T> ChoiceDialog(
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = { LiquidGlassTextButton(text = stringResource(R.string.cancel), onClick = onDismiss) }
+        actions = listOf(
+            AppDialogAction(
+                text = stringResource(R.string.cancel),
+                onClick = onDismiss,
+                role = AppDialogActionRole.Cancel
+            )
+        )
     )
 }

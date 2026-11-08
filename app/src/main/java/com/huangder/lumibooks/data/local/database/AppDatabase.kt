@@ -9,6 +9,8 @@ import com.huangder.lumibooks.data.local.dao.NoteDao
 import com.huangder.lumibooks.data.local.dao.AnnotationTagDao
 import com.huangder.lumibooks.data.local.dao.ReadingRecordDao
 import com.huangder.lumibooks.data.local.dao.TagDao
+import com.huangder.lumibooks.data.local.dao.TagGroupDao
+import com.huangder.lumibooks.data.local.entity.TagGroupEntity
 import com.huangder.lumibooks.data.local.dao.SyncStateDao
 import com.huangder.lumibooks.data.local.entity.BookTagCrossRefEntity
 import com.huangder.lumibooks.data.local.entity.BookEntity
@@ -36,6 +38,7 @@ import com.huangder.lumibooks.data.local.entity.MyBooksPendingDeleteEntity
         FolderEntity::class,
         BookFolderCrossRefEntity::class,
         TagEntity::class,
+        TagGroupEntity::class,
         BookTagCrossRefEntity::class,
         ReadingRecordEntity::class,
         BookmarkEntity::class,
@@ -50,7 +53,7 @@ import com.huangder.lumibooks.data.local.entity.MyBooksPendingDeleteEntity
         MyBooksSyncStateEntity::class,
         MyBooksPendingDeleteEntity::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -60,6 +63,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun annotationTagDao(): AnnotationTagDao
     abstract fun tagDao(): TagDao
+    abstract fun tagGroupDao(): TagGroupDao
     abstract fun folderDao(): FolderDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun highlightRuleDao(): HighlightRuleDao

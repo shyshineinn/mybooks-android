@@ -7,8 +7,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.huangder.lumibooks.BuildConfig
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
+import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,35 +46,28 @@ class WelcomeScreenInstrumentedTest {
 
         composeRule.onNodeWithText(context.getString(R.string.welcome_liquid_glass_title)).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.welcome_next)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_excerpt_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_previous)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_liquid_glass_title)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.welcome_support_title)).assertIsDisplayed()
     }
 
     @Test
-    fun updateWalkthroughIncludesAllFeaturesAndBackNeverShowsThemeSetup() {
+    fun updateWalkthroughGoesDirectlyToSupport() {
+        // The official build replaces this page with the Hilt-backed trial invitation.
+        assumeFalse(BuildConfig.PREMIUM_EDITION)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         showWelcome(isNewInstallation = false, startOnIntroduction = true)
 
         composeRule.onNodeWithText(context.getString(R.string.welcome_start_using)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_excerpt_title)).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.welcome_enable_liquid_glass)).assertDoesNotExist()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_previous)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_start_using)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_next)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_g2_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_next)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_dictionary_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_previous)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_g2_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_next)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.welcome_next)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.welcome_excerpt_title)).assertDoesNotExist()
+        composeRule.onNodeWithText(context.getString(R.string.welcome_g2_title)).assertDoesNotExist()
+        composeRule.onNodeWithText(context.getString(R.string.welcome_dictionary_title)).assertDoesNotExist()
         composeRule.onNodeWithText(context.getString(R.string.welcome_support_title)).assertIsDisplayed()
     }
 
     @Test
     fun supportPageContainsCopyAndActionsWithoutDecorativeEmoji() {
+        // The official build replaces this page with the Hilt-backed trial invitation.
+        assumeFalse(BuildConfig.PREMIUM_EDITION)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         showWelcome(isNewInstallation = false, startOnSupport = true)
 

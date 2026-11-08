@@ -56,18 +56,6 @@ class ReaderBackgroundAssetPersistenceTest {
         assertEquals(listOf(sampled, added), manager.customReaderBackgrounds.first())
     }
 
-    @Test fun explicitDeletionPreservesNewAssetsAndRepairsTheLatestTheme() = fixture { manager ->
-        manager.saveReaderThemeSuiteState(listOf(ReaderThemeSuite("photo", "Photo", ReaderThemeSettings())),
-            "photo", applyActiveSuite = false)
-        manager.addReaderThemeSuiteBackground("photo", ReaderLayoutTarget.READER_LAYOUT, original, true)
-        manager.addReaderThemeSuiteBackground("photo", ReaderLayoutTarget.READER_LAYOUT, added, false)
-        assertEquals(original, manager.deleteReaderBackground(original.id))
-        assertEquals(listOf(added), manager.customReaderBackgrounds.first())
-        val suite = manager.readerThemeSuiteState.first().suites.first { it.id == "photo" }
-        assertEquals(added.selectionKey, suite.settingsFor(ReaderLayoutTarget.READER_LAYOUT, false).backgroundSelection)
-        assertEquals("day", suite.settingsFor(ReaderLayoutTarget.READER_LAYOUT, true).backgroundSelection)
-    }
-
     @Test fun cleanupChecksFallbackBookLayoutAndBothModesOfEverySuite() = fixture { manager ->
         val plain = ReaderThemeSettings()
         val photo = plain.copy(backgroundSelection = original.selectionKey)

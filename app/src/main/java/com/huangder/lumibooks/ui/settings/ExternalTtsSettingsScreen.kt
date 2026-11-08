@@ -1,5 +1,8 @@
 package com.huangder.lumibooks.ui.settings
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.lumiGroupedSurface
 import com.huangder.lumibooks.ui.components.lumiCardSurface
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import com.huangder.lumibooks.ui.icons.AppIcons
@@ -43,13 +46,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -85,11 +86,13 @@ import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
-import com.huangder.lumibooks.ui.components.LiquidGlassDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassButton
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
+import com.huangder.lumibooks.ui.components.AppBottomSheet
+import com.huangder.lumibooks.ui.components.AppDropdownMenu
+import com.huangder.lumibooks.ui.components.DisclosureChevron
 private val OPENAI_VOICE_PRESETS = listOf(
     "alloy",
     "ash",
@@ -130,7 +133,7 @@ fun ExternalTtsSettingsDetail(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
+            .padding(horizontal = AppSpace.page, vertical = AppSpace.sm),
         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
         ExternalTtsSectionCard {
@@ -265,7 +268,7 @@ fun ExternalTtsConfigurationDetail(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
+            .padding(horizontal = AppSpace.page, vertical = AppSpace.sm),
         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
         ExternalTtsSectionCard {
@@ -308,7 +311,7 @@ fun ExternalTtsConfigurationDetail(
         }
 
         ExternalTtsSectionCard {
-            OutlinedTextField(
+            com.huangder.lumibooks.ui.components.LumiTextField(
             value = draftBaseUrl,
             onValueChange = {
                 draftBaseUrl = it
@@ -333,7 +336,7 @@ fun ExternalTtsConfigurationDetail(
             shape = AppRoundedCornerShape(AppRadius.md)
         )
 
-            OutlinedTextField(
+            com.huangder.lumibooks.ui.components.LumiTextField(
             value = draftModel,
             onValueChange = {
                 draftModel = it
@@ -362,7 +365,7 @@ fun ExternalTtsConfigurationDetail(
             }
         )
 
-            OutlinedTextField(
+            com.huangder.lumibooks.ui.components.LumiTextField(
             value = draftStyle,
             onValueChange = {
                 draftStyle = it
@@ -376,7 +379,7 @@ fun ExternalTtsConfigurationDetail(
             shape = AppRoundedCornerShape(AppRadius.md)
         )
 
-            OutlinedTextField(
+            com.huangder.lumibooks.ui.components.LumiTextField(
             value = token,
             onValueChange = {
                 token = it
@@ -408,7 +411,7 @@ fun ExternalTtsConfigurationDetail(
             visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                    Icon(
+                    ControlIcon(
                         if (tokenVisible) AppIcons.EyeSlash else AppIcons.Eye,
                         contentDescription = stringResource(
                             if (tokenVisible) R.string.external_tts_hide_key else R.string.external_tts_show_key
@@ -458,7 +461,7 @@ fun ExternalTtsConfigurationDetail(
                     color = AppColors.TextSecondary
                 )
             }
-            Checkbox(
+            com.huangder.lumibooks.ui.components.LumiCheckbox(
                 checked = draftAllowHttp,
                 onCheckedChange = { checked ->
                     if (checked) {
@@ -602,15 +605,10 @@ private fun ExternalTtsVoiceSelection(
                     )
                 }
 
-                DropdownMenu(
+                AppDropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    modifier = Modifier.width(selectorMenuWidth),
-                    shape = AppRoundedCornerShape(16.dp),
-                    containerColor = AppColors.WindowBg,
-                    border = BorderStroke(1.dp, AppColors.Divider),
-                    shadowElevation = 0.dp,
-                    tonalElevation = 0.dp
+                    modifier = Modifier.width(selectorMenuWidth)
                 ) {
                     presetVoices.forEach { preset ->
                         DropdownMenuItem(
@@ -664,7 +662,7 @@ private fun ExternalTtsVoiceSelection(
                 fadeOut(animationSpec = tween(130)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedTextField(
+            com.huangder.lumibooks.ui.components.LumiTextField(
                 value = voice,
                 onValueChange = onVoiceChange,
                 modifier = Modifier
@@ -683,8 +681,7 @@ private fun ExternalTtsSectionCard(content: @Composable ColumnScope.() -> Unit) 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(AppRoundedCornerShape(AppRadius.md))
-            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+            .lumiGroupedSurface()
             .padding(AppSpace.md),
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm),
         content = content
@@ -749,12 +746,7 @@ private fun ExternalTtsStatusCard(
                 )
             }
         }
-        Icon(
-            AppIcons.CaretRight,
-            contentDescription = null,
-            tint = AppColors.TextSecondary,
-            modifier = Modifier.size(24.dp)
-        )
+        DisclosureChevron()
     }
 }
 
@@ -783,7 +775,7 @@ private fun ExternalTtsProtocolCard(
             Spacer(Modifier.height(4.dp))
             Text(description, fontSize = AppType.BodySmall, color = AppColors.TextSecondary)
         }
-        RadioButton(
+        com.huangder.lumibooks.ui.components.LumiRadio(
             selected = selected,
             onClick = onClick,
             colors = RadioButtonDefaults.colors(selectedColor = AppColors.Accent)
@@ -874,7 +866,7 @@ private fun ExternalTtsSecondaryButton(
             .heightIn(min = 48.dp)
             .border(1.dp, AppColors.Divider, AppRoundedCornerShape(AppRadius.md))
     ) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+        ControlIcon(icon, null, tint = color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.size(AppSpace.sm))
         Text(label, fontSize = AppType.BodySmall, color = color, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
@@ -998,7 +990,7 @@ private fun ExternalTtsConsentSheet(
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Checkbox(
+                com.huangder.lumibooks.ui.components.LumiCheckbox(
                     checked = confirmed,
                     onCheckedChange = { confirmed = it },
                     colors = CheckboxDefaults.colors(checkedColor = AppColors.Accent)
@@ -1043,37 +1035,7 @@ private fun ExternalTtsConsentSheet(
         }
     }
 
-    if (isLiquidGlass) {
-        LiquidGlassDialog(
-            onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = AppRoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
-        ) {
-            sheetContent()
-        }
-    } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = {
-                Box(
-                    Modifier
-                        .padding(top = 12.dp)
-                        .size(width = 36.dp, height = 4.dp)
-                        .background(AppColors.TextSecondary.copy(alpha = 0.25f), AppRoundedCornerShape(2.dp))
-                )
-            }
-        ) {
-            sheetContent()
-        }
-    }
+    AppBottomSheet(onDismissRequest = onDismiss) { sheetContent() }
 }
 
 // ─── HTTP Warning Sheet ────────────────────────────────────
@@ -1118,7 +1080,7 @@ private fun ExternalTtsHttpWarningSheet(
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Checkbox(
+                com.huangder.lumibooks.ui.components.LumiCheckbox(
                     checked = confirmed,
                     onCheckedChange = { confirmed = it },
                     colors = CheckboxDefaults.colors(checkedColor = AppColors.Accent)
@@ -1158,37 +1120,7 @@ private fun ExternalTtsHttpWarningSheet(
         }
     }
 
-    if (isLiquidGlass) {
-        LiquidGlassDialog(
-            onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = AppRoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
-        ) {
-            sheetContent()
-        }
-    } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = {
-                Box(
-                    Modifier
-                        .padding(top = 12.dp)
-                        .size(width = 36.dp, height = 4.dp)
-                        .background(AppColors.TextSecondary.copy(alpha = 0.25f), AppRoundedCornerShape(2.dp))
-                )
-            }
-        ) {
-            sheetContent()
-        }
-    }
+    AppBottomSheet(onDismissRequest = onDismiss) { sheetContent() }
 }
 
 // ─── Risk Item ─────────────────────────────────────────────

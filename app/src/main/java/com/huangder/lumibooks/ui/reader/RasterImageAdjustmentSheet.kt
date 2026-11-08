@@ -20,7 +20,10 @@ import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.ReaderImageAdjustments
 import com.huangder.lumibooks.ui.components.*
 import com.huangder.lumibooks.ui.theme.AppColors
+import com.huangder.lumibooks.ui.theme.AppType
 import androidx.compose.ui.graphics.Color
+import com.huangder.lumibooks.ui.theme.AppPresentation
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 
 @Composable
 internal fun RasterImageAdjustmentSheet(
@@ -41,12 +44,11 @@ internal fun RasterImageAdjustmentSheet(
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { closing = true })
         LiquidGlassColumnSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.65f)
+            modifier = adaptiveSheetFrame(maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.65f)
                 .materialBottomSheetMotion(offset.value, backProgress),
             contentModifier = Modifier.navigationBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             fallbackColor = AppColors.CardBg,
-            shape = com.huangder.lumibooks.ui.theme.AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner)
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.reader_image_adjustment), Modifier.weight(1f), fontSize = 18.sp, color = AppColors.TextPrimary)
@@ -57,7 +59,7 @@ internal fun RasterImageAdjustmentSheet(
                 )
             }
             Spacer(Modifier.height(20.dp))
-            Text(stringResource(R.string.reader_raster_horizontal_crop), fontSize = 14.sp,
+            Text(stringResource(R.string.reader_raster_horizontal_crop), fontSize = AppType.BodySmall,
                 fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
             Spacer(Modifier.height(10.dp))
             val modes = listOf(R.string.reader_crop_off, R.string.reader_crop_auto, R.string.reader_crop_manual)
@@ -65,7 +67,7 @@ internal fun RasterImageAdjustmentSheet(
                 itemCount = 3, selectedIndex = cropMode, onSelected = onCropModeChange,
                 modifier = Modifier.fillMaxWidth()
             ) { index, selected ->
-                Text(stringResource(modes[index]), fontSize = 13.sp,
+                Text(stringResource(modes[index]), fontSize = AppType.Footnote,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (selected) AppColors.TextPrimary else AppColors.TextSecondary)
             }
@@ -105,14 +107,14 @@ internal fun RasterImageAdjustmentSheet(
             Spacer(Modifier.height(20.dp))
             Text(
                 stringResource(R.string.reader_image_adjustment_hint),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = AppColors.TextPrimary
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 stringResource(R.string.reader_image_adjustment_saved_hint),
-                fontSize = 12.sp,
+                fontSize = AppType.Caption,
                 color = AppColors.TextSecondary
             )
             Spacer(Modifier.height(16.dp))

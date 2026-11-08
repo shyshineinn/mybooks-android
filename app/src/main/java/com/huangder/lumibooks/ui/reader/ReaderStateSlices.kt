@@ -1,10 +1,10 @@
 package com.huangder.lumibooks.ui.reader
 
-import com.huangder.lumibooks.domain.model.SelectionMenuSettings
-
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.domain.model.SelectionMenuSettings
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookFormat
+
 import com.huangder.lumibooks.domain.model.CustomFontPreset
 import com.huangder.lumibooks.domain.model.ReaderBackgroundPreset
 import com.huangder.lumibooks.domain.model.ReaderCornerContent
@@ -56,7 +56,7 @@ data class ReaderRenderSettingsState(
     val marginBottomDp: Float = 64f,
     val paragraphSpacing: Float = 2f,
     val firstLineIndent: Float = 2f,
-    val bodyFontWeight: Int = 400,
+    val bodyFontWeight: Float = 400f,
     val readerTheme: String = "day",
     val readerBackgroundSelection: String = "day",
     val readerBackgroundColorSelection: String = "day",
@@ -119,6 +119,7 @@ data class ReaderControlsState(
         defaultReaderCornerContent(ReaderPageCorner.BOTTOM_LEFT),
     val readerBottomRightContent: ReaderCornerContent =
         defaultReaderCornerContent(ReaderPageCorner.BOTTOM_RIGHT),
+    /** Text selection menu order and visibility, shared by every reader engine. */
     val selectionMenuItems: SelectionMenuSettings = SelectionMenuSettings()
 )
 
@@ -224,7 +225,7 @@ internal fun readerLayoutTargetFor(
     format: String?,
     renderMode: EpubRenderMode
 ): ReaderLayoutTarget =
-    if (readerFormatSupportsEpubFeatures(format) && renderMode == EpubRenderMode.BOOK_LAYOUT) {
+    if ((readerFormatSupportsEpubFeatures(format)) && renderMode == EpubRenderMode.BOOK_LAYOUT) {
         ReaderLayoutTarget.BOOK_LAYOUT
     } else {
         ReaderLayoutTarget.READER_LAYOUT
@@ -248,6 +249,11 @@ internal fun ReaderUiState.activeThemeSuiteId(): String =
 
 internal fun ReaderUiState.activeThemeSuite(): ReaderThemeSuite? =
     readerThemeSuites.firstOrNull { it.id == activeThemeSuiteId() }
+
+internal fun ReaderUiState.activeThemeDarkMaskOpacity(
+    layout: ReaderLayoutTarget = readerLayoutTarget()
+): Float = readerThemeSuites.firstOrNull { it.id == activeThemeSuiteIdFor(layout) }
+    ?.darkMaskOpacity ?: 0f
 
 /** 「原排版」套装：阅读器不参与配色，原书自己的底色与文字颜色照原样渲染。 */
 internal fun ReaderUiState.keepsPublisherPaint(): Boolean =
@@ -275,6 +281,7 @@ internal fun ReaderUiState.withActiveThemeSettingsForMode(dark: Boolean): Reader
         marginRightDp = settings.marginRight,
         marginTopDp = settings.marginTop,
         marginBottomDp = settings.marginBottom,
+        readerCornerMargins = settings.cornerMargins,
         paragraphSpacing = settings.paragraphSpacing,
         firstLineIndent = settings.firstLineIndent,
         bodyFontWeight = settings.bodyFontWeight,
@@ -304,14 +311,15 @@ private fun ReaderUiState.currentThemeSettingsFallback() = com.huangder.lumibook
     marginLeft = marginLeftDp,
     marginRight = marginRightDp,
     marginTop = marginTopDp,
-    marginBottom = marginBottomDp
+    marginBottom = marginBottomDp,
+    cornerMargins = readerCornerMargins
 )
 
 internal fun readerFormatSupportsBookLayout(format: String?): Boolean =
-    BookFormat.entries.any { it.name == format && it.supportsBookLayout }
+    BookFormat.entries.firstOrNull { it.name == format }?.supportsBookLayout == true
 
 internal fun readerFormatSupportsEpubFeatures(format: String?): Boolean =
-    BookFormat.entries.any { it.name == format && it.supportsEpubFeatures }
+    BookFormat.entries.firstOrNull { it.name == format }?.supportsEpubFeatures == true
 
 internal fun readerFormatSupportsText(format: String?): Boolean =
-    BookFormat.entries.any { it.name == format && it.supportsTextReading }
+    BookFormat.entries.firstOrNull { it.name == format }?.supportsTextReading == true

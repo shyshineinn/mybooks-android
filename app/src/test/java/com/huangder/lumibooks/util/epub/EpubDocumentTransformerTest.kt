@@ -9,6 +9,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EpubDocumentTransformerTest {
+    @Test fun imageOffsetsMatchSearchTextWithoutCountingScriptsOrImageAltText() {
+        val resource = EpubResource("OPS/chapter.xhtml", "application/xhtml+xml",
+            ("<html><body><img src='cover.png'/>前🌅<img src='inline.png' alt='not text'/>" +
+                "<style>ignored</style><script>ignored</script><noscript>ignored<img src='hidden.png'/></noscript>" +
+                "后<img src='missing.png'/></body></html>").toByteArray())
+        assertEquals("前🌅后", EpubDocumentTransformer.extractSearchText(resource))
+        assertEquals(listOf(0, 3, 4), EpubDocumentTransformer.imageTextOffsets(resource))
+    }
+
+    @Test
+    fun injectedScriptAndStylesRemainValidInBothXhtmlAndHtml() {
+        val source = """<html xmlns="http://www.w3.org/1999/xhtml"><head/><body><p>A &amp; B</p></body></html>"""
+        val output = EpubDocumentTransformer.transform(
+            EpubResource("chapter.xhtml", "application/xhtml+xml", source.toByteArray()),
+            EpubRenditionLayout.REFLOWABLE
+        )
+        // A tolerant Jsoup round trip misses the fatal XML errors seen by WebView.
+        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = true
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        }
+        val xml = factory.newDocumentBuilder().parse(output.inputStream())
+        val xmlScript = xml.getElementsByTagName("script").item(0).textContent
+        val html = Jsoup.parse(output.toString(Charsets.UTF_8), "", Parser.htmlParser())
+        val htmlScript = html.selectFirst("#lumi-reader-script")!!.data()
+        assertTrue(xmlScript.contains("window.LumiReader"))
+        assertEquals(
+            xmlScript.trim().removePrefix("//").removeSuffix("//").trim(),
+            htmlScript.removePrefix("//<![CDATA[").trim().removeSuffix("//]]>").trim()
+        )
+        assertFalse(xmlScript.contains("&lt;"))
+        assertFalse(xmlScript.contains("&amp;"))
+        val xmlStyle = xml.getElementsByTagName("style").item(0).textContent
+        val htmlStyle = html.selectFirst("#lumi-reader-style")!!.data()
+        assertEquals(
+            xmlStyle.trim().removePrefix("/**/").removeSuffix("/**/").trim(),
+            htmlStyle.removePrefix("/*<![CDATA[*/").trim().removeSuffix("/*]]>*/").trim()
+        )
+    }
+
     @Test
     fun svgTextPageIsNotTreatedAsSingleImage() {
         val resource = EpubResource("OPS/page.xhtml", "application/xhtml+xml",
@@ -21,6 +61,28 @@ class EpubDocumentTransformerTest {
         val resource = EpubResource("OPS/cover.xhtml", "application/xhtml+xml",
             "<html><body><svg viewBox='0 0 100 100'><text>Title</text></svg></body></html>".toByteArray())
         assertTrue(EpubDocumentTransformer.isMediaOnlyPage(resource))
+    }
+
+    @Test
+    fun paginatedReaderMarksFloatedIllustrationsForBlockLayout() {
+        val source = """
+            <html><body>
+              <div class="DKimg-right"><img src="art.jpg" width="100%"/></div>
+              <p>Following paragraph</p>
+            </body></html>
+        """.trimIndent()
+        val css = EpubCssIndex.parse(listOf("OPS/Styles/book.css" to ".DKimg-right { float: right; width: 40%; }"))
+        val output = EpubDocumentTransformer.transform(
+            EpubResource("OPS/Text/chapter.xhtml", "application/xhtml+xml", source.toByteArray()),
+            EpubRenditionLayout.REFLOWABLE,
+            isCoverCandidate = false,
+            cssIndex = css
+        ).toString(Charsets.UTF_8)
+        val document = Jsoup.parse(output, "", Parser.xmlParser())
+
+        assertEquals("true", document.selectFirst(".DKimg-right")!!.attr("data-lumi-floated-media"))
+        assertTrue(output.contains("float: none !important"))
+        assertTrue(output.contains("width: 100% !important"))
     }
 
     @Test
@@ -38,7 +100,13 @@ class EpubDocumentTransformerTest {
         assertTrue(output.contains("data-lumi-rule-style"))
         assertTrue(output.contains("clearRuleInlineStyles"))
         assertTrue(output.contains("CSS.highlights.set"))
-        assertTrue(output.contains("appendUnderlineRange(underlineLayer, range, ruleColor, style.underlineMode)"))
+        // Underline/mark colors are independent from the rule text color.
+        assertTrue(output.contains("var ruleColor = hasRuleColor ? style.textColor : null"))
+        assertTrue(output.contains("var markColor = hasMarkColor ? style.highlightColor : color"))
+        // Both CSS Highlight support and the fallback must draw marks with markColor.
+        assertEquals(2, Regex(Regex.escape(
+            "appendUnderlineRange(underlineLayer, range, markColor, style.underlineMode)"
+        )).findAll(output).count())
         assertTrue(output.contains("stroke-dasharray"))
     }
 
@@ -564,7 +632,9 @@ class EpubDocumentTransformerTest {
         assertTrue(output.contains("edgeTapLeft: -1, edgeTapRight: 1"))
         assertTrue(output.contains("turnByDirection(state.edgeTapLeft, true)"))
         assertTrue(output.contains("turnByDirection(state.edgeTapRight, true)"))
-        assertTrue(output.contains("if (manual) post('manualScroll', {});"))
+        assertTrue("Manual page turns stop auto-scroll before notifying the bridge", Regex(
+            """function turnByDirection\(direction, manual\)\s*\{\s*if \(manual\)\s*\{\s*setAutoScrollSpeed\(0\);\s*post\('manualScroll', \{\}\);\s*\}"""
+        ).containsMatchIn(output))
         assertTrue(output.contains("if (state.nativePaging) post('tap', { zone: 'left' })"))
         assertTrue(output.contains("if (state.nativePaging) post('tap', { zone: 'right' })"))
         assertTrue(output.contains("if (state.nativePaging || state.flow !== 'paginated'"))

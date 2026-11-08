@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.bookshelf
+
+import com.huangder.lumibooks.ui.components.AppSheetHeader
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,10 +30,8 @@ import androidx.compose.foundation.lazy.items
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,7 @@ import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.util.AuthorizedStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.huangder.lumibooks.ui.components.AppBottomSheet
 
 @Composable
 internal fun FolderNameDialog(
@@ -97,47 +100,39 @@ internal fun FolderNameDialog(
     LiquidGlassDialog(
         onDismissRequest = onDismiss,
         backgroundScrimColor = Color.Transparent,
-        backgroundBlurRadius = 18.dp,
+        fallbackBlurRadius = 18.dp,
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 520.dp),
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 520.dp),
-            verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
+        EditInputDialog(
+            title = title,
+            fields = listOf(
+                Triple(
+                    stringResource(R.string.folder_name),
+                    stringResource(R.string.folder_name_hint),
+                    initialName
+                )
+            ),
+            onBack = onDismiss,
+            onConfirm = { values ->
+                val name = values.firstOrNull().orEmpty()
+                if (onConfirmWithStorage != null) onConfirmWithStorage(name, selectedStorage)
+                else onConfirm(name)
+            }
         ) {
-            EditInputDialog(
-                title = title,
-                fields = listOf(
-                    Triple(
-                        stringResource(R.string.folder_name),
-                        stringResource(R.string.folder_name_hint),
-                        initialName
-                    )
-                ),
-                onBack = onDismiss,
-                onConfirm = { values ->
-                    val name = values.firstOrNull().orEmpty()
-                    if (onConfirmWithStorage != null) onConfirmWithStorage(name, selectedStorage)
-                    else onConfirm(name)
-                }
-            )
             if (storageChoices.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .offset(y = (-8).dp)
-                        .padding(horizontal = AppSpace.sm)
                 ) {
                     Text(
                         text = stringResource(R.string.folder_storage_section_title),
                         color = AppColors.TextSecondary,
                         fontSize = AppType.Caption,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = AppSpace.xs, bottom = 2.dp)
+                        modifier = Modifier.padding(bottom = AppSpace.sm)
                     )
                     LiquidGlassSurface(
                         shape = AppRoundedCornerShape(14.dp),
@@ -150,14 +145,23 @@ internal fun FolderNameDialog(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { selectedStorage = uri }
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .selectable(
+                                            selected = selectedStorage == uri,
+                                            role = Role.RadioButton,
+                                            onClick = { selectedStorage = uri }
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.Top
                                 ) {
-                                    RadioButton(selected = selectedStorage == uri, onClick = { selectedStorage = uri })
+                                    com.huangder.lumibooks.ui.components.LumiRadio(
+                                        selected = selectedStorage == uri,
+                                        onClick = null,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
                                     Column(
                                         modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(
                                             text = label,
@@ -210,31 +214,12 @@ internal fun FolderActionsSheet(
                 .navigationBarsPadding()
                 .padding(start = AppSpace.lg, end = AppSpace.lg, top = AppSpace.md, bottom = AppSpace.lg)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = folder.name,
-                        color = AppColors.TextPrimary,
-                        fontSize = AppType.Section,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = stringResource(R.string.bookshelf_custom_categories),
-                        color = AppColors.TextSecondary,
-                        fontSize = AppType.Caption
-                    )
-                }
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.X,
-                    contentDescription = stringResource(R.string.close),
-                    onClick = onDismiss,
-                    size = 40.dp,
-                    iconSize = 20.dp,
-                    normalContainerColor = AppColors.BgGray
-                )
-            }
+            AppSheetHeader(title = folder.name, onClose = onDismiss)
+            Text(
+                text = stringResource(R.string.bookshelf_custom_categories),
+                color = AppColors.TextSecondary,
+                fontSize = AppType.Caption
+            )
             Spacer(Modifier.height(AppSpace.md))
             FolderActionRow(
                 icon = AppIcons.PencilSimple,
@@ -263,31 +248,13 @@ internal fun FolderActionsSheet(
             FolderActionRow(
                 icon = AppIcons.Trash,
                 title = stringResource(R.string.delete_folder),
-                tint = Color(0xFFD92D3A),
+                tint = AppColors.Destructive,
                 onClick = onDelete
             )
         }
     }
 
-    if (isLiquidGlass) {
-        LiquidGlassDialog(
-            onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = AppRoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
-        ) { content() }
-    } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) { content() }
-    }
+    AppBottomSheet(onDismissRequest = onDismiss) { content() }
 }
 
 @Composable
@@ -317,7 +284,7 @@ private fun FolderActionRow(
             Spacer(Modifier.width(12.dp))
             Text(
                 text = title,
-                color = if (tint == Color(0xFFD92D3A)) tint else AppColors.TextPrimary,
+                color = if (tint == AppColors.Destructive) tint else AppColors.TextPrimary,
                 fontSize = AppType.Body,
                 fontWeight = FontWeight.Medium
             )
@@ -348,34 +315,17 @@ internal fun FolderMoveSheet(
             modifier = Modifier
                 .widthIn(max = 520.dp)
                 .fillMaxWidth()
-                .heightIn(max = 620.dp)
+                .heightIn(max = com.huangder.lumibooks.ui.components.appSheetMaxHeight())
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = AppSpace.lg, vertical = AppSpace.md)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.move_books),
-                        color = AppColors.TextPrimary,
-                        fontSize = AppType.Section,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
+            AppSheetHeader(title = stringResource(R.string.move_books), onClose = onDismiss)
+            Text(
                         text = stringResource(R.string.selected_books_count, selectedBookCount),
                         color = AppColors.TextSecondary,
                         fontSize = AppType.Caption
                     )
-                }
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.X,
-                    contentDescription = stringResource(R.string.close),
-                    onClick = onDismiss,
-                    size = 40.dp,
-                    iconSize = 20.dp,
-                    normalContainerColor = AppColors.BgGray
-                )
-            }
 
             Spacer(Modifier.height(AppSpace.md))
             FolderBreadcrumb(
@@ -460,25 +410,7 @@ internal fun FolderMoveSheet(
         }
     }
 
-    if (isLiquidGlass) {
-        LiquidGlassDialog(
-            onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = AppRoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
-        ) { content() }
-    } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) { content() }
-    }
+    AppBottomSheet(onDismissRequest = onDismiss) { content() }
 
     if (showCreateDialog) {
         FolderNameDialog(
@@ -524,36 +456,19 @@ internal fun FolderRelocationSheet(
             modifier = Modifier
                 .widthIn(max = 520.dp)
                 .fillMaxWidth()
-                .heightIn(max = 620.dp)
+                .heightIn(max = com.huangder.lumibooks.ui.components.appSheetMaxHeight())
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = AppSpace.lg, vertical = AppSpace.md)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.move_folder),
-                        color = AppColors.TextPrimary,
-                        fontSize = AppType.Section,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
+            AppSheetHeader(title = stringResource(R.string.move_folder), onClose = onDismiss)
+            Text(
                         text = sourceFolder.name,
                         color = AppColors.TextSecondary,
                         fontSize = AppType.Caption,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                }
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.X,
-                    contentDescription = stringResource(R.string.close),
-                    onClick = onDismiss,
-                    size = 40.dp,
-                    iconSize = 20.dp,
-                    normalContainerColor = AppColors.BgGray
-                )
-            }
 
             Spacer(Modifier.height(AppSpace.md))
             FolderBreadcrumb(
@@ -638,25 +553,7 @@ internal fun FolderRelocationSheet(
         }
     }
 
-    if (isLiquidGlass) {
-        LiquidGlassDialog(
-            onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = AppRoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
-        ) { content() }
-    } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) { content() }
-    }
+    AppBottomSheet(onDismissRequest = onDismiss) { content() }
 
     if (showCreateDialog) {
         FolderNameDialog(
@@ -722,7 +619,7 @@ internal fun FolderBreadcrumb(
                     Icon(
                         imageVector = AppIcons.Link,
                         contentDescription = stringResource(R.string.folder_storage_linked),
-                        tint = if (folder.storageMissing) Color(0xFFD92D3A) else AppColors.Accent,
+                        tint = if (folder.storageMissing) AppColors.Destructive else AppColors.Accent,
                         modifier = Modifier
                             .padding(start = 3.dp)
                             .size(14.dp)
@@ -765,7 +662,7 @@ private fun FolderDestinationRow(folder: LibraryFolder, onClick: () -> Unit) {
                 Icon(
                     imageVector = AppIcons.Link,
                     contentDescription = stringResource(R.string.folder_storage_linked),
-                    tint = if (folder.storageMissing) Color(0xFFD92D3A) else AppColors.Accent,
+                    tint = if (folder.storageMissing) AppColors.Destructive else AppColors.Accent,
                     modifier = Modifier
                         .padding(start = 4.dp)
                         .size(15.dp)
@@ -774,7 +671,7 @@ private fun FolderDestinationRow(folder: LibraryFolder, onClick: () -> Unit) {
             if (folder.storageMissing) {
                 Text(
                     text = stringResource(R.string.folder_storage_missing),
-                    color = Color(0xFFD92D3A),
+                    color = AppColors.Destructive,
                     fontSize = AppType.Caption,
                     maxLines = 1
                 )

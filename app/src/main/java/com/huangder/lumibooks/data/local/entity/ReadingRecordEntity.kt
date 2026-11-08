@@ -21,5 +21,6 @@ data class ReadingRecordEntity(
     val endTime: Long,
     val sourceDeviceId: String = "",
     val updatedAt: Long = endTime,
-    @ColumnInfo(defaultValue = "0") val listeningDuration: Long = 0
+    @ColumnInfo(defaultValue = "0")
+    val listeningDuration: Long = 0
 )

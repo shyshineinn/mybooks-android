@@ -4,6 +4,9 @@ import androidx.compose.animation.core.animate
 import com.huangder.lumibooks.ui.animation.VisualMotion.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
@@ -44,13 +47,20 @@ fun OverscrollBounce(
     modifier: Modifier = Modifier,
     state: OverscrollBounceState = remember { OverscrollBounceState() },
     onTopPullRelease: ((offsetPx: Float) -> Unit)? = null,
+    onTopPullDrag: ((offsetPx: Float, deltaPx: Float) -> Unit)? = null,
+    // Horizontal scenes have no vertical list to dispatch a pull to the bounce connection.
+    captureVerticalDrag: Boolean = false,
+    translateContent: Boolean = true,
     content: @Composable BoxScope.() -> Unit
 ) {
     val releaseCallback = rememberUpdatedState(onTopPullRelease)
+    val dragCallback = rememberUpdatedState(onTopPullDrag)
     val connection = remember(state) {
-        BounceNestedScrollConnection(state) { offset ->
-            releaseCallback.value?.invoke(offset)
-        }
+        BounceNestedScrollConnection(
+            state = state,
+            onRelease = { offset -> releaseCallback.value?.invoke(offset) },
+            onDrag = { offset, delta -> dragCallback.value?.invoke(offset, delta) }
+        )
     }
 
     // 禁用 Android 原生 overscroll（拉伸效果）
@@ -60,7 +70,12 @@ fun OverscrollBounce(
         Box(
             modifier = modifier
                 .nestedScroll(connection)
-                .graphicsLayer { translationY = state.offset },
+                .scrollable(
+                    state = rememberScrollableState { 0f },
+                    orientation = Orientation.Vertical,
+                    enabled = captureVerticalDrag
+                )
+                .graphicsLayer { translationY = if (translateContent) state.offset else 0f },
             content = content
         )
     }
@@ -90,8 +105,22 @@ fun HorizontalOverscrollBounce(
 
 private class BounceNestedScrollConnection(
     private val state: OverscrollBounceState,
-    private val onRelease: (offsetPx: Float) -> Unit
+    private val onRelease: (offsetPx: Float) -> Unit,
+    private val onDrag: (offsetPx: Float, deltaPx: Float) -> Unit
 ) : NestedScrollConnection {
+
+    override fun onPreScroll(
+        available: Offset,
+        source: NestedScrollSource
+    ): Offset {
+        if (source != NestedScrollSource.UserInput) return Offset.Zero
+        // Undo the translated overscroll before the list can scroll and clip its first items.
+        // Once back at rest, let the list consume the remainder of this same gesture.
+        val consumed = state.releaseBy(available.y)
+        if (consumed == 0f) return Offset.Zero
+        onDrag(state.offset, consumed)
+        return Offset(0f, consumed)
+    }
 
     // 拖拽时：施加阻尼
     override fun onPostScroll(
@@ -106,6 +135,7 @@ private class BounceNestedScrollConnection(
         if (source == NestedScrollSource.UserInput && abs(dy) > 0.5f) {
             // 同步更新位移，避免为每个触摸事件创建一个主线程协程。
             state.dragBy(dy * 0.4f)
+            onDrag(state.offset, dy * 0.4f)
             return Offset(0f, dy) // 消耗全部剩余滚动
         }
         return Offset.Zero
@@ -134,6 +164,13 @@ class OverscrollBounceState {
 
     internal fun dragBy(delta: Float) {
         offset += delta
+    }
+
+    internal fun releaseBy(delta: Float): Float {
+        if (offset == 0f || delta == 0f || offset * delta >= 0f) return 0f
+        val consumed = delta.coerceIn(-abs(offset), abs(offset))
+        offset += consumed
+        return consumed
     }
 
     internal suspend fun animateBack() {

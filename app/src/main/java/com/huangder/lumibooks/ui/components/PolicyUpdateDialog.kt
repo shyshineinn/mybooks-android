@@ -1,4 +1,7 @@
 package com.huangder.lumibooks.ui.components
+
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
@@ -30,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.AppType
 
 @Composable
 fun PolicyUpdateDialog(
@@ -50,19 +54,12 @@ fun PolicyUpdateDialog(
 
     LiquidGlassAlertDialog(
         onDismissRequest = { },
-        title = {
-            Text(
-                text = title,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = AppColors.TextPrimary
-            )
-        },
+        titleText = title,
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = stringResource(R.string.policy_update_prompt),
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     lineHeight = 21.sp,
                     color = AppColors.TextSecondary
                 )
@@ -106,20 +103,20 @@ fun PolicyUpdateDialog(
                 }
             }
         },
-        confirmButton = {
-            LiquidGlassTextButton(
+        actions = listOf(
+            AppDialogAction(
                 text = stringResource(R.string.policy_update_accept),
-                tintedColor = AppColors.Accent,
-                onClick = onAccept
-            )
-        },
-        dismissButton = {
-            LiquidGlassTextButton(
+                onClick = onAccept,
+                role = AppDialogActionRole.Primary,
+                tintedColor = AppColors.Accent
+            ),
+            AppDialogAction(
                 text = stringResource(R.string.policy_update_decline),
-                contentColor = AppColors.TextSecondary,
-                onClick = onDecline
+                onClick = onDecline,
+                role = AppDialogActionRole.Cancel,
+                contentColor = AppColors.TextSecondary
             )
-        },
+        ),
         // Keep policy text readable over page artwork while retaining the glass lens.
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.80f)
     )
@@ -138,6 +135,7 @@ private fun PolicyUpdateItem(
 
     if (isLiquidGlass) {
         LiquidGlassSurface(
+            role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Content,
             shape = shape,
             fallbackColor = AppColors.BgGray,
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.74f),
@@ -193,7 +191,7 @@ private fun PolicyUpdateItemContent(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
+                    fontSize = AppType.Subhead,
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.TextPrimary
                 )
@@ -203,7 +201,7 @@ private fun PolicyUpdateItemContent(
                     modifier = Modifier
                         .background(AppColors.Accent.copy(alpha = 0.12f), AppRoundedCornerShape(8.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
-                    fontSize = 11.sp,
+                    fontSize = AppType.Caption2,
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.Accent
                 )
@@ -211,7 +209,7 @@ private fun PolicyUpdateItemContent(
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
+                fontSize = AppType.Caption,
                 color = AppColors.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

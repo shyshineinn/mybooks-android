@@ -72,6 +72,7 @@ import com.huangder.lumibooks.ui.theme.rememberLiquidGlassCapability
 import com.huangder.lumibooks.ui.theme.effectiveAppTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import com.huangder.lumibooks.ui.components.DisclosureChevron
 
 @AndroidEntryPoint
 class SponsorActivity : ComponentActivity() {
@@ -113,10 +114,13 @@ class SponsorActivity : ComponentActivity() {
             val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
             val liquidGlassStyle by dataStoreManager.liquidGlassStyle
                 .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val liquidGlassSamplingQuality by dataStoreManager.liquidGlassSamplingQuality
+                .collectAsState(initial = launchTheme.liquidGlassSamplingQuality)
             val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
                 .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
                 liquidGlassStyle = liquidGlassStyle,
+                liquidGlassSamplingQuality = liquidGlassSamplingQuality,
                 reduceTransparencyEnabled = reduceTransparencyEnabled,
                 menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(motion),
@@ -190,7 +194,7 @@ private fun SponsorPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpace.lg)
-                .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+                .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
                 .clip(AppRoundedCornerShape(AppRadius.lg))
                 .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
                 .padding(AppSpace.lg),
@@ -270,7 +274,7 @@ private fun SponsorPage(
         // 感谢列表
         CreditSection(
             title = stringResource(R.string.sponsor_thanks_title),
-            names = listOf("雋乂、匿名、匿名、匿名、Jun.、BennyBlack、百年老字号、匿名、匿名、白飘飘、唱罢阴山敕勒歌、七七七、Y3uoO、祈、宇宙无敌哥儿赞、马果、匿名、马果、知我、匿名、&_赵、匿名、匿名、蟑螂恶霸、路上行人、大灰狼、与瓦无瓜、Micah、小张、超级小步、选择春虫走向成功、盘旋在古城上的白色乌鸦、我滴龟龟哟")
+            names = listOf("雋乂、匿名、匿名、匿名、Jun.、BennyBlack、百年老字号、匿名、匿名、白飘飘、唱罢阴山敕勒歌、七七七、Y3uoO、祈、宇宙无敌哥儿赞、马果、匿名、马果、知我、匿名、&_赵、匿名、匿名、蟑螂恶霸、路上行人、大灰狼、与瓦无瓜、Micah、小张、超级小步、选择春虫走向成功、盘旋在古城上的白色乌鸦、我滴龟龟哟、潔籁、清水肉肉、小耳朵左耳、匿名、littlebing、清水肉肉、Jiang、Towards the sun.")
         )
 
         Spacer(Modifier.height(AppSpace.md))
@@ -449,12 +453,7 @@ private fun DeveloperCard(contributor: Contributor, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.width(AppSpace.sm))
-        Icon(
-            imageVector = AppIcons.CaretRight,
-            contentDescription = null,
-            tint = AppColors.TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
+        DisclosureChevron()
     }
 }
 

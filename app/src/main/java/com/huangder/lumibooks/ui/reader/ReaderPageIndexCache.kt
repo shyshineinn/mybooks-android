@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import kotlin.math.roundToInt
 
 /** Small pagination artifacts share the reader cache's atomic writes and clear generation. */
 internal class ReaderPageIndexCache private constructor(
@@ -72,7 +73,7 @@ internal class ReaderPageIndexCache private constructor(
 
     companion object {
         // Increment whenever pagination, character coordinates, or the persisted schema changes.
-        internal const val ENGINE_VERSION = 1
+        internal const val ENGINE_VERSION = 2
 
         suspend fun open(context: Context, book: Book, signature: String, chapterCount: Int): ReaderPageIndexCache =
             withContext(Dispatchers.IO) {
@@ -166,13 +167,18 @@ internal fun paginationHash(value: String): String = MessageDigest.getInstance("
 
 /** File-backed fonts use stable file metadata, never a process-local Typeface identity. */
 internal fun readerPaginationFontKey(context: Context, fontType: String, path: String?, weight: Int): String {
+    return readerPaginationFontKey(context, fontType, path, weight.toFloat())
+}
+
+internal fun readerPaginationFontKey(context: Context, fontType: String, path: String?, weight: Float): String {
     val file = when {
         fontType.startsWith("custom") -> path?.let(::File)
         fontType == "fangsong" -> DownloadedFonts.file(context, "fangsong")
         fontType == "serif" -> null // Bundled resources are covered by the pagination engine version.
         else -> null
     }
-    return listOf(fontType, weight.coerceIn(100, 900), file?.absolutePath,
+    val preciseWeight = (weight * 10f).roundToInt().coerceIn(1000, 9000) / 10f
+    return listOf(fontType, preciseWeight, file?.absolutePath,
         file?.isFile, file?.length(), file?.lastModified(), Build.FINGERPRINT).joinToString("|")
 }
 

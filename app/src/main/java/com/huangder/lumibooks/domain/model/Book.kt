@@ -31,11 +31,18 @@ data class Book(
     val sourceDisplayName: String? = null,
     val sourceLastModified: Long = 0L,
     val isMissing: Boolean = false,
-    val isArchived: Boolean = false,
-    val archiveUpdatedAt: Long = 0L
+    val isHidden: Boolean = false,
+    val isManuallyMarkedRead: Boolean = false,
+    val isArchived: Boolean = false
 ) {
     val isReadingFinished: Boolean
-        get() = readingProgress.isFinite() && readingProgress >= 1f
+        get() = isManuallyMarkedRead || (readingProgress.isFinite() && readingProgress >= 1f)
+
+    fun toggleReadStatus(): Book = if (isReadingFinished) {
+        copy(readingProgress = 0f, isManuallyMarkedRead = false)
+    } else {
+        copy(isManuallyMarkedRead = true)
+    }
 
     val contentSha256: String? get() = sourceSha256
     val originalSourceUri: String? get() = sourceUri

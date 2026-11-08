@@ -820,7 +820,7 @@ private fun LiquidGlassMenuRow(
 ) {
     val itemSelected = item.isSelected()
     val itemColor = when {
-        item.destructive -> AppColors.Accent
+        item.destructive -> AppColors.Destructive
         !isLiquidGlass && itemSelected -> AppColors.Accent
         else -> textColor
     }.copy(alpha = if (item.enabled) 1f else 0.38f)
@@ -858,7 +858,7 @@ private fun LiquidGlassMenuRow(
             )
             item.subtitle?.let {
                 Text(it, color = itemColor.copy(alpha = itemColor.alpha * 0.70f),
-                    fontSize = AppType.Caption, lineHeight = 16.sp)
+                    fontSize = AppType.Caption2, lineHeight = 16.sp)
             }
         }
         if (item.submenuItems.isNotEmpty()) {
@@ -917,16 +917,18 @@ private fun MenuFallbackSurface(
         )
         return
     }
-    val frameShape = shape()
+    val frameShape = remember(shape) { DrawTimeShape(shape) }
     val outlineColor = AppColors.TextPrimary.copy(alpha = if (isDark) 0.14f else 0.08f)
     LiquidGlassSurface(
         shape = frameShape,
+        shapeProvider = shape,
         fallbackColor = color,
         modifier = modifier,
         backdrop = backdrop,
         contentScrimColor = color.copy(alpha = if (isDark) 0.68f else 0.62f),
         forceFallback = forceSolid,
-        blurBoost = blurBoost(),
+        blurBoostProvider = blurBoost,
+        fallbackBlurRadius = com.huangder.lumibooks.ui.theme.AppPresentation.OverlayFallbackBlur,
         decorationModifier = if (isLiquidGlass) null else Modifier.graphicsLayer {
             this.shape = shape()
             shadowElevation = 8.dp.toPx()
@@ -939,7 +941,8 @@ private fun MenuFallbackSurface(
                 color = outlineColor,
                 style = Stroke(1.dp.toPx())
             )
-        }
+        },
+        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Overlay
     ) {}
 }
 
@@ -1401,7 +1404,7 @@ private fun AnchoredLiquidGlassMenu(
                             )
                         }
                         if (item.groupTitle != null) {
-                            Text(item.groupTitle, color = textColor.copy(alpha = 0.55f), fontSize = AppType.Caption, lineHeight = 14.sp,
+                            Text(item.groupTitle, color = textColor.copy(alpha = 0.55f), fontSize = AppType.Caption2, lineHeight = 14.sp,
                                 modifier = Modifier.padding(start = 12.dp, top = 3.dp, bottom = 3.dp))
                         }
                         LiquidGlassMenuRow(

@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.reader
+
+import com.huangder.lumibooks.ui.icons.ControlIcon
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
@@ -52,7 +54,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
@@ -116,6 +117,8 @@ import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import com.huangder.lumibooks.ui.theme.AppPresentation
+import com.huangder.lumibooks.ui.components.LiquidGlassSwitch
 
 @Composable
 fun TxtEditorScreen(
@@ -136,6 +139,10 @@ fun TxtEditorScreen(
     var occluderTopPx by remember { mutableStateOf(0f) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showReplaceAllDialog by remember { mutableStateOf(false) }
+    val searchGlassSnapshot = com.huangder.lumibooks.ui.components.rememberWindowGlassSnapshot(
+        enabled = LocalAppTheme.current == "liquid_glass" && uiState.sheetMode != null,
+        identity = uiState.sheetMode
+    )
     var initialRevealVisible by remember { mutableStateOf(false) }
     val initialRevealAlpha = remember { Animatable(0f) }
 
@@ -528,11 +535,13 @@ fun TxtEditorScreen(
             )
         }
 
-        uiState.sheetMode?.let { mode ->
+        uiState.sheetMode?.takeIf {
+            LocalAppTheme.current != "liquid_glass" || searchGlassSnapshot.ready
+        }?.let { mode ->
             TxtEditorSearchSheet(
                 mode = mode,
                 uiState = uiState,
-                backdrop = backdrop,
+                backdrop = searchGlassSnapshot.backdrop ?: backdrop,
                 onTopChanged = { occluderTopPx = it },
                 onQueryChange = viewModel::setSearchQuery,
                 onReplacementChange = viewModel::setReplacementText,
@@ -740,7 +749,7 @@ private fun TxtEditorActionCapsule(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
+            ControlIcon(
                 icon,
                 contentDescription = contentDescription,
                 tint = AppColors.TextPrimary,
@@ -748,7 +757,7 @@ private fun TxtEditorActionCapsule(
             )
             if (label != null) {
                 Spacer(Modifier.size(6.dp))
-                Text(label, fontSize = 13.sp, color = AppColors.TextPrimary, maxLines = 1)
+                Text(label, fontSize = AppType.Footnote, color = AppColors.TextPrimary, maxLines = 1)
             }
         }
     }
@@ -796,13 +805,21 @@ private fun TxtEditorSearchSheet(
                 .fillMaxSize()
                 .background(AppColors.Scrim.copy(alpha = 0.18f * (1f - sheetOffset.value)))
         )
-        val sheetShape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-        Box(
+        val sheetShape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner)
+        LiquidGlassSurface(
+            shape = sheetShape,
+            fallbackColor = AppColors.CardBg,
+            backdrop = backdrop,
+            contentScrimColor = AppColors.CardBg.copy(alpha = 0.64f),
+            fallbackBlurRadius = com.huangder.lumibooks.ui.theme.AppPresentation.OverlayFallbackBlur,
+            role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Overlay,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .onGloballyPositioned { onTopChanged(it.boundsInWindow().top) }
-                .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress)
+                // Find/replace stays docked above the keyboard on tablets too: the editor scrolls
+                // matches above this panel's top edge, which a centered card would cover.
+                .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress, centeredCard = false)
                 .shadow(
                     elevation = 20.dp,
                     shape = sheetShape,
@@ -810,12 +827,9 @@ private fun TxtEditorSearchSheet(
                     ambientColor = Color.Black.copy(alpha = 0.14f),
                     spotColor = Color.Black.copy(alpha = 0.20f)
                 )
-                .clip(sheetShape)
-                .background(AppColors.CardBg)
-                .navigationBarsPadding()
-                .padding(horizontal = 22.dp, vertical = 18.dp)
         ) {
-            Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         stringResource(
@@ -825,14 +839,14 @@ private fun TxtEditorSearchSheet(
                                 R.string.txt_editor_replace
                             }
                         ),
-                        fontSize = 20.sp,
+                        fontSize = AppType.Section,
                         fontWeight = FontWeight.Bold,
                         fontFamily = resolveAppFontFamily(KaiTi),
                         color = AppColors.TextPrimary
                     )
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = { isClosing = true }, modifier = Modifier.size(40.dp)) {
-                        Icon(
+                        ControlIcon(
                             AppIcons.X,
                             contentDescription = stringResource(R.string.reader_close),
                             tint = AppColors.TextPrimary
@@ -858,7 +872,7 @@ private fun TxtEditorSearchSheet(
                             onClick = searchOrNext,
                             enabled = uiState.searchQuery.isNotBlank() && !uiState.isSearching
                         ) {
-                            Icon(
+                            ControlIcon(
                                 AppIcons.MagnifyingGlass,
                                 contentDescription = stringResource(
                                     if (uiState.currentMatch != null) {
@@ -891,11 +905,11 @@ private fun TxtEditorSearchSheet(
                     Spacer(Modifier.size(12.dp))
                     Text(
                         stringResource(R.string.txt_editor_match_case),
-                        fontSize = 13.sp,
+                        fontSize = AppType.Footnote,
                         color = AppColors.TextSecondary
                     )
                     Spacer(Modifier.size(6.dp))
-                    Switch(checked = uiState.matchCase, onCheckedChange = onMatchCaseChange)
+                    LiquidGlassSwitch(checked = uiState.matchCase, onCheckedChange = onMatchCaseChange)
                 }
                 Spacer(Modifier.height(10.dp))
                 val resultText = when {
@@ -908,7 +922,7 @@ private fun TxtEditorSearchSheet(
                     )
                     else -> stringResource(R.string.txt_editor_no_matches)
                 }
-                Text(resultText, fontSize = 13.sp, color = AppColors.TextSecondary)
+                Text(resultText, fontSize = AppType.Footnote, color = AppColors.TextSecondary)
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -921,7 +935,7 @@ private fun TxtEditorSearchSheet(
                         shape = AppRoundedCornerShape(22.dp),
                         border = BorderStroke(1.dp, AppColors.Divider)
                     ) {
-                        Icon(
+                        ControlIcon(
                             AppIcons.CaretUp,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
@@ -936,7 +950,7 @@ private fun TxtEditorSearchSheet(
                         shape = AppRoundedCornerShape(22.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
                     ) {
-                        Icon(
+                        ControlIcon(
                             AppIcons.CaretDown,
                             contentDescription = null,
                             tint = Color.White,
@@ -994,7 +1008,7 @@ private fun TxtEditorInput(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
-        placeholder = { Text(placeholder, fontSize = 14.sp) },
+        placeholder = { Text(placeholder, fontSize = AppType.BodySmall) },
         singleLine = true,
         trailingIcon = trailing,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -1033,7 +1047,7 @@ private fun TxtScopeSelector(
                         R.string.txt_editor_scope_book
                     }
                 ),
-                fontSize = 12.sp,
+                fontSize = AppType.Caption,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (isSelected) AppColors.TextPrimary.copy(alpha = 0.86f) else AppColors.TextSecondary,
                 maxLines = 1
@@ -1077,7 +1091,7 @@ private fun TxtScopeOption(
     ) {
         Text(
             text,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             color = if (selected) Color.White else AppColors.TextSecondary,
             maxLines = 1
         )

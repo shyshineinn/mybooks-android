@@ -111,6 +111,173 @@ class TtsControllerTest {
         } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
     }
 
+    @Test fun liveViewportAnchorTracksBackgroundChaptersAndPausedPositionAndRejectsOldSessions() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine(supportsQueuedPlayback = true)
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One.", next = TtsPageLocation(1, 0)),
+                page(0, "Current sentence.", chapterIndex = 1, startCharacterOffset = 100)), 0, 0)
+            runCurrent()
+            val session = controller.currentSessionId
+            controller.setReaderAttached("book", false)
+            runCurrent()
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            engine.range(engine.lastUtteranceId, 8, 16)
+            runCurrent()
+            assertEquals(1, controller.liveListeningPosition("book", session)?.chapterIndex)
+            assertEquals(108, controller.liveListeningPosition("book", session)?.characterOffset)
+            controller.pause()
+            runCurrent()
+            assertEquals(108, controller.liveListeningPosition("book", session)?.characterOffset)
+            assertEquals(null, controller.liveListeningPosition("other", session))
+            controller.stop()
+            runCurrent()
+            assertEquals(null, controller.liveListeningPosition("book", session))
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
+    @Test fun backgroundSessionContinuesAcrossPagesAndStopsOnlyForADifferentBook() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        val source = FakePageSource(
+            page(0, "First page.", next = TtsPageLocation(1, 0)),
+            page(0, "Next chapter.", chapterIndex = 1))
+        try {
+            assertTrue(controller.start("book-a", source, 0, 0).isSuccess)
+            runCurrent()
+            controller.leaveReader("book-a")
+            runCurrent()
+            assertTrue(source.detached)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
+            assertEquals("Next chapter.", engine.spokenTexts.last())
+            val utteranceBeforeReturn = engine.lastUtteranceId
+            val spokenBeforeReturn = engine.spokenTexts.toList()
+            controller.onBookOpened("book-a")
+            runCurrent()
+            assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
+            assertEquals("book-a", controller.activeBookId.value)
+            assertEquals(utteranceBeforeReturn, engine.lastUtteranceId)
+            assertEquals(spokenBeforeReturn, engine.spokenTexts)
+            assertFalse(source.closed)
+            controller.pause()
+            runCurrent()
+            controller.onBookOpened("book-a")
+            runCurrent()
+            assertEquals(TtsPlaybackState.PAUSED, controller.playbackState.value)
+            assertFalse(source.closed)
+            controller.onBookOpened("book-b")
+            runCurrent()
+            assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+            assertTrue(source.closed)
+            assertEquals(null, controller.activeBookId.value)
+        } finally {
+            controller.shutdown()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun accountingFollowsRenderedAudioAndRejectsStaleCallbacksForBothEngines() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            for (external in listOf(false, true)) {
+                val system = FakePlaybackEngine(canResumeWithoutRestart = true)
+                val remote = FakePlaybackEngine(isExternal = true, canResumeWithoutRestart = true)
+                val active = if (external) remote else system
+                val inactive = if (external) system else remote
+                val events = mutableListOf<String?>()
+                val settings = FakeSettingsStore(if (external) TtsProviderSelection.AiModel else TtsProviderSelection.SystemDefault)
+                val controller = TtsController(system, remote, TtsTextExtractor(), settings, events::add)
+                try {
+                    controller.start("book-a", FakePageSource(page(0, "First. Second.")), 0, 0)
+                    runCurrent()
+                    assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
+                    assertFalse(events.contains("book-a")) // Synthesis/session start isn't audio.
+                    val first = active.lastUtteranceId
+                    active.activity(first, true)
+                    runCurrent()
+                    assertEquals("book-a", events.last())
+                    active.activity(first, false) // Buffer starvation.
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(first, true)
+                    runCurrent()
+                    controller.pause()
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(first, true) // Queued start after pause must be ignored.
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    controller.resume()
+                    runCurrent()
+                    assertEquals(null, events.last()) // Resume waits for actual rendered frames.
+                    active.activity(first, true)
+                    runCurrent()
+                    assertEquals("book-a", events.last())
+                    controller.skip(true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(first, true)
+                    inactive.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals("book-a", events.last())
+                    controller.start("book-b", FakePageSource(page(0, "Other book.")), 0, 0)
+                    runCurrent()
+                    active.activity(first, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals("book-b", events.last())
+                    active.interrupt()
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    controller.resume()
+                    runCurrent()
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    active.complete(active.lastUtteranceId)
+                    runCurrent()
+                    assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+                    assertEquals(null, events.last())
+                    controller.start("book-c", FakePageSource(page(0, "Retry on error.")), 0, 0)
+                    runCurrent()
+                    val failed = active.lastUtteranceId
+                    active.activity(failed, true)
+                    runCurrent()
+                    active.error(failed)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    active.activity(failed, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                    if (external) {
+                        assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+                        controller.start("book-c", FakePageSource(page(0, "Restart after error.")), 0, 0)
+                        runCurrent()
+                    }
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals("book-c", events.last())
+                    controller.stop()
+                    runCurrent()
+                    active.activity(active.lastUtteranceId, true)
+                    runCurrent()
+                    assertEquals(null, events.last())
+                } finally { controller.shutdown(); runCurrent() }
+            }
+        } finally { Dispatchers.resetMain() }
+    }
+
     @Test
     fun choosingHistoryRestoresByCharacterAndChoosingCurrentPageOverridesItForBothEngines() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -951,6 +1118,90 @@ class TtsControllerTest {
     }
 
     @Test
+    fun unsolicitedTtsFollowCallbackCannotSkipUnspokenSentences() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One. Two.", next = TtsPageLocation(0, 1)),
+                page(1, "Three.", previous = TtsPageLocation(0, 0))
+            ), 0, 0)
+
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.TTS_FOLLOW)
+            runCurrent()
+
+            assertEquals(TtsPageLocation(0, 0), controller.currentPage.value?.location)
+            assertEquals(listOf("One."), engine.spokenTexts)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            assertEquals(listOf("One.", "Two."), engine.spokenTexts)
+        } finally {
+            controller.shutdown()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun lateTtsFollowCallbackCannotSeekAfterAcknowledgementHistoryIsCleared() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One.", next = TtsPageLocation(0, 1)),
+                page(1, "Two. Three.", previous = TtsPageLocation(0, 0))
+            ), 0, 0)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            controller.acknowledgePageTurnRequest(controller.pageTurnRequests.replayCache.single())
+            runCurrent()
+            // An unrelated layout callback clears the animation grace record. A late source-page
+            // callback must still be treated as visual feedback, never as a new playback seek.
+            controller.onPageVisible("book", 0, 99, TtsPageChangeOrigin.LAYOUT)
+            controller.onPageVisible("book", 0, 0, TtsPageChangeOrigin.TTS_FOLLOW)
+            runCurrent()
+
+            assertEquals(TtsPageLocation(0, 1), controller.currentPage.value?.location)
+            assertEquals(listOf("One.", "Two."), engine.spokenTexts)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            assertEquals(listOf("One.", "Two.", "Three."), engine.spokenTexts)
+        } finally {
+            controller.shutdown()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun oldTtsFollowCallbackCannotSeekAReplacementSessionForTheSameBook() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(page(0, "Old.")), 0, 0)
+            controller.start("book", FakePageSource(
+                page(0, "Earlier."), page(1, "Current. Next.")
+            ), 0, 1, restoreSavedPosition = false)
+
+            controller.onPageVisible("book", 0, 0, TtsPageChangeOrigin.TTS_FOLLOW)
+            runCurrent()
+
+            assertEquals(TtsPageLocation(0, 1), controller.currentPage.value?.location)
+            assertEquals(listOf("Old.", "Current."), engine.spokenTexts)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            assertEquals(listOf("Old.", "Current.", "Next."), engine.spokenTexts)
+        } finally {
+            controller.shutdown()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun pageTurnRequestsCarryIncreasingIdsWithinSession() = runTest {
         val main = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(main)
@@ -977,6 +1228,81 @@ class TtsControllerTest {
             assertTrue(second.requestId > first.requestId)
             assertEquals(TtsPageLocation(0, 1), second.location)
         } finally {
+            controller.shutdown()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun pageTurnTimeoutRetriesAndAcknowledgementResumesSpeech() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        val turns = mutableListOf<TtsPageTurnRequest>()
+        val collector = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.pageTurnRequests.collect { turns += it }
+        }
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One.", next = TtsPageLocation(0, 1)),
+                page(1, "Two.", previous = TtsPageLocation(0, 0))
+            ), 0, 0)
+            runCurrent()
+            turns.clear()
+
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            val original = turns.single()
+            advanceTimeBy(1_200)
+            runCurrent()
+
+            val retry = turns.last()
+            assertTrue(retry.requestId > original.requestId)
+            assertEquals(TtsPageLocation(0, 1), retry.location)
+            assertEquals(listOf("One."), engine.spokenTexts)
+
+            controller.acknowledgePageTurnRequest(retry)
+            runCurrent()
+            assertEquals(listOf("One.", "Two."), engine.spokenTexts)
+        } finally {
+            collector.cancel()
+            controller.shutdown()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun unacknowledgedPageTurnRetriesPauseInsteadOfReadingAhead() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        val turns = mutableListOf<TtsPageTurnRequest>()
+        val collector = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.pageTurnRequests.collect { turns += it }
+        }
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One.", next = TtsPageLocation(0, 1)),
+                page(1, "Two.", previous = TtsPageLocation(0, 0))
+            ), 0, 0)
+            runCurrent()
+            turns.clear()
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+
+            repeat(4) {
+                advanceTimeBy(1_200)
+                runCurrent()
+            }
+
+            assertEquals(4, turns.size)
+            assertTrue(turns.zipWithNext().all { (before, after) -> after.requestId > before.requestId })
+            assertEquals(listOf("One."), engine.spokenTexts)
+            assertEquals(TtsPlaybackState.PAUSED, controller.playbackState.value)
+        } finally {
+            collector.cancel()
             controller.shutdown()
             runCurrent()
             Dispatchers.resetMain()
@@ -1161,7 +1487,7 @@ class TtsControllerTest {
     }
 
     @Test
-    fun missingReaderAcknowledgementResumesPlaybackAfterTimeout() = runTest {
+    fun missingReaderAcknowledgementResumesPlaybackWhenReaderDetaches() = runTest {
         val main = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(main)
         val engine = FakePlaybackEngine()
@@ -1183,8 +1509,12 @@ class TtsControllerTest {
 
             advanceTimeBy(2_000L)
             runCurrent()
+            // While attached the reader retries its page turn instead of silently reading ahead.
+            assertEquals(listOf("One."), engine.spokenTexts)
+            controller.setReaderAttached("book", false)
+            runCurrent()
 
-            // The reader never confirmed (app backgrounded or closed): playback must continue.
+            // Backgrounding or closing the reader explicitly detaches it: playback must continue.
             assertEquals(listOf("One.", "Two."), engine.spokenTexts)
             assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
         } finally {
@@ -1620,6 +1950,7 @@ class TtsControllerTest {
             val session = controller.currentSessionId
             controller.setFullscreenVisible(session, true); runCurrent()
             assertEquals("Second.", engine.spokenTexts.last())
+            assertFalse(source.detached)
             assertTrue(controller.pageTurnRequests.replayCache.isEmpty())
             engine.complete(engine.lastUtteranceId); runCurrent()
             assertEquals("Third.", engine.spokenTexts.last())
@@ -1631,7 +1962,7 @@ class TtsControllerTest {
 
     @Test fun fullscreenSeekAndChapterNavigationPreservePauseAndTimer() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val engine = FakePlaybackEngine(supportsQueuedPlayback = true)
+        val engine = FakePlaybackEngine()
         val controller = controller(engine)
         try {
             controller.start("book", FakePageSource(page(0, "First. Second.", next = TtsPageLocation(1, 0)),
@@ -1737,143 +2068,144 @@ class TtsControllerTest {
         } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
     }
 
-    @Test fun accountingFollowsRenderedAudioAndRejectsStaleCallbacksForBothEngines() = runTest {
-        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        try {
-            for (external in listOf(false, true)) {
-                val system = FakePlaybackEngine(canResumeWithoutRestart = true)
-                val remote = FakePlaybackEngine(isExternal = true, canResumeWithoutRestart = true)
-                val active = if (external) remote else system
-                val inactive = if (external) system else remote
-                val events = mutableListOf<String?>()
-                val settings = FakeSettingsStore(if (external) TtsProviderSelection.AiModel else TtsProviderSelection.SystemDefault)
-                val controller = TtsController(system, remote, TtsTextExtractor(), settings, events::add)
-                try {
-                    controller.start("book-a", FakePageSource(page(0, "First. Second.")), 0, 0)
-                    runCurrent()
-                    assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
-                    assertFalse(events.contains("book-a")) // Synthesis/session start isn't audio.
-                    val first = active.lastUtteranceId
-                    active.activity(first, true)
-                    runCurrent()
-                    assertEquals("book-a", events.last())
-                    active.activity(first, false) // Buffer starvation.
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    active.activity(first, true)
-                    runCurrent()
-                    controller.pause()
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    active.activity(first, true) // Queued start after pause must be ignored.
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    controller.resume()
-                    runCurrent()
-                    assertEquals(null, events.last()) // Resume waits for actual rendered frames.
-                    active.activity(first, true)
-                    runCurrent()
-                    assertEquals("book-a", events.last())
-                    controller.skip(true)
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    active.activity(first, true)
-                    inactive.activity(active.lastUtteranceId, true)
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    active.activity(active.lastUtteranceId, true)
-                    runCurrent()
-                    assertEquals("book-a", events.last())
-                    controller.start("book-b", FakePageSource(page(0, "Other book.")), 0, 0)
-                    runCurrent()
-                    active.activity(first, true)
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    active.activity(active.lastUtteranceId, true)
-                    runCurrent()
-                    assertEquals("book-b", events.last())
-                    active.interrupt()
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    controller.resume()
-                    runCurrent()
-                    active.activity(active.lastUtteranceId, true)
-                    runCurrent()
-                    active.complete(active.lastUtteranceId)
-                    runCurrent()
-                    assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
-                    assertEquals(null, events.last())
-                    controller.start("book-c", FakePageSource(page(0, "Retry on error.")), 0, 0)
-                    runCurrent()
-                    val failed = active.lastUtteranceId
-                    active.activity(failed, true)
-                    runCurrent()
-                    active.error(failed)
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    active.activity(failed, true)
-                    runCurrent()
-                    assertEquals(null, events.last())
-                    if (external) {
-                        assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
-                        controller.start("book-c", FakePageSource(page(0, "Restart after error.")), 0, 0)
-                        runCurrent()
-                    }
-                    active.activity(active.lastUtteranceId, true)
-                    runCurrent()
-                    assertEquals("book-c", events.last())
-                    controller.stop()
-                    runCurrent()
-                    active.activity(active.lastUtteranceId, true)
-                    runCurrent()
-                    assertEquals(null, events.last())
-                } finally { controller.shutdown(); runCurrent() }
-            }
-        } finally { Dispatchers.resetMain() }
-    }
-
-    @Test fun readerExitKeepsPagingUntilAnotherBookOpens() = runTest {
+    @Test
+    fun enabledPageFollowReattachesAndReadsManualDestination() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val engine = FakePlaybackEngine()
         val controller = controller(engine)
-        val source = FakePageSource(
-            page(0, "First page.", next = TtsPageLocation(0, 1)),
-            page(1, "Second page.", previous = TtsPageLocation(0, 0))
-        )
         try {
-            assertTrue(controller.start("book", source, 0, 0).isSuccess)
-            var ready = false
-            controller.finishReaderExit("book", keepListening = true) { ready = source.detached }
+            controller.start("book", FakePageSource(
+                page(0, "One."), page(1, "Two."), page(0, "Next chapter.", chapterIndex = 1)
+            ), 0, 0)
+            val oldUtterance = engine.lastUtteranceId
+            controller.setReaderAttached("book", false)
+            controller.setFollowUserPageTurns(true)
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.USER)
             runCurrent()
-            assertTrue(ready)
-            assertFalse(source.closed)
-            engine.complete(engine.lastUtteranceId)
+            assertEquals(listOf("One.", "Two."), engine.spokenTexts)
+            engine.complete(oldUtterance)
             runCurrent()
-            assertEquals("Second page.", engine.spokenTexts.last())
-            controller.stopForOtherReader("book")
+            assertEquals("Two.", controller.currentSentence.value?.text)
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 1, 0, TtsPageChangeOrigin.USER)
             runCurrent()
-            assertEquals(TtsPlaybackState.PLAYING, controller.playbackState.value)
-            controller.stopForOtherReader("other")
+            assertEquals(TtsPageLocation(1, 0), controller.currentPage.value?.location)
+            assertEquals("Next chapter.", engine.spokenTexts.last())
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 0, 0, TtsPageChangeOrigin.USER)
             runCurrent()
-            assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
-            assertTrue(source.closed)
+            assertEquals("One.", engine.spokenTexts.last())
         } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
     }
 
-    @Test fun stoppingOnExitClosesOnlyTheExitingBooksSession() = runTest {
+    @Test
+    fun enabledPageFollowKeepsManualDestinationPaused() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val controller = controller(FakePlaybackEngine())
-        val source = FakePageSource(page(0, "Still listening."))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
         try {
-            assertTrue(controller.start("book", source, 0, 0).isSuccess)
-            controller.finishReaderExit("other", keepListening = false) {}
+            controller.start("book", FakePageSource(page(0, "One."), page(1, "Two.")), 0, 0)
+            controller.pause()
+            controller.setFollowUserPageTurns(true)
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.USER)
             runCurrent()
-            assertFalse(source.closed)
-            var ready = false
-            controller.finishReaderExit("book", keepListening = false) { ready = source.closed }
+            assertEquals(TtsPageLocation(0, 1), controller.currentPage.value?.location)
+            assertEquals(TtsPlaybackState.PAUSED, controller.playbackState.value)
+            assertEquals(listOf("One."), engine.spokenTexts)
+            controller.resume()
             runCurrent()
-            assertTrue(ready)
-            assertEquals(TtsPlaybackState.IDLE, controller.playbackState.value)
+            assertEquals("Two.", engine.spokenTexts.last())
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun enabledPageFollowLetsManualDestinationReplacePendingAutomaticTurn() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One.", next = TtsPageLocation(0, 1)),
+                page(1, "Two."), page(2, "Three.")
+            ), 0, 0)
+            controller.setFollowUserPageTurns(true)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            val oldTurn = controller.pageTurnRequests.replayCache.last()
+            controller.onPageVisible("book", 0, 2, TtsPageChangeOrigin.USER)
+            runCurrent()
+            controller.acknowledgePageTurnRequest(oldTurn)
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.TTS_FOLLOW)
+            runCurrent()
+            assertFalse(controller.isPageTurnRequestActive(oldTurn))
+            assertEquals(TtsPageLocation(0, 2), controller.currentPage.value?.location)
+            assertEquals(listOf("One.", "Three."), engine.spokenTexts)
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun explicitManualTurnBackAfterAutomaticTurnIsNotSuppressedAsAnimationCallback() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One.", next = TtsPageLocation(0, 1)), page(1, "Two.")
+            ), 0, 0)
+            controller.setFollowUserPageTurns(true)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.TTS_FOLLOW)
+            runCurrent()
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 0, 0, TtsPageChangeOrigin.USER)
+            runCurrent()
+            assertEquals(listOf("One.", "Two.", "One."), engine.spokenTexts)
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun manualPageFollowClearsQueuedAudioAndContinuesAutomaticPageTurns() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine(supportsQueuedPlayback = true)
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(
+                page(0, "One. Two."),
+                page(1, "Three.", next = TtsPageLocation(0, 2)), page(2, "Four.")
+            ), 0, 0)
+            runCurrent()
+            val staleQueuedUtterance = engine.queuedRequests.last().second
+            controller.setFollowUserPageTurns(true)
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.USER)
+            runCurrent()
+            engine.complete(staleQueuedUtterance)
+            runCurrent()
+            assertEquals("Three.", controller.currentSentence.value?.text)
+            assertEquals(listOf("One.", "Three."), engine.spokenTexts)
+            engine.complete(engine.lastUtteranceId)
+            runCurrent()
+            assertEquals(TtsPageLocation(0, 2), controller.currentPage.value?.location)
+            assertEquals("Four.", engine.spokenTexts.last())
+            assertEquals(TtsPageLocation(0, 2), controller.pageTurnRequests.replayCache.last().location)
+        } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun manualGestureWithPageFollowOffKeepsAudioPosition() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = FakePlaybackEngine()
+        val controller = controller(engine)
+        try {
+            controller.start("book", FakePageSource(page(0, "One."), page(1, "Two.")), 0, 0)
+            controller.onReaderNavigationStarted("book")
+            controller.onPageVisible("book", 0, 1, TtsPageChangeOrigin.USER)
+            runCurrent()
+            assertEquals(TtsPageLocation(0, 0), controller.currentPage.value?.location)
+            assertEquals(listOf("One."), engine.spokenTexts)
         } finally { controller.shutdown(); runCurrent(); Dispatchers.resetMain() }
     }
 
@@ -1908,9 +2240,8 @@ class TtsControllerTest {
         val requests = mutableListOf<TtsPageLocation>()
         var closed = false
         var detached = false
+
         override fun detachReader() { detached = true }
-
-
 
         override suspend fun getPage(chapterIndex: Int, pageIndex: Int): TtsPageContent? {
             val location = TtsPageLocation(chapterIndex, pageIndex)
@@ -2001,8 +2332,8 @@ class TtsControllerTest {
             return speak(text, utteranceId)
         }
 
-        fun start(utteranceId: String) = listener.onStart(utteranceId)
         fun activity(utteranceId: String, active: Boolean) = listener.onPlaybackActivity(utteranceId, active)
+        fun start(utteranceId: String) = listener.onStart(utteranceId)
         fun complete(utteranceId: String) = listener.onDone(utteranceId)
         fun error(utteranceId: String, error: Throwable = SystemTtsException.Playback()) =
             listener.onError(utteranceId, error)

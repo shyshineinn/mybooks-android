@@ -41,12 +41,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -154,6 +158,7 @@ internal object BookReaderMotion {
     const val COVER_CROSSFADE_FRACTION = 0.08f
     const val CONTENT_REVEAL_MS = 180
     const val CONTENT_EXIT_MS = 180
+    const val OPENING_SNAPSHOT_FADE_MS = 120
     const val CONTROL_POINT_OFFSET_DP = 28f
     const val LOADING_INDICATOR_DELAY_MS = 600L
     const val LIBRARY_BLUR_DP = 18f
@@ -321,14 +326,21 @@ internal class BookReaderTransitionState internal constructor(
     private val libraryProgressAnim = Animatable(0f)
     private val coverFlowProgressAnim = Animatable(0f)
     private val readerRevealAnim = Animatable(0f)
+    private val openingSnapshotAlphaAnim = Animatable(1f)
     val coverFlowProgressSnapshot: State<Float> = coverFlowProgressAnim.asState()
     val readerRevealSnapshot: State<Float> = readerRevealAnim.asState()
+    val openingSnapshotAlphaSnapshot: State<Float> = openingSnapshotAlphaAnim.asState()
+
+    /** The page this book was closed on; the window grows into it instead of blank paper. */
+    var openingSnapshot by mutableStateOf<ImageBitmap?>(null)
+        private set
     var presentation by mutableStateOf(BookReaderPresentation.Window)
         private set
     private val coverAnchors = mutableMapOf<Any, BookCoverAnchor>()
     private var motionJob: Job? = null
     private var revealJob: Job? = null
     private var colorJob: Job? = null
+    private var snapshotJob: Job? = null
     private var windowMotionComplete = false
     private var closeSourceLocked = false
     private var closeNavigationIssued by mutableStateOf(false)
@@ -347,6 +359,12 @@ internal class BookReaderTransitionState internal constructor(
     val cornerRadiusSnapshot: State<Float> = derivedStateOf {
         BookReaderMotion.cornerRadius(sourceCornerRadiusDp, windowProgressAnim.value)
     }
+    /**
+     * Cover Flow motion without the cover: the library zooms out of view while the reader
+     * zooms in (the spine shelf, whose books have no cover to carry across).
+     */
+    var zoomOnly by mutableStateOf(false)
+        private set
     val coverFadeSnapshot: State<Float> = derivedStateOf {
         BookReaderMotion.coverFade(windowProgressAnim.value)
     }
@@ -362,12 +380,13 @@ internal class BookReaderTransitionState internal constructor(
     // allowing the actual page content to fade in visibly.
     val readerLayerAlpha: Float
         get() = if (presentation == BookReaderPresentation.CoverFlow) {
-            CoverFlowReaderMotion.readerAlpha(coverFlowProgressAnim.value) *
+            CoverFlowReaderMotion.readerAlpha(coverFlowProgressAnim.value, zoomOnly) *
                 readerRevealAnim.value *
                 (if (phase == BookReaderTransitionPhase.Closing) readerExitAlphaAnim.value else 1f)
         } else when (phase) {
             BookReaderTransitionPhase.Opening, BookReaderTransitionPhase.ReaderLoading -> 0f
-            BookReaderTransitionPhase.Ready -> readerRevealAnim.value
+            // The stored page above matches the reader, so the reader is already opaque below it.
+            BookReaderTransitionPhase.Ready -> if (openingSnapshot != null) 1f else readerRevealAnim.value
             BookReaderTransitionPhase.Closing -> readerExitAlphaAnim.value
             BookReaderTransitionPhase.Reader -> 1f
             BookReaderTransitionPhase.Library -> 0f
@@ -483,7 +502,10 @@ internal class BookReaderTransitionState internal constructor(
         downloadState: BookDownloadState?,
         sourceBounds: Rect?,
         sourceCornerRadiusDp: Float,
-        sourcePresentation: BookReaderPresentation? = null
+        sourcePresentation: BookReaderPresentation? = null,
+        initialPaperColorArgb: Int? = null,
+        openingSnapshot: ImageBitmap? = null,
+        zoomOnly: Boolean = false
     ): Boolean {
         val bookId = book.id
         val anchor = selectCoverAnchor(bookId, sourceBounds, sourcePresentation)
@@ -507,6 +529,7 @@ internal class BookReaderTransitionState internal constructor(
         motionJob?.cancel()
         revealJob?.cancel()
         colorJob?.cancel()
+        snapshotJob?.cancel()
         sessionId++
         windowMotionComplete = false
         closeSourceLocked = false
@@ -527,8 +550,10 @@ internal class BookReaderTransitionState internal constructor(
         activeAnchorKey = anchor.key
         readerReady = false
         dominantColorArgb = null
-        readerPaperColorArgb = null
+        readerPaperColorArgb = initialPaperColorArgb
         presentation = sourcePresentation ?: anchor.presentation
+        this.zoomOnly = zoomOnly && presentation == BookReaderPresentation.CoverFlow
+        this.openingSnapshot = openingSnapshot.takeIf { presentation == BookReaderPresentation.Window }
         setPhase(BookReaderTransitionPhase.Opening)
 
         windowProgressAnim.snapTo(0f)
@@ -537,6 +562,7 @@ internal class BookReaderTransitionState internal constructor(
         libraryProgressAnim.snapTo(0f)
         coverFlowProgressAnim.snapTo(0f)
         readerRevealAnim.snapTo(0f)
+        openingSnapshotAlphaAnim.snapTo(1f)
 
         if (presentation == BookReaderPresentation.CoverFlow) {
             setPhase(BookReaderTransitionPhase.ReaderLoading)
@@ -545,6 +571,8 @@ internal class BookReaderTransitionState internal constructor(
                     targetValue = 1f,
                     animationSpec = VisualMotion.tween(620, easing = FastOutSlowInEasing)
                 )
+                // A zoom shows its loading page for the whole motion; the text comes after it.
+                if (zoomOnly && readerReady && phase == BookReaderTransitionPhase.ReaderLoading) revealReader()
                 if (phase == BookReaderTransitionPhase.Ready && readerRevealAnim.value >= 0.999f) {
                     setPhase(BookReaderTransitionPhase.Reader)
                 }
@@ -601,6 +629,33 @@ internal class BookReaderTransitionState internal constructor(
         }
     }
 
+    /**
+     * A stored page that finished decoding after the tap. It is accepted until the reveal starts;
+     * past the cover handoff it fades in instead of appearing in one frame.
+     */
+    fun offerOpeningSnapshot(snapshot: ImageBitmap, expectedSessionId: Long = sessionId) {
+        if (!acceptsOpeningSnapshot(expectedSessionId)) return
+        snapshotJob?.cancel()
+        snapshotJob = scope.launch {
+            val fadeIn = BookReaderMotion.coverFade(windowProgressAnim.value) > 0f
+            openingSnapshotAlphaAnim.snapTo(if (fadeIn) 0f else 1f)
+            // The reveal may have started while this job waited for the main thread.
+            if (!acceptsOpeningSnapshot(expectedSessionId)) return@launch
+            openingSnapshot = snapshot
+            if (fadeIn) {
+                openingSnapshotAlphaAnim.animateTo(
+                    1f,
+                    VisualMotion.tween(BookReaderMotion.OPENING_SNAPSHOT_FADE_MS, easing = FastOutSlowInEasing)
+                )
+            }
+        }
+    }
+
+    private fun acceptsOpeningSnapshot(expectedSessionId: Long): Boolean =
+        expectedSessionId == sessionId && presentation == BookReaderPresentation.Window &&
+            openingSnapshot == null && phase in setOf(
+                BookReaderTransitionPhase.Opening, BookReaderTransitionPhase.ReaderLoading)
+
     fun updateReaderPaperColor(colorArgb: Int, expectedSessionId: Long = sessionId) {
         if (expectedSessionId != sessionId || activeBookId == null) return
         readerPaperColorArgb = colorArgb
@@ -612,7 +667,7 @@ internal class BookReaderTransitionState internal constructor(
         if (phaseState.value == BookReaderTransitionPhase.Library) return false
         val visibleReaderAlpha = when (phase) {
             BookReaderTransitionPhase.Reader -> 1f
-            BookReaderTransitionPhase.Ready -> 1f - shellAlphaAnim.value
+            BookReaderTransitionPhase.Ready -> if (openingSnapshot != null) 1f else 1f - shellAlphaAnim.value
             else -> 0f
         }
         val anchor = coverAnchors[anchorKey]
@@ -644,7 +699,7 @@ internal class BookReaderTransitionState internal constructor(
                 )
                 // The focused cover can move while the reader body fades. Wait for
                 // its latest measured bounds, then lock it before the return path.
-                if (!coverFlowReturnReady) {
+                if (!coverFlowReturnReady && !zoomOnly) {
                     for (frame in 0 until 18) {
                         withFrameNanos { }
                         if (phase != BookReaderTransitionPhase.Closing || activeBookId != bookId) {
@@ -702,6 +757,9 @@ internal class BookReaderTransitionState internal constructor(
         motionJob?.cancel()
         revealJob?.cancel()
         colorJob?.cancel()
+        snapshotJob?.cancel()
+        openingSnapshot = null
+        zoomOnly = false
         setPhase(BookReaderTransitionPhase.Library)
         activeBookId = null
         activeAnchorKey = null
@@ -721,10 +779,28 @@ internal class BookReaderTransitionState internal constructor(
 
     private fun revealReader() {
         if (phase != BookReaderTransitionPhase.ReaderLoading ||
-            (presentation == BookReaderPresentation.Window && !windowMotionComplete)) return
+            (presentation == BookReaderPresentation.Window && !windowMotionComplete) ||
+            (zoomOnly && coverFlowProgressAnim.value < 0.999f)) return
         revealJob?.cancel()
         setPhase(BookReaderTransitionPhase.Ready)
         revealJob = scope.launch {
+            if (openingSnapshot != null) {
+                // The live page sits fully opaque below the identical stored page, so only the
+                // copy fades; nothing behind the reader can show through during the swap.
+                readerRevealAnim.snapTo(1f)
+                shellAlphaAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = VisualMotion.tween(
+                        durationMillis = BookReaderMotion.CONTENT_REVEAL_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+                if (phaseState.value == BookReaderTransitionPhase.Ready && windowMotionComplete) {
+                    setPhase(BookReaderTransitionPhase.Reader)
+                    openingSnapshot = null
+                }
+                return@launch
+            }
             if (presentation == BookReaderPresentation.CoverFlow) {
                 readerRevealAnim.animateTo(
                     1f,
@@ -811,6 +887,9 @@ internal class BookReaderTransitionState internal constructor(
     }
 
     private fun clearToLibrary() {
+        snapshotJob?.cancel()
+        openingSnapshot = null
+        zoomOnly = false
         setPhase(BookReaderTransitionPhase.Library)
         activeBookId = null
         activeAnchorKey = null
@@ -983,9 +1062,17 @@ internal fun Modifier.bookReaderLibraryLayer(
         val progress = if (!active) 0f else if (isCoverFlow)
             transition.coverFlowProgressSnapshot.value.coerceIn(0f, 1f)
         else transition.libraryProgressSnapshot.value.coerceIn(0f, 1f)
-        alpha = BookReaderMotion.lerp(1f,
-            if (isCoverFlow) 0.65f else BookReaderMotion.LIBRARY_DIM_ALPHA, progress)
-        val scale = if (isCoverFlow) 1f else BookReaderMotion.lerp(1f, BookReaderMotion.LIBRARY_SCALE, progress)
+        val zoom = isCoverFlow && transition.zoomOnly
+        alpha = when {
+            zoom -> 1f - CoverFlowReaderMotion.libraryZoomFade(progress)
+            else -> BookReaderMotion.lerp(1f,
+                if (isCoverFlow) 0.65f else BookReaderMotion.LIBRARY_DIM_ALPHA, progress)
+        }
+        val scale = when {
+            zoom -> CoverFlowReaderMotion.libraryZoomScale(progress)
+            isCoverFlow -> 1f
+            else -> BookReaderMotion.lerp(1f, BookReaderMotion.LIBRARY_SCALE, progress)
+        }
         scaleX = scale
         scaleY = scale
         // Half-dp steps reuse effects in both directions instead of allocating one per frame.
@@ -1058,14 +1145,53 @@ internal fun rememberBookLoadingIndicatorVisible(transition: BookReaderTransitio
         (transition.phase == BookReaderTransitionPhase.Ready &&
             transition.readerRevealSnapshot.value < 0.999f)
     var visible by remember(transition.sessionId) { mutableStateOf(false) }
-    LaunchedEffect(transition.sessionId, waiting) {
+    // Over the stored page the reader already looks open; only a long wait needs a spinner.
+    val showsStoredPage = transition.openingSnapshot != null
+    LaunchedEffect(transition.sessionId, waiting, showsStoredPage) {
         visible = false
         if (waiting) {
-            delay(250L)
+            delay(if (showsStoredPage) BookReaderMotion.LOADING_INDICATOR_DELAY_MS else 250L)
             visible = true
         }
     }
     return waiting && visible
+}
+
+/**
+ * The stored page drawn inside the moving window. It is fitted like the cover and sits below it,
+ * so the cover hands off to the real page instead of blank paper. A fitted page meets the
+ * window's rounded corners only once their radius is below a pixel, so it needs no clip mask;
+ * float transforms keep the final frame on exact pixels for the swap to the live reader.
+ */
+@Composable
+private fun OpeningPageLayer(
+    page: ImageBitmap,
+    transition: BookReaderTransitionState,
+    source: Rect,
+    target: Rect,
+    controlOffsetPx: Float
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawBehind {
+                val alpha = transition.coverFadeSnapshot.value *
+                    transition.openingSnapshotAlphaSnapshot.value *
+                    transition.overlayAlpha.coerceIn(0f, 1f)
+                if (alpha <= 0f) return@drawBehind
+                val window = BookReaderMotion.windowBounds(source, target,
+                    transition.positionSnapshot.value, transition.sizeSnapshot.value, controlOffsetPx)
+                val fit = minOf(window.width / page.width, window.height / page.height)
+                translate(
+                    left = window.left + (window.width - page.width * fit) / 2f,
+                    top = window.top + (window.height - page.height * fit) / 2f
+                ) {
+                    scale(fit, fit, pivot = Offset.Zero) {
+                        drawImage(page, alpha = alpha)
+                    }
+                }
+            }
+    )
 }
 
 @Composable
@@ -1091,7 +1217,8 @@ internal fun BookHeroWindowOverlay(
 
     val context = LocalContext.current
     val density = LocalDensity.current
-    val pageColor = Color(readerTransitionPaperColor(transition.readerPaperColorArgb ?: 0xFFFBFBFC.toInt()))
+    val pageColor = transition.readerPaperColorArgb?.let { Color(readerTransitionPaperColor(it)) }
+        ?: AppColors.PageBg
     val heroShape = AppRoundedCornerShape(0.dp)
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val target = Rect(
@@ -1159,7 +1286,11 @@ internal fun BookHeroWindowOverlay(
                     shape = heroShape.copy(androidx.compose.foundation.shape.CornerSize(
                         transition.cornerRadiusSnapshot.value.coerceAtLeast(0f).dp))
                     clip = true
-                    alpha = transition.overlayAlpha.coerceIn(0f, 1f)
+                    // Over the live page the stored page fades alone: paper fading with it
+                    // would show through and lighten the text for the length of the fade.
+                    alpha = if (transition.openingSnapshot != null &&
+                        transition.phase == BookReaderTransitionPhase.Ready) 0f
+                    else transition.overlayAlpha.coerceIn(0f, 1f)
                 }
         ) {
             Box(
@@ -1177,6 +1308,10 @@ internal fun BookHeroWindowOverlay(
                     }
                     .background(dominantColor)
             )
+        }
+
+        transition.openingSnapshot?.let { page ->
+            OpeningPageLayer(page, transition, source, target, controlOffsetPx)
         }
 
         if (transition.coverBook != null) {

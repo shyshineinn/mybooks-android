@@ -1,5 +1,6 @@
 package com.huangder.lumibooks.di
 
+import com.huangder.lumibooks.reading.ReadingActivityTracker
 import android.content.Context
 import com.huangder.lumibooks.reading.ReadingActivityTracker
 import androidx.room.Room
@@ -80,10 +81,11 @@ object AppModule {
             DatabaseMigrations.MIGRATION_19_20,
             DatabaseMigrations.MIGRATION_20_21,
             DatabaseMigrations.MIGRATION_21_22,
-            DatabaseMigrations.MIGRATION_22_25,
-            DatabaseMigrations.MIGRATION_23_25,
+            DatabaseMigrations.MIGRATION_22_23,
+            DatabaseMigrations.MIGRATION_23_24,
             DatabaseMigrations.MIGRATION_24_25,
-            DatabaseMigrations.MIGRATION_25_26
+            DatabaseMigrations.MIGRATION_25_26,
+            DatabaseMigrations.MIGRATION_26_27
         )
             .build()
     }

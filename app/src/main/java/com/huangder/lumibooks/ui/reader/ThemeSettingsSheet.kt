@@ -1,5 +1,10 @@
 package com.huangder.lumibooks.ui.reader
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
+
 import androidx.compose.foundation.layout.heightIn
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import com.huangder.lumibooks.ui.icons.AppIcons
@@ -118,6 +123,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.provider.OpenableColumns
 import androidx.compose.ui.graphics.graphicsLayer
@@ -129,10 +135,13 @@ import com.huangder.lumibooks.ui.theme.KaiTi
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
+import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
+import androidx.compose.animation.core.snap
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
+import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.domain.model.ReaderBackgroundPreset
@@ -174,10 +183,16 @@ import com.huangder.lumibooks.ui.components.animateBottomSheetIn
 import com.huangder.lumibooks.ui.components.animateBottomSheetOut
 import com.huangder.lumibooks.ui.components.liquidGlassSheetSurface
 import com.huangder.lumibooks.ui.components.materialBottomSheetMotion
+import com.huangder.lumibooks.ui.components.adaptiveSheetFrame
+import com.huangder.lumibooks.ui.components.adaptiveSheetShape
 import androidx.compose.ui.res.stringResource
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.io.File
+import java.util.Locale
+import kotlin.math.roundToInt
+import com.huangder.lumibooks.ui.theme.AppPresentation
+import com.huangder.lumibooks.ui.components.AppDropdownMenu
 
 // 设计规范颜色
 private val AccentColor: Color @Composable get() = AppColors.Accent
@@ -206,9 +221,9 @@ fun ThemeSettingsSheet(
     currentFontSize: Float,
     currentFontType: String = "system",
     currentCustomFontPath: String? = null,
-    currentBodyFontWeight: Int = 400,
-    onBodyFontWeightChange: (Int) -> Unit = {},
-    onBodyFontWeightPreview: (Int) -> Unit = {},
+    currentBodyFontWeight: Float = 400f,
+    onBodyFontWeightChange: (Float) -> Unit = {},
+    onBodyFontWeightPreview: (Float) -> Unit = {},
     currentTheme: String,
     currentBackgroundSelection: String = currentTheme,
     customBackgrounds: List<ReaderBackgroundPreset> = emptyList(),
@@ -220,6 +235,7 @@ fun ThemeSettingsSheet(
     customFonts: List<CustomFontPreset> = emptyList(),
     currentPreserveEpubBackground: Boolean = true,
     currentBrightness: Float = -1f,
+    currentDarkMaskOpacity: Float = 0f,
     currentOptimizeLayout: Boolean = true,
     currentUseEpubCss: Boolean = false,
     supportsBookLayout: Boolean = false,
@@ -253,6 +269,8 @@ fun ThemeSettingsSheet(
     onReaderButtonContrastChange: (Boolean) -> Unit = {},
     onPreserveEpubBackgroundChange: (Boolean) -> Unit = {},
     onBrightnessChange: (Float) -> Unit = {},
+    onDarkMaskOpacityChange: (Float) -> Unit = {},
+    onDarkMaskOpacityPreview: (Float) -> Unit = {},
     onOptimizeLayoutChange: (Boolean) -> Unit = {},
     onUseEpubCssChange: (Boolean) -> Unit = {},
     onRenderModeChange: (EpubRenderMode) -> Unit = {},
@@ -318,7 +336,7 @@ fun ThemeSettingsSheet(
     val isDark = isAppDark
     val sheetScrimAlpha = if (isLiquidGlass) 0.20f else 0.08f
     val sheetContentBackdrop = rememberLayerBackdrop()
-    val sheetShape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    val sheetShape = adaptiveSheetShape(AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner))
 
     Box(Modifier.fillMaxSize()) {
         // 遮罩
@@ -333,11 +351,9 @@ fun ThemeSettingsSheet(
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { isClosing = true }
         )
 
-        // 弹窗容器：玻璃底层与控件内容分层，内部控件折射容器而非书页。
+        // 弹窗容器：玻璃底层与控件内容分层，内部控件折射容器而非书页。平板为居中卡片。
         Box(
-            Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(if (isLiquidGlass) 0.64f else 0.60f)
+            adaptiveSheetFrame(heightFraction = if (isLiquidGlass) 0.64f else 0.60f)
                 .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress)
                 .graphicsLayer { alpha = fontSliderSheetAlpha }
         ) {
@@ -367,18 +383,11 @@ fun ThemeSettingsSheet(
                     .padding(top = 24.dp, bottom = 24.dp)
             ) {
             // 标题栏
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    stringResource(R.string.theme_settings_title),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = resolveAppFontFamily(KaiTi),
-                    color = AppColors.TextPrimary
-                )
-                Spacer(Modifier.weight(1f))
+            com.huangder.lumibooks.ui.components.AppSheetHeader(
+                title = stringResource(R.string.theme_settings_title),
+                onClose = { isClosing = true },
+                modifier = Modifier.padding(horizontal = 24.dp),
+                actions = {
                 LiquidGlassTextButton(
                     text = stringResource(R.string.advanced_settings),
                     onClick = onOpenAdvanced,
@@ -386,201 +395,229 @@ fun ThemeSettingsSheet(
                     tintedColor = if (isLiquidGlass) null else AppColors.BgGray,
                     contentColor = AppColors.TextPrimary
                 )
-                Spacer(Modifier.width(8.dp))
-                // 关闭按钮
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.X,
-                    contentDescription = stringResource(R.string.close),
-                    onClick = { isClosing = true },
-                    size = 44.dp,
-                    iconSize = 20.dp,
-                    contentColor = AppColors.TextPrimary,
-                    normalContainerColor = LightBgGray
-                )
-            }
+                }
+            )
 
             Spacer(Modifier.height(24.dp))
 
-            // 字号区域
             var showFontSizeDialog by remember { mutableStateOf(false) }
+            var showBodyFontWeightDialog by remember { mutableStateOf(false) }
+            val supportedWeightRange = variableWeightRange?.let {
+                it.start.coerceAtLeast(100f)..it.endInclusive.coerceAtMost(900f)
+            }?.takeIf { it.start < it.endInclusive }
+            val weightRange = supportedWeightRange ?: (100f..900f)
+            val weightStep = 0.1f
+            var previewWeight by remember(currentFontType, currentCustomFontPath,
+                currentBodyFontWeight) { mutableFloatStateOf(currentBodyFontWeight) }
+
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                Text(stringResource(R.string.label_font_size), fontSize = 14.sp, color = LightTextSecondary)
-                Spacer(Modifier.weight(1f))
-                Box(
-                    modifier = Modifier
-                        .clip(AppRoundedCornerShape(8.dp))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) { showFontSizeDialog = true }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        "${currentFontSize.toInt()} sp",
-                        fontSize = 14.sp,
-                        color = LightTextSecondary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            com.huangder.lumibooks.ui.components.PillSlider(
-                value = currentFontSize,
-                onValueChange = onFontSizeChange,
-                valueRange = 12f..28f,
-                step = 1f,
-                onDragValueChange = { value ->
-                    fontSliderPreview = fontSliderPreview?.takeIf { it.key == "font-size" }
-                        ?.copy(value = value)
-                        ?: fontSizeSliderBounds?.let {
-                            ReaderSliderPreview("font-size", it, value, 12f..28f, 1f)
-                        }
-                    onFontSizePreview(value)
-                },
-                onInteractionChange = { active ->
-                    if (!active && fontSliderPreview?.key == "font-size") fontSliderPreview = null
-                },
-                modifier = Modifier
-                    .padding(horizontal = 24.dp)
-                    .onGloballyPositioned { fontSizeSliderBounds = it.boundsInRoot() }
-            )
-            if (showFontSizeDialog) {
-                SliderValueInputDialog(
-                    label = stringResource(R.string.label_font_size),
-                    value = currentFontSize,
-                    range = 12f..28f,
-                    step = 1f,
-                    format = { "${it.toInt()} sp" },
-                    onConfirm = { onFontSizeChange(it) },
-                    onDismiss = { showFontSizeDialog = false }
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            variableWeightRange?.let { range ->
-                var previewWeight by remember(currentFontType, currentCustomFontPath,
-                    currentBodyFontWeight) { mutableIntStateOf(currentBodyFontWeight) }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.body_font_weight), fontSize = 14.sp, color = LightTextSecondary)
-                    Spacer(Modifier.weight(1f))
-                    Text(previewWeight.toFloat().coerceIn(range).toInt().toString(),
-                        fontSize = 14.sp, color = LightTextSecondary)
-                }
-                Spacer(Modifier.height(4.dp))
-                com.huangder.lumibooks.ui.components.PillSlider(
-                    value = currentBodyFontWeight.toFloat().coerceIn(range),
-                    onValueChange = {
-                        previewWeight = it.toInt()
-                        onBodyFontWeightChange(previewWeight)
-                    },
-                    onDragValueChange = {
-                        previewWeight = it.toInt()
-                        onBodyFontWeightPreview(previewWeight)
-                        fontSliderPreview = fontSliderPreview?.takeIf { preview -> preview.key == "font-weight" }
-                            ?.copy(value = it)
-                            ?: weightSliderBounds?.let { bounds ->
-                                ReaderSliderPreview("font-weight", bounds, it, range, 1f)
-                            }
-                    },
-                    onInteractionChange = { active ->
-                        if (!active && fontSliderPreview?.key == "font-weight") fontSliderPreview = null
-                    },
-                    valueRange = range,
-                    step = 1f,
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp)
-                        .onGloballyPositioned { weightSliderBounds = it.boundsInRoot() }
-                )
-                Spacer(Modifier.height(16.dp))
-            }
-
-            // 亮度区域
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.brightness), fontSize = 14.sp, color = LightTextSecondary)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (currentBrightness < 0f) stringResource(R.string.brightness_auto) else "${(currentBrightness * 100).toInt()}%",
-                    fontSize = 14.sp,
-                    color = LightTextSecondary
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                com.huangder.lumibooks.ui.components.PillSlider(
-                    value = brightnessPercent,
-                    onValueChange = { pct -> onBrightnessChange(pct / 100f) },
-                    valueRange = 0f..100f,
-                    step = 1f,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(12.dp))
-                val isAutoBrightness = currentBrightness < 0f
-                val autoBrightnessDescription = stringResource(R.string.brightness_auto)
-                if (isLiquidGlass) {
-                    val controlColor = if (isDark) Color.White else Color.Black
-                    LiquidGlassSurface(
-                        controlEdge = true,
-                        shape = CircleShape,
-                        fallbackColor = controlColor,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .semantics { contentDescription = autoBrightnessDescription },
-                        contentScrimColor = controlColor.copy(
-                            alpha = if (isAutoBrightness) 0.58f else 0.24f
-                        ),
-                        onClick = {
-                            onBrightnessChange(if (isAutoBrightness) brightnessPercent / 100f else -1f)
-                        }
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth().height(28.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "A",
-                            color = if (isAutoBrightness) {
-                                if (isDark) Color.Black else Color.White
-                            } else {
-                                AppColors.TextPrimary
-                            },
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text(stringResource(R.string.label_font_size), Modifier.weight(1f),
+                            fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                        Box(
+                            modifier = Modifier.clip(AppRoundedCornerShape(8.dp)).clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) { showFontSizeDialog = true }.padding(start = 6.dp, top = 4.dp, bottom = 4.dp)
+                        ) {
+                            Text(String.format(Locale.getDefault(), "%.1f sp", currentFontSize),
+                                fontSize = AppType.BodySmall, color = LightTextSecondary,
+                                fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        }
                     }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .then(
-                                if (isAutoBrightness) {
-                                    Modifier.background(AppColors.Accent)
-                                } else {
-                                    Modifier.border(1.5.dp, AppColors.TextPrimary, CircleShape)
+                    Spacer(Modifier.height(4.dp))
+                    com.huangder.lumibooks.ui.components.PillSlider(
+                        value = currentFontSize,
+                        onValueChange = { onFontSizeChange((it * 10f).roundToInt() / 10f) },
+                        valueRange = 12f..28f,
+                        step = 0.1f,
+                        onDragValueChange = { value ->
+                            val precise = (value * 10f).roundToInt() / 10f
+                            fontSliderPreview = fontSliderPreview?.takeIf { it.key == "font-size" }
+                                ?.copy(value = precise)
+                                ?: fontSizeSliderBounds?.let {
+                                    ReaderSliderPreview("font-size", it, precise, 12f..28f, 0.1f)
                                 }
-                            )
-                            .semantics { contentDescription = autoBrightnessDescription }
-                            .clickable {
-                                onBrightnessChange(if (isAutoBrightness) brightnessPercent / 100f else -1f)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "A",
-                            color = if (isAutoBrightness) AppColors.OnAccent else AppColors.TextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            onFontSizePreview(precise)
+                        },
+                        onInteractionChange = { active ->
+                            if (!active && fontSliderPreview?.key == "font-size") fontSliderPreview = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                            .onGloballyPositioned { fontSizeSliderBounds = it.boundsInRoot() }
+                    )
+                    if (showFontSizeDialog) {
+                        SliderValueInputDialog(
+                            label = stringResource(R.string.label_font_size),
+                            value = currentFontSize,
+                            range = 12f..28f,
+                            step = 0.1f,
+                            format = { String.format(Locale.getDefault(), "%.1f sp", it) },
+                            onConfirm = { onFontSizeChange((it * 10f).roundToInt() / 10f) },
+                            onDismiss = { showFontSizeDialog = false }
                         )
                     }
+                }
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth().height(28.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(stringResource(R.string.body_font_weight), Modifier.weight(1f),
+                            fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                        Box(
+                            modifier = Modifier
+                                .clip(AppRoundedCornerShape(8.dp))
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }
+                                ) { showBodyFontWeightDialog = true }
+                                .padding(start = 6.dp, top = 4.dp, bottom = 4.dp)
+                                .testTag("reader-body-font-weight-value")
+                        ) {
+                            Text(String.format(Locale.getDefault(), "%.1f", previewWeight.coerceIn(weightRange)),
+                                fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    com.huangder.lumibooks.ui.components.PillSlider(
+                        value = currentBodyFontWeight.coerceIn(weightRange),
+                        onValueChange = {
+                            previewWeight = (it * 10f).roundToInt() / 10f
+                            onBodyFontWeightChange(previewWeight)
+                        },
+                        onDragValueChange = {
+                            previewWeight = com.huangder.lumibooks.ui.components
+                                .snapSliderValue(it, weightRange, weightStep)
+                            onBodyFontWeightPreview(previewWeight)
+                            fontSliderPreview = fontSliderPreview?.takeIf { preview -> preview.key == "font-weight" }
+                                ?.copy(value = previewWeight)
+                                ?: weightSliderBounds?.let { bounds ->
+                                    ReaderSliderPreview("font-weight", bounds, previewWeight, weightRange, weightStep)
+                                }
+                        },
+                        onInteractionChange = { active ->
+                            if (!active && fontSliderPreview?.key == "font-weight") fontSliderPreview = null
+                        },
+                        valueRange = weightRange,
+                        step = weightStep,
+                        modifier = Modifier.fillMaxWidth()
+                            .onGloballyPositioned { weightSliderBounds = it.boundsInRoot() }
+                    )
+                    if (showBodyFontWeightDialog) {
+                        SliderValueInputDialog(
+                            label = stringResource(R.string.body_font_weight),
+                            value = previewWeight.coerceIn(weightRange),
+                            range = weightRange,
+                            step = weightStep,
+                            format = { String.format(Locale.getDefault(), "%.1f", it) },
+                            onConfirm = { value ->
+                                previewWeight = com.huangder.lumibooks.ui.components
+                                    .snapSliderValue(value, weightRange, weightStep)
+                                onBodyFontWeightChange(previewWeight)
+                            },
+                            onDismiss = { showBodyFontWeightDialog = false }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth().height(28.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(stringResource(R.string.brightness), Modifier.weight(1f),
+                            fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                        Text(if (currentBrightness < 0f) stringResource(R.string.brightness_auto)
+                            else "${(currentBrightness * 100).toInt()}%",
+                            fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.huangder.lumibooks.ui.components.PillSlider(
+                            value = brightnessPercent,
+                            onValueChange = { pct -> onBrightnessChange(pct / 100f) },
+                            valueRange = 0f..100f,
+                            step = 1f,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        val isAutoBrightness = currentBrightness < 0f
+                        val autoBrightnessDescription = stringResource(R.string.brightness_auto)
+                        if (isLiquidGlass) {
+                            val controlColor = if (isDark) Color.White else Color.Black
+                            LiquidGlassSurface(
+                                controlEdge = true,
+                                shape = CircleShape,
+                                fallbackColor = controlColor,
+                                modifier = Modifier.size(32.dp)
+                                    .semantics { contentDescription = autoBrightnessDescription }
+                                    .testTag("reader-brightness-auto-toggle"),
+                                contentScrimColor = controlColor.copy(
+                                    alpha = if (isAutoBrightness) 0.58f else 0.24f
+                                ),
+                                onClick = {
+                                    onBrightnessChange(if (isAutoBrightness) brightnessPercent / 100f else -1f)
+                                }
+                            ) {
+                                Text("A", color = if (isAutoBrightness) {
+                                    if (isDark) Color.Black else Color.White
+                                } else AppColors.TextPrimary, fontSize = AppType.Footnote,
+                                    fontWeight = FontWeight.SemiBold)
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier.size(32.dp).clip(CircleShape)
+                                    .then(if (isAutoBrightness) Modifier.background(AppColors.Accent)
+                                        else Modifier.border(1.5.dp, AppColors.TextPrimary, CircleShape))
+                                    .semantics { contentDescription = autoBrightnessDescription }
+                                    .clickable {
+                                        onBrightnessChange(if (isAutoBrightness) brightnessPercent / 100f else -1f)
+                                    }
+                                    .testTag("reader-brightness-auto-toggle"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("A", color = if (isAutoBrightness) AppColors.OnAccent else AppColors.TextPrimary,
+                                    fontSize = AppType.Footnote, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth().height(28.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(stringResource(R.string.reader_dark_mask), Modifier.weight(1f),
+                            fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                        Text("${(currentDarkMaskOpacity * 100f).roundToInt()}%",
+                            fontSize = AppType.BodySmall, color = LightTextSecondary, maxLines = 1)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    com.huangder.lumibooks.ui.components.PillSlider(
+                        value = (currentDarkMaskOpacity * 100f).coerceIn(0f, 80f),
+                        onValueChange = { onDarkMaskOpacityChange(it / 100f) },
+                        valueRange = 0f..80f,
+                        step = 1f,
+                        onDragValueChange = { onDarkMaskOpacityPreview(it / 100f) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                    )
                 }
             }
 
@@ -590,7 +627,7 @@ fun ThemeSettingsSheet(
                 Text(
                     text = stringResource(R.string.epub_render_mode),
                     modifier = Modifier.padding(horizontal = 24.dp),
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     fontWeight = FontWeight.Medium,
                     color = AppColors.TextPrimary
                 )
@@ -619,18 +656,18 @@ fun ThemeSettingsSheet(
                         else R.string.epub_reader_layout_hint
                     ),
                     modifier = Modifier.padding(horizontal = 24.dp),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = LightTextSecondary
                 )
                 if (supportsNativeEpubCss && currentRenderMode == EpubRenderMode.BOOK_LAYOUT) {
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.native_epub_css_title), modifier = Modifier.weight(1f),
-                            fontSize = 13.sp, color = AppColors.TextPrimary)
+                            fontSize = AppType.Footnote, color = AppColors.TextPrimary)
                         LiquidGlassSwitch(checked = nativeEpubCssEnabled, onCheckedChange = onNativeEpubCssChange)
                     }
                     Text(stringResource(R.string.native_epub_css_hint), modifier = Modifier.padding(horizontal = 24.dp),
-                        fontSize = 12.sp, color = LightTextSecondary)
+                        fontSize = AppType.Caption, color = LightTextSecondary)
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -639,7 +676,7 @@ fun ThemeSettingsSheet(
                 Text(
                     text = stringResource(R.string.reader_writing_mode),
                     modifier = Modifier.padding(horizontal = 24.dp),
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     fontWeight = FontWeight.Medium,
                     color = AppColors.TextPrimary
                 )
@@ -667,7 +704,7 @@ fun ThemeSettingsSheet(
             // 主题套装区域
             Text(
                 stringResource(R.string.reader_theme_suites),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 color = LightTextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
@@ -676,7 +713,7 @@ fun ThemeSettingsSheet(
             if (eInkModeEnabled) {
                 Text(
                     stringResource(R.string.e_ink_reader_fixed_theme_hint),
-                    fontSize = 13.sp,
+                    fontSize = AppType.Footnote,
                     color = LightTextSecondary,
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
@@ -711,7 +748,7 @@ fun ThemeSettingsSheet(
                 ) {
                     Text(
                         text = stringResource(R.string.reader_theme_suite_apply_to_book),
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         color = AppColors.TextPrimary
                     )
                     Spacer(Modifier.weight(1f))
@@ -729,7 +766,7 @@ fun ThemeSettingsSheet(
                 ) {
                     Text(
                         text = stringResource(R.string.reader_increase_button_contrast),
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         color = AppColors.TextPrimary,
                         modifier = Modifier.weight(1f)
                     )
@@ -747,7 +784,7 @@ fun ThemeSettingsSheet(
             // 简繁转换
             Text(
                 stringResource(R.string.chinese_convert_label),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 color = LightTextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
@@ -783,25 +820,48 @@ fun ThemeSettingsSheet(
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
                 if (supportsPageTransitions) {
                 if (eInkModeEnabled) {
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(
-                            stringResource(R.string.page_turn_module_label),
-                            fontSize = 14.sp,
-                            color = LightTextSecondary
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        ModeButton(
-                            label = stringResource(R.string.transition_none),
-                            isSelected = true,
-                            onClick = {},
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                    ReaderModeModule(
+                        title = stringResource(R.string.page_turn_module_label),
+                        modifier = Modifier.fillMaxWidth(),
+                        showIcons = false,
+                        items = listOf(
+                            ReaderModeOption(
+                                key = "none",
+                                label = stringResource(R.string.transition_none),
+                                shortLabel = stringResource(R.string.transition_none),
+                                icon = ReaderIconPageSlide
+                            ),
+                            ReaderModeOption(
+                                key = "fade",
+                                label = stringResource(R.string.transition_fade),
+                                shortLabel = stringResource(R.string.page_animation_fade_short),
+                                icon = ReaderIconPageFade
+                            ),
+                            ReaderModeOption(
+                                key = "wave",
+                                label = stringResource(R.string.transition_wave),
+                                shortLabel = stringResource(R.string.page_animation_wave_short),
+                                icon = ReaderIconPageSlide
+                            )
+                        ),
+                        selectedKey = currentPageTransition,
+                        onSelect = onPageTransitionChange,
+                        glass = false
+                    )
                 } else {
                     ReaderModeModule(
                         title = stringResource(R.string.page_turn_module_label),
                         modifier = Modifier.fillMaxWidth(),
+                        showIcons = false,
                         items = buildList {
+                            add(
+                                ReaderModeOption(
+                                    key = "none",
+                                    label = stringResource(R.string.transition_none),
+                                    shortLabel = stringResource(R.string.transition_none),
+                                    icon = ReaderIconPageSlide
+                                )
+                            )
                             add(
                                 ReaderModeOption(
                                     key = "slide",
@@ -842,6 +902,14 @@ fun ThemeSettingsSheet(
                                     label = stringResource(R.string.transition_curl),
                                     shortLabel = stringResource(R.string.page_animation_curl_short),
                                     icon = ReaderIconPageCurl
+                                )
+                            )
+                            add(
+                                ReaderModeOption(
+                                    key = "wave",
+                                    label = stringResource(R.string.transition_wave),
+                                    shortLabel = stringResource(R.string.page_animation_wave_short),
+                                    icon = ReaderIconPageSlide
                                 )
                             )
                         },
@@ -895,7 +963,7 @@ fun ThemeSettingsSheet(
                     tintedColor = LightBgGray,
                     contentColor = AppColors.TextPrimary
                 ) {
-                    Icon(AppIcons.UploadSimple, contentDescription = null, modifier = Modifier.size(17.dp))
+                    ControlIcon(AppIcons.UploadSimple, contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
                         stringResource(R.string.theme_bundle_import),
@@ -911,7 +979,7 @@ fun ThemeSettingsSheet(
                     tintedColor = LightBgGray,
                     contentColor = AppColors.TextPrimary
                 ) {
-                    Icon(AppIcons.DownloadSimple, contentDescription = null, modifier = Modifier.size(17.dp))
+                    ControlIcon(AppIcons.DownloadSimple, contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
                         stringResource(R.string.theme_bundle_export),
@@ -930,9 +998,9 @@ fun ThemeSettingsSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.optimize_layout), fontSize = 14.sp, color = AppColors.TextPrimary)
+                        Text(stringResource(R.string.optimize_layout), fontSize = AppType.BodySmall, color = AppColors.TextPrimary)
                         Spacer(Modifier.height(2.dp))
-                        Text(stringResource(R.string.optimize_layout_hint), fontSize = 12.sp, color = LightTextSecondary)
+                        Text(stringResource(R.string.optimize_layout_hint), fontSize = AppType.Caption, color = LightTextSecondary)
                     }
                     LiquidGlassSwitch(
                         checked = currentOptimizeLayout,
@@ -972,37 +1040,29 @@ fun ThemeSettingsSheet(
         }
         LiquidGlassAlertDialog(
             onDismissRequest = { showExportConfirm = false },
-            title = {
-                Text(
-                    stringResource(R.string.theme_bundle_export_confirm_title),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-            },
+            titleText = stringResource(R.string.theme_bundle_export_confirm_title),
             text = {
                 Text(
                     stringResource(R.string.theme_bundle_export_confirm_message, suiteName),
                     color = LightTextSecondary
                 )
             },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.theme_bundle_export),
                     onClick = {
                         showExportConfirm = false
                         suite?.let { onExportThemeBundle(it.id) }
                     },
+                    role = AppDialogActionRole.Primary,
                     tintedColor = AppColors.Accent
-                )
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { showExportConfirm = false }
+                    onClick = { showExportConfirm = false },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 }
 
@@ -1250,39 +1310,31 @@ private fun ReaderThemeSuiteSelector(
         val suiteName = displayedSuites.firstOrNull { it.id == suiteId }?.customName.orEmpty()
         LiquidGlassAlertDialog(
             onDismissRequest = { pendingDeleteId = null },
-            title = {
-                Text(
-                    stringResource(R.string.delete_theme_suite_title),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-            },
+            titleText = stringResource(R.string.delete_theme_suite_title),
             text = {
                 Text(
                     stringResource(R.string.delete_theme_suite_message, suiteName),
                     color = LightTextSecondary,
-                    fontSize = 14.sp
+                    fontSize = AppType.BodySmall
                 )
             },
-            dismissButton = {
-                LiquidGlassTextButton(
-                    text = stringResource(R.string.cancel),
-                    onClick = { pendingDeleteId = null }
-                )
-            },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.delete),
                     onClick = {
                         onDelete(suiteId)
                         armedId = null
                         pendingDeleteId = null
                     },
-                    tintedColor = Color(0xFFFF3B30)
+                    role = AppDialogActionRole.Destructive,
+                    tintedColor = AppColors.Destructive
+                ),
+                AppDialogAction(
+                    text = stringResource(R.string.cancel),
+                    onClick = { pendingDeleteId = null },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 }
 
@@ -1358,7 +1410,7 @@ private fun ThemeSuiteCard(
                         text = "Aa",
                         color = textColor,
                         fontFamily = fontFamily,
-                        fontSize = 17.sp,
+                        fontSize = AppType.Headline,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
@@ -1429,7 +1481,7 @@ private fun AddThemeSuiteCard(onClick: () -> Unit) {
             .padding(horizontal = 13.dp, vertical = 12.dp)
     ) {
         Column(Modifier.fillMaxSize()) {
-            Text("Aa", color = strokeColor, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("Aa", color = strokeColor, fontSize = AppType.Headline, fontWeight = FontWeight.SemiBold)
             Text(
                 stringResource(R.string.theme_suite_preview_text),
                 color = strokeColor,
@@ -1437,7 +1489,7 @@ private fun AddThemeSuiteCard(onClick: () -> Unit) {
                 fontWeight = FontWeight.SemiBold
             )
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Icon(
+                ControlIcon(
                     AppIcons.Plus,
                     contentDescription = stringResource(R.string.add_theme_suite),
                     tint = strokeColor,
@@ -1447,7 +1499,7 @@ private fun AddThemeSuiteCard(onClick: () -> Unit) {
             Text(
                 stringResource(R.string.background_add),
                 color = strokeColor,
-                fontSize = 13.sp,
+                fontSize = AppType.Footnote,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -1476,7 +1528,7 @@ private fun NewThemeSuiteDialog(
         onDismissRequest = onDismiss,
         shape = AppRoundedCornerShape(24.dp),
         transparencyOverride = (LocalLiquidGlassTransparency.current - 0.10f).coerceIn(0f, 0.90f),
-        backgroundBlurRadius = 12.dp
+        fallbackBlurRadius = 12.dp
     ) {
         Column(Modifier.padding(horizontal = 28.dp, vertical = 22.dp)) {
             Text(
@@ -1493,7 +1545,7 @@ private fun NewThemeSuiteDialog(
                     .background(LightBgGray)
                     .border(
                         1.dp,
-                        if (name.isNotEmpty() && error != null) Color(0xFFFF3B30) else LightDivider,
+                        if (name.isNotEmpty() && error != null) AppColors.Destructive else LightDivider,
                         AppRoundedCornerShape(14.dp)
                     )
                     .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -1503,7 +1555,7 @@ private fun NewThemeSuiteDialog(
                     onValueChange = { name = it },
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     singleLine = true,
-                    textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = 16.sp),
+                    textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = AppType.Body),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { confirm() }),
                     decorationBox = { inner ->
@@ -1511,7 +1563,7 @@ private fun NewThemeSuiteDialog(
                             Text(
                                 stringResource(R.string.theme_suite_name_hint),
                                 color = LightTextSecondary,
-                                fontSize = 16.sp
+                                fontSize = AppType.Body
                             )
                         }
                         inner()
@@ -1520,7 +1572,7 @@ private fun NewThemeSuiteDialog(
             }
             if (name.isNotEmpty() && error != null) {
                 Spacer(Modifier.height(6.dp))
-                Text(stringResource(error), color = Color(0xFFFF3B30), fontSize = 12.sp)
+                Text(stringResource(error), color = AppColors.Destructive, fontSize = AppType.Caption)
             }
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)) {
@@ -1546,17 +1598,35 @@ private fun rememberSuiteFontFamily(
     val customPath = customFonts.firstOrNull { fontType == "custom:${it.id}" }?.path
     val fangSongFamilyValue = fangSongFamily()
     val serifFamily = rememberReaderSerifFontFamily(settings.bodyFontWeight)
-    return remember(fontType, customPath, fangSongFamilyValue, serifFamily) {
+    val customFamily = rememberCustomReaderFontFamily(fontType, customPath, settings.bodyFontWeight)
+    return remember(fontType, customFamily, fangSongFamilyValue, serifFamily) {
         when {
             fontType == "serif" -> serifFamily
             fontType == "fangsong" -> fangSongFamilyValue
             fontType == "kaiti" -> KaiTi
-            customPath != null -> runCatching {
-                FontFamily(android.graphics.Typeface.createFromFile(File(customPath)))
-            }.getOrDefault(FontFamily.Default)
+            customPath != null -> customFamily
             else -> FontFamily.Default
         }
     }
+}
+
+@Composable
+private fun rememberCustomReaderFontFamily(
+    fontType: String,
+    path: String?,
+    weight: Float = 400f
+): FontFamily {
+    val context = LocalContext.current
+    val family by androidx.compose.runtime.produceState<FontFamily>(
+        FontFamily.Default, context, fontType, path, weight
+    ) {
+        value = if (fontType.startsWith("custom") && path != null) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                FontFamily(resolveReaderTypeface(context, fontType, path, weight).typeface)
+            }
+        } else FontFamily.Default
+    }
+    return family
 }
 
 private fun suiteBackgroundColor(
@@ -1635,33 +1705,19 @@ private fun ReaderBackgroundSelector(
             .padding(horizontal = horizontalPadding),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        BackgroundPresetItem(
-            label = stringResource(R.string.theme_day),
-            isSelected = currentSelection == "day",
-            onClick = { deleteArmedId = null; onSelect("day") }
-        ) {
-            Box(Modifier.fillMaxSize().background(Color(readerPresetBackgroundColor("day", editingDark))))
-        }
-        BackgroundPresetItem(
-            label = stringResource(R.string.theme_night),
-            isSelected = currentSelection == "night",
-            onClick = { deleteArmedId = null; onSelect("night") }
-        ) {
-            Box(Modifier.fillMaxSize().background(Color(readerPresetBackgroundColor("night", editingDark))))
-        }
-        BackgroundPresetItem(
-            label = stringResource(R.string.theme_sepia),
-            isSelected = currentSelection == "sepia",
-            onClick = { deleteArmedId = null; onSelect("sepia") }
-        ) {
-            Box(Modifier.fillMaxSize().background(Color(readerPresetBackgroundColor("sepia", editingDark))))
-        }
-        BackgroundPresetItem(
-            label = stringResource(R.string.theme_green),
-            isSelected = currentSelection == "green",
-            onClick = { deleteArmedId = null; onSelect("green") }
-        ) {
-            Box(Modifier.fillMaxSize().background(Color(readerPresetBackgroundColor("green", editingDark))))
+        readerPresetBackgroundSelections.forEach { selection ->
+            BackgroundPresetItem(
+                label = stringResource(when (selection) {
+                    "night" -> R.string.theme_night
+                    "sepia" -> R.string.theme_sepia
+                    "green" -> R.string.theme_green
+                    else -> R.string.theme_day
+                }),
+                isSelected = currentSelection == selection,
+                onClick = { deleteArmedId = null; onSelect(selection) }
+            ) {
+                Box(Modifier.fillMaxSize().background(Color(readerPresetBackgroundColor(selection, editingDark))))
+            }
         }
 
         customBackgrounds.forEachIndexed { index, preset ->
@@ -1799,7 +1855,7 @@ private fun BackgroundPresetItem(
         Spacer(Modifier.height(5.dp))
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = AppType.Caption2,
             color = if (isSelected) AppColors.TextPrimary else LightTextSecondary,
             maxLines = 1,
             textAlign = TextAlign.Center
@@ -1873,13 +1929,13 @@ private fun CustomBackgroundDialog(
                         onValueChange = { name = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = 16.sp),
+                        textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = AppType.Body),
                         decorationBox = { inner ->
                             if (name.isEmpty()) {
                                 Text(
                                     stringResource(R.string.background_name_hint),
                                     color = LightTextSecondary,
-                                    fontSize = 16.sp
+                                    fontSize = AppType.Body
                                 )
                             }
                             inner()
@@ -1923,7 +1979,7 @@ private fun CustomBackgroundDialog(
                         .heightIn(min = 44.dp)
                         .border(1.dp, LightDivider, AppRoundedCornerShape(22.dp))
                 ) {
-                        Icon(
+                        ControlIcon(
                             imageVector = AppIcons.Image,
                             contentDescription = null,
                             tint = AppColors.TextPrimary,
@@ -1933,7 +1989,7 @@ private fun CustomBackgroundDialog(
                         Text(
                             text = stringResource(R.string.background_choose_photo),
                             color = AppColors.TextPrimary,
-                            fontSize = 14.sp,
+                            fontSize = AppType.BodySmall,
                             maxLines = 1,
                             softWrap = false,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -1951,9 +2007,9 @@ private fun BackgroundColorSlider(
     onValueChange: (Float) -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 13.sp, color = LightTextSecondary)
+        Text(label, fontSize = AppType.Footnote, color = LightTextSecondary)
         Spacer(Modifier.weight(1f))
-        Text(value.toInt().toString(), fontSize = 12.sp, color = LightTextSecondary)
+        Text(value.toInt().toString(), fontSize = AppType.Caption, color = LightTextSecondary)
     }
     Spacer(Modifier.height(3.dp))
     com.huangder.lumibooks.ui.components.PillSlider(
@@ -1999,7 +2055,7 @@ private fun ThemeButton(
     ) {
         Text(
             label,
-            fontSize = 14.sp,
+            fontSize = AppType.BodySmall,
             color = textColor
         )
     }
@@ -2028,7 +2084,7 @@ private fun ModeButton(
     ) {
         Text(
             label,
-            fontSize = 14.sp,
+            fontSize = AppType.BodySmall,
             maxLines = 1,
             softWrap = false,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -2096,7 +2152,7 @@ fun ReaderSettingsSegmentedTag(
     if (labels.isEmpty()) return
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    val labelStyle = TextStyle(fontSize = AppType.Footnote, fontWeight = FontWeight.Medium)
     val segmentWidths = labels.map { label ->
         with(density) {
             textMeasurer.measure(text = label, style = labelStyle, maxLines = 1)
@@ -2122,7 +2178,7 @@ fun ReaderSettingsSegmentedTag(
         ) { index, isSelected ->
             Text(
                 text = labels[index],
-                fontSize = 13.sp,
+                fontSize = AppType.Footnote,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (isSelected) AppColors.TextPrimary.copy(alpha = 0.86f) else LightTextSecondary,
                 maxLines = 1
@@ -2180,7 +2236,7 @@ fun ReaderSettingsSegmentedTag(
                 ) {
                     Text(
                         text = label,
-                        fontSize = 13.sp,
+                        fontSize = AppType.Footnote,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                         color = if (isSelected) AppColors.TextPrimary else LightTextSecondary,
                         maxLines = 1
@@ -2219,12 +2275,13 @@ private fun ReaderModeModule(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    glass: Boolean = false
+    glass: Boolean = false,
+    showIcons: Boolean = true
 ) {
     Column(modifier) {
         Text(
             title,
-            fontSize = 14.sp,
+            fontSize = AppType.BodySmall,
             color = LightTextSecondary
         )
         Spacer(Modifier.height(8.dp))
@@ -2253,17 +2310,19 @@ private fun ReaderModeModule(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = item.icon.resolve(isSelected),
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(3.dp))
+                    if (showIcons) {
+                        ControlIcon(
+                            imageVector = item.icon.resolve(isSelected),
+                            contentDescription = null,
+                            tint = contentColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(3.dp))
+                    }
                     Text(
                         text = item.shortLabel,
                         color = contentColor,
-                        fontSize = 11.sp,
+                        fontSize = AppType.Caption2,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         softWrap = false
@@ -2330,7 +2389,7 @@ private fun ReaderModeModule(
         }
         val indicatorX by animateDpAsState(
             targetValue = with(density) { indicatorTargetX.toDp() },
-            animationSpec = spring(
+            animationSpec = if (!LocalMotionEnabled.current) snap() else spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
                 stiffness = Spring.StiffnessMediumLow
             ),
@@ -2359,7 +2418,7 @@ private fun ReaderModeModule(
             ) {
                 items.forEach { item ->
                     ReaderModeIconButton(
-                        icon = item.icon,
+                        icon = item.icon.takeIf { showIcons },
                         label = item.shortLabel,
                         contentDescription = item.label,
                         isSelected = item.key == selectedKey,
@@ -2375,7 +2434,7 @@ private fun ReaderModeModule(
 
 @Composable
 private fun ReaderModeIconButton(
-    icon: IconPair,
+    icon: IconPair?,
     label: String,
     contentDescription: String,
     isSelected: Boolean,
@@ -2398,17 +2457,19 @@ private fun ReaderModeIconButton(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon.resolve(isSelected),
-            contentDescription = null,
-            tint = when {
-                !enabled -> LightTextSecondary.copy(alpha = 0.35f)
-                isSelected -> AppColors.TextPrimary
-                else -> LightTextSecondary
-            },
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(Modifier.width(3.dp))
+        if (icon != null) {
+            ControlIcon(
+                imageVector = icon.resolve(isSelected),
+                contentDescription = null,
+                tint = when {
+                    !enabled -> LightTextSecondary.copy(alpha = 0.35f)
+                    isSelected -> AppColors.TextPrimary
+                    else -> LightTextSecondary
+                },
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(3.dp))
+        }
         Text(
             text = label,
             color = when {
@@ -2416,7 +2477,7 @@ private fun ReaderModeIconButton(
                 isSelected -> AppColors.TextPrimary
                 else -> LightTextSecondary
             },
-            fontSize = 11.sp,
+            fontSize = AppType.Caption2,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
             softWrap = false
@@ -2564,15 +2625,9 @@ fun AdvancedSettingsSheet(
     }
 
     // 预览文本用的字体（自定义字体从文件路径加载，与阅读页保持一致）
-    val customPreviewFontFamily = remember(customFontPath) {
-        if (customFontPath != null) {
-            runCatching {
-                val file = java.io.File(customFontPath)
-                if (file.exists()) FontFamily(android.graphics.Typeface.createFromFile(file))
-                else FontFamily.Default
-            }.getOrDefault(FontFamily.Default)
-        } else FontFamily.Default
-    }
+    val previewCustomPath = customFonts.firstOrNull { it.fontTypeKey == currentFontType }?.path
+        ?: customFontPath
+    val customPreviewFontFamily = rememberCustomReaderFontFamily(currentFontType, previewCustomPath)
     val previewFont = when {
         currentFontType == "serif" -> rememberReaderSerifFontFamily()
         currentFontType == "fangsong" -> fangSongFamily()
@@ -2597,13 +2652,12 @@ fun AdvancedSettingsSheet(
     val previewParagraphSpacing = currentParagraphSpacing
     val previewFirstLineIndent = currentFirstLineIndent
     val previewContext = LocalContext.current
-    val verticalPreviewTypeface = remember(previewContext, currentFontType, customFontPath) {
-        resolveReaderTypeface(
-            context = previewContext,
-            fontType = currentFontType,
-            customFontPath = customFontPath,
-            weight = 400
-        ).typeface
+    val verticalPreviewTypeface by androidx.compose.runtime.produceState(
+        android.graphics.Typeface.DEFAULT, previewContext, currentFontType, previewCustomPath
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            resolveReaderTypeface(previewContext, currentFontType, previewCustomPath, 400).typeface
+        }
     }
 
     LiquidGlassMenuHost(modifier = Modifier.fillMaxSize()) {
@@ -2619,11 +2673,9 @@ fun AdvancedSettingsSheet(
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { isClosing = true }
         )
 
-        // 底部弹出（90% 屏幕高度）
+        // 底部弹出（90% 屏幕高度）；平板为居中卡片
         LiquidGlassColumnSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(0.90f)
+            modifier = adaptiveSheetFrame(heightFraction = 0.90f)
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = {})
                 }
@@ -2633,7 +2685,7 @@ fun AdvancedSettingsSheet(
                 .fillMaxSize()
                 .navigationBarsPadding(),
             fallbackColor = LightCardBg,
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner)
         ) {
             // 顶部预览区域：背景直接铺到容器顶部，操作按钮悬浮在预览之上。
             Box(
@@ -2760,7 +2812,7 @@ fun AdvancedSettingsSheet(
                         if (preservePublisherLayout) R.string.reader_layout_editing_book
                         else R.string.reader_layout_editing_reader
                     ),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = LightTextSecondary
                 )
                 Spacer(Modifier.height(10.dp))
@@ -2787,13 +2839,13 @@ fun AdvancedSettingsSheet(
                             // 「原排版」用书籍自带配色：底色与文字颜色都不可改。
                             Text(
                                 stringResource(R.string.reader_theme_publisher_locked_background),
-                                fontSize = 13.sp,
+                                fontSize = AppType.Footnote,
                                 color = LightTextSecondary
                             )
                         } else {
                             Text(
                                 stringResource(R.string.reading_background),
-                                fontSize = 14.sp,
+                                fontSize = AppType.BodySmall,
                                 color = LightTextSecondary
                             )
                             Spacer(Modifier.height(12.dp))
@@ -2817,13 +2869,13 @@ fun AdvancedSettingsSheet(
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         stringResource(R.string.preserve_epub_background),
-                                        fontSize = 14.sp,
+                                        fontSize = AppType.BodySmall,
                                         color = AppColors.TextPrimary
                                     )
                                     Spacer(Modifier.height(2.dp))
                                     Text(
                                         stringResource(R.string.preserve_epub_background_hint),
-                                        fontSize = 12.sp,
+                                        fontSize = AppType.Caption,
                                         color = LightTextSecondary
                                     )
                                 }
@@ -2842,13 +2894,13 @@ fun AdvancedSettingsSheet(
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         stringResource(R.string.reader_image_page_crop),
-                                        fontSize = 14.sp,
+                                        fontSize = AppType.BodySmall,
                                         color = AppColors.TextPrimary
                                     )
                                     Spacer(Modifier.height(2.dp))
                                     Text(
                                         stringResource(R.string.reader_image_page_crop_hint),
-                                        fontSize = 12.sp,
+                                        fontSize = AppType.Caption,
                                         color = LightTextSecondary
                                     )
                                 }
@@ -2890,8 +2942,8 @@ fun AdvancedSettingsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(stringResource(R.string.reader_image_adjustment), fontSize = 14.sp, color = AppColors.TextPrimary)
-                                    Text(stringResource(R.string.reader_image_adjustment_hint), fontSize = 12.sp, color = LightTextSecondary)
+                                    Text(stringResource(R.string.reader_image_adjustment), fontSize = AppType.BodySmall, color = AppColors.TextPrimary)
+                                    Text(stringResource(R.string.reader_image_adjustment_hint), fontSize = AppType.Caption, color = LightTextSecondary)
                                 }
                                 Icon(
                                     if (imageAdjustmentsExpanded) AppIcons.CaretUp else AppIcons.CaretDown,
@@ -2940,7 +2992,7 @@ fun AdvancedSettingsSheet(
                 ) {
                     TextAlignmentSetting(
                         selected = currentTextAlignment,
-                        forceSolidMenu = eInkModeEnabled || preservePublisherLayout,
+                        forceSolidMenu = eInkModeEnabled || (preservePublisherLayout && LocalLiquidGlassBackdrop.current == null),
                         onSelected = onTextAlignmentChange
                     )
                     if (!eInkModeEnabled) {
@@ -2964,7 +3016,7 @@ fun AdvancedSettingsSheet(
                 ) {
                     PreviewableSettingSlider(
                         key = "line-height", label = stringResource(R.string.label_line_height),
-                        value = currentLineHeight, range = 1f..2.5f, step = 0.1f,
+                        value = currentLineHeight, range = ReaderThemeSettings.LINE_HEIGHT_RANGE, step = 0.1f,
                         format = { String.format("%.1fx", it) }, onChange = onLineHeightChange,
                         onPreview = onLineHeightPreview, activePreview = marginPreview,
                         onActivePreviewChange = { marginPreview = it }
@@ -2972,7 +3024,7 @@ fun AdvancedSettingsSheet(
                     Spacer(Modifier.height(12.dp))
                     PreviewableSettingSlider(
                         key = "letter-spacing", label = stringResource(R.string.label_letter_spacing),
-                        value = currentLetterSpacing, range = 0f..10f, step = 0.5f,
+                        value = currentLetterSpacing, range = ReaderThemeSettings.LETTER_SPACING_RANGE, step = 0.5f,
                         format = { String.format("%.1f sp", it) }, onChange = onLetterSpacingChange,
                         onPreview = onLetterSpacingPreview, activePreview = marginPreview,
                         onActivePreviewChange = { marginPreview = it }
@@ -3142,33 +3194,31 @@ fun AdvancedSettingsSheet(
                     onExpandedChange = { expandedGroups["controls"] = it },
                     eInkModeEnabled = eInkModeEnabled
                 ) {
-                    if (!eInkModeEnabled) {
-                        ReaderCornerLayoutSettings(
-                            topLeft = readerTopLeftContent,
-                            topRight = readerTopRightContent,
-                            bottomLeft = readerBottomLeftContent,
-                            bottomRight = readerBottomRightContent,
-                            forceSolidMenus = preservePublisherLayout,
-                            onContentChange = onReaderCornerContentChange
-                        )
-                        Spacer(Modifier.height(16.dp))
-                    }
+                    ReaderCornerLayoutSettings(
+                        topLeft = readerTopLeftContent,
+                        topRight = readerTopRightContent,
+                        bottomLeft = readerBottomLeftContent,
+                        bottomRight = readerBottomRightContent,
+                        forceSolidMenus = eInkModeEnabled || (preservePublisherLayout && LocalLiquidGlassBackdrop.current == null),
+                        onContentChange = onReaderCornerContentChange
+                    )
+                    Spacer(Modifier.height(16.dp))
                     ReaderEdgeTapModeSetting(
                         selected = readerEdgeTapMode,
-                        forceSolidMenu = preservePublisherLayout,
+                        forceSolidMenu = preservePublisherLayout && LocalLiquidGlassBackdrop.current == null,
                         onSelected = onReaderEdgeTapModeChange
                     )
                     Spacer(Modifier.height(16.dp))
                     ScreenSleepTimeoutSetting(
                         selectedSeconds = screenSleepTimeoutSeconds,
-                        forceSolidMenu = preservePublisherLayout,
+                        forceSolidMenu = preservePublisherLayout && LocalLiquidGlassBackdrop.current == null,
                         onSelected = onScreenSleepTimeoutChange
                     )
                     Spacer(Modifier.height(16.dp))
                     VolumeKeyActionsSetting(
                         upAction = volumeKeyUpAction,
                         downAction = volumeKeyDownAction,
-                        forceSolidMenu = preservePublisherLayout,
+                        forceSolidMenu = preservePublisherLayout && LocalLiquidGlassBackdrop.current == null,
                         onSelected = onVolumeKeyActionsChange
                     )
                     Spacer(Modifier.height(16.dp))
@@ -3188,7 +3238,7 @@ fun AdvancedSettingsSheet(
                     onExpandedChange = { expandedGroups["font"] = it },
                     eInkModeEnabled = eInkModeEnabled
                 ) {
-                    Text(stringResource(R.string.font_label), fontSize = 14.sp, color = LightTextSecondary)
+                    Text(stringResource(R.string.font_label), fontSize = AppType.BodySmall, color = LightTextSecondary)
                     Spacer(Modifier.height(12.dp))
                     FontSelector(
                         currentFont = currentFontType,
@@ -3219,7 +3269,7 @@ fun AdvancedSettingsSheet(
                     Text(
                         text = stringResource(R.string.reset_reader_settings),
                         color = AccentColor,
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -3420,9 +3470,9 @@ private fun AdvancedSettingsSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text(title, fontSize = AppType.Subhead, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
                 Spacer(Modifier.height(2.dp))
-                Text(summary, fontSize = 12.sp, color = LightTextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(summary, fontSize = AppType.Caption, color = LightTextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(
                 imageVector = if (expanded) AppIcons.CaretUp else AppIcons.CaretDown,
@@ -3452,9 +3502,9 @@ private fun ImageAdjustmentEntry(enabled: Boolean, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.reader_image_adjustment), fontSize = 14.sp, color = if (enabled) AppColors.TextPrimary else LightTextSecondary)
+            Text(stringResource(R.string.reader_image_adjustment), fontSize = AppType.BodySmall, color = if (enabled) AppColors.TextPrimary else LightTextSecondary)
             Spacer(Modifier.height(2.dp))
-            Text(stringResource(if (enabled) R.string.reader_image_adjustment_hint else R.string.reader_image_adjustment_unavailable), fontSize = 12.sp, color = LightTextSecondary)
+            Text(stringResource(if (enabled) R.string.reader_image_adjustment_hint else R.string.reader_image_adjustment_unavailable), fontSize = AppType.Caption, color = LightTextSecondary)
         }
         Icon(AppIcons.CaretRight, contentDescription = null, tint = LightTextSecondary, modifier = Modifier.size(18.dp))
     }
@@ -3472,9 +3522,9 @@ private fun AdvancedToggleRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, color = AppColors.TextPrimary)
+            Text(title, fontSize = AppType.BodySmall, color = AppColors.TextPrimary)
             Spacer(Modifier.height(2.dp))
-            Text(hint, fontSize = 12.sp, color = LightTextSecondary)
+            Text(hint, fontSize = AppType.Caption, color = LightTextSecondary)
         }
         LiquidGlassSwitch(
             checked = checked,
@@ -3494,14 +3544,14 @@ private fun ReaderCornerLayoutSettings(
 ) {
     Text(
         text = stringResource(R.string.reader_page_layout),
-        fontSize = 14.sp,
+        fontSize = AppType.BodySmall,
         color = AppColors.TextPrimary,
         fontWeight = FontWeight.SemiBold
     )
     Spacer(Modifier.height(2.dp))
     Text(
         text = stringResource(R.string.reader_page_layout_hint),
-        fontSize = 12.sp,
+        fontSize = AppType.Caption,
         color = LightTextSecondary
     )
     Spacer(Modifier.height(8.dp))
@@ -3552,7 +3602,7 @@ private fun ReaderCornerSelectionRow(
             .height(44.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 13.sp, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+        Text(label, fontSize = AppType.Footnote, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
         Box {
             Box(
                 modifier = Modifier
@@ -3589,13 +3639,13 @@ private fun ReaderCornerSelectionRow(
             ) {
                 Text(
                     text = readerCornerContentLabel(selected),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.TextPrimary,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Icon(
+                ControlIcon(
                     imageVector = AppIcons.CaretDown,
                     contentDescription = null,
                     tint = LightTextSecondary,
@@ -3604,20 +3654,16 @@ private fun ReaderCornerSelectionRow(
                         .size(16.dp)
                 )
             }
-            DropdownMenu(
+            AppDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false },
-                shape = AppRoundedCornerShape(18.dp),
-                containerColor = LightCardBg,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                onDismissRequest = { expanded = false }
             ) {
                 labeledOptions.forEach { (option, optionLabel) ->
                     DropdownMenuItem(
                         text = {
                             Text(
                                 text = optionLabel,
-                                fontSize = 13.sp,
+                                fontSize = AppType.Footnote,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -3655,7 +3701,7 @@ private fun TextAlignmentSetting(
     ) {
         Text(
             text = stringResource(R.string.label_text_alignment),
-            fontSize = 13.sp,
+            fontSize = AppType.Footnote,
             color = AppColors.TextPrimary,
             modifier = Modifier.weight(1f)
         )
@@ -3695,7 +3741,7 @@ private fun TextAlignmentSetting(
             ) {
                 Text(
                     text = readerTextAlignmentLabel(selected),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.TextPrimary,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -3703,7 +3749,7 @@ private fun TextAlignmentSetting(
                         .fillMaxWidth()
                         .padding(end = 16.dp)
                 )
-                Icon(
+                ControlIcon(
                     imageVector = AppIcons.CaretDown,
                     contentDescription = null,
                     tint = LightTextSecondary,
@@ -3712,20 +3758,16 @@ private fun TextAlignmentSetting(
                         .size(16.dp)
                 )
             }
-            DropdownMenu(
+            AppDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false },
-                shape = AppRoundedCornerShape(18.dp),
-                containerColor = LightCardBg,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                onDismissRequest = { expanded = false }
             ) {
                 labeledOptions.forEach { (alignment, label) ->
                     DropdownMenuItem(
                         text = {
                             Text(
                                 text = label,
-                                fontSize = 13.sp,
+                                fontSize = AppType.Footnote,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -3766,13 +3808,13 @@ private fun ReaderEdgeTapModeSetting(
         ) {
             Text(
                 text = stringResource(R.string.reader_edge_tap_page_turn),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 color = AppColors.TextPrimary
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = stringResource(R.string.reader_edge_tap_page_turn_hint),
-                fontSize = 12.sp,
+                fontSize = AppType.Caption,
                 color = LightTextSecondary
             )
         }
@@ -3813,7 +3855,7 @@ private fun ReaderEdgeTapModeSetting(
             ) {
                 Text(
                     text = readerEdgeTapModeLabel(selected),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.TextPrimary,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -3821,7 +3863,7 @@ private fun ReaderEdgeTapModeSetting(
                         .fillMaxWidth()
                         .padding(end = 16.dp)
                 )
-                Icon(
+                ControlIcon(
                     imageVector = AppIcons.CaretDown,
                     contentDescription = null,
                     tint = LightTextSecondary,
@@ -3830,20 +3872,16 @@ private fun ReaderEdgeTapModeSetting(
                         .size(16.dp)
                 )
             }
-            DropdownMenu(
+            AppDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false },
-                shape = AppRoundedCornerShape(18.dp),
-                containerColor = LightCardBg,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                onDismissRequest = { expanded = false }
             ) {
                 labeledOptions.forEach { (mode, label) ->
                     DropdownMenuItem(
                         text = {
                             Text(
                                 text = label,
-                                fontSize = 13.sp,
+                                fontSize = AppType.Footnote,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -3903,7 +3941,7 @@ private fun VolumeKeyActionDropdown(
         ) {
             Text(
                 label,
-                fontSize = 13.sp,
+                fontSize = AppType.Footnote,
                 color = AppColors.TextPrimary,
                 modifier = Modifier.weight(1f)
             )
@@ -3943,33 +3981,29 @@ private fun VolumeKeyActionDropdown(
                 ) {
                     Text(
                         text = readerVolumeKeyActionLabel(selected),
-                        fontSize = 12.sp,
+                        fontSize = AppType.Caption,
                         color = AppColors.TextPrimary,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         modifier = Modifier.fillMaxWidth().padding(end = 16.dp)
                     )
-                    Icon(
+                    ControlIcon(
                         imageVector = AppIcons.CaretDown,
                         contentDescription = null,
                         tint = LightTextSecondary,
                         modifier = Modifier.align(Alignment.CenterEnd).size(16.dp)
                     )
                 }
-                DropdownMenu(
+                AppDropdownMenu(
                     expanded = expanded,
-                    onDismissRequest = { expanded = false },
-                    shape = AppRoundedCornerShape(18.dp),
-                    containerColor = LightCardBg,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp
+                    onDismissRequest = { expanded = false }
                 ) {
                     labeledOptions.forEach { (action, actionLabel) ->
                         DropdownMenuItem(
                             text = {
                                 Text(
                                     text = actionLabel,
-                                    fontSize = 13.sp,
+                                    fontSize = AppType.Footnote,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -4024,13 +4058,13 @@ private fun ScreenSleepTimeoutSetting(
         ) {
             Text(
                 text = stringResource(R.string.screen_sleep_timeout),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 color = AppColors.TextPrimary
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = stringResource(R.string.screen_sleep_timeout_hint),
-                fontSize = 11.sp,
+                fontSize = AppType.Caption2,
                 color = LightTextSecondary.copy(alpha = 0.72f)
             )
         }
@@ -4071,7 +4105,7 @@ private fun ScreenSleepTimeoutSetting(
             ) {
                 Text(
                     text = screenSleepTimeoutLabel(selectedSeconds),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.TextPrimary,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -4079,7 +4113,7 @@ private fun ScreenSleepTimeoutSetting(
                         .fillMaxWidth()
                         .padding(end = 16.dp)
                 )
-                Icon(
+                ControlIcon(
                     imageVector = AppIcons.CaretDown,
                     contentDescription = null,
                     tint = LightTextSecondary,
@@ -4088,20 +4122,16 @@ private fun ScreenSleepTimeoutSetting(
                         .size(16.dp)
                 )
             }
-            DropdownMenu(
+            AppDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false },
-                shape = AppRoundedCornerShape(18.dp),
-                containerColor = LightCardBg,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                onDismissRequest = { expanded = false }
             ) {
                 labeledOptions.forEach { (seconds, label) ->
                     DropdownMenuItem(
                         text = {
                             Text(
                                 text = label,
-                                fontSize = 13.sp,
+                                fontSize = AppType.Footnote,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -4160,6 +4190,7 @@ private fun readerCornerContentLabel(content: ReaderCornerContent): String = str
         ReaderCornerContent.NONE -> R.string.reader_corner_content_none
         ReaderCornerContent.CHAPTER_INFO -> R.string.reader_corner_content_chapter
         ReaderCornerContent.BOOK_PROGRESS -> R.string.reader_corner_content_book_progress
+        ReaderCornerContent.CHAPTER_PROGRESS -> R.string.reader_corner_content_chapter_progress
         ReaderCornerContent.PAGE_NUMBER -> R.string.reader_corner_content_page_number
         ReaderCornerContent.GLOBAL_PAGE_NUMBER -> R.string.reader_corner_content_global_page_number
         ReaderCornerContent.BATTERY -> R.string.reader_corner_content_battery
@@ -4286,7 +4317,7 @@ private fun VerticalAdvancedPreview(
 }
 
 @Composable
-private fun TextColorSetting(
+internal fun TextColorSetting(
     currentOverride: Int?,
     effectiveTextColor: Color,
     onColorChange: (Int?) -> Unit
@@ -4303,7 +4334,7 @@ private fun TextColorSetting(
     val isCustomColor = currentOverride != null && currentOverride !in presetColors
 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(R.string.label_text_color), fontSize = 14.sp, color = AppColors.TextPrimary)
+        Text(stringResource(R.string.label_text_color), fontSize = AppType.BodySmall, color = AppColors.TextPrimary)
         Spacer(Modifier.weight(1f))
         Text(
             text = if (currentOverride == null) {
@@ -4311,7 +4342,7 @@ private fun TextColorSetting(
             } else {
                 String.format("#%06X", 0xFFFFFF and currentOverride)
             },
-            fontSize = 13.sp,
+            fontSize = AppType.Footnote,
             color = LightTextSecondary
         )
     }
@@ -4327,7 +4358,7 @@ private fun TextColorSetting(
             contentDescription = stringResource(R.string.text_color_auto),
             onClick = { onColorChange(null) }
         ) {
-            Text("A", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("A", color = Color.Black, fontSize = AppType.Body, fontWeight = FontWeight.SemiBold)
         }
         presetColors.forEach { color ->
             TextColorSwatch(
@@ -4344,7 +4375,7 @@ private fun TextColorSetting(
             onClick = { showCustomColorDialog = true }
         ) {
             if (!isCustomColor) {
-                Icon(
+                ControlIcon(
                     imageVector = AppIcons.Plus,
                     contentDescription = null,
                     tint = LightTextSecondary,
@@ -4367,7 +4398,7 @@ private fun TextColorSetting(
 }
 
 @Composable
-private fun TextColorSwatch(
+internal fun TextColorSwatch(
     color: Color,
     isSelected: Boolean,
     contentDescription: String,
@@ -4385,7 +4416,10 @@ private fun TextColorSwatch(
             .clip(CircleShape)
             .background(color)
             .border(1.dp, LightDivider, CircleShape)
-            .semantics { this.contentDescription = contentDescription }
+            .semantics {
+                this.contentDescription = contentDescription
+                selected = isSelected
+            }
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
@@ -4526,6 +4560,7 @@ private fun SliderValueInputDialog(
         shape = AppRoundedCornerShape(24.dp),
         transparencyOverride = dialogTransparency
     ) {
+        LaunchedEffect(focusRequester) { focusRequester.requestFocus() }
         Column(Modifier.padding(horizontal = 28.dp, vertical = 20.dp)) {
             // 标题行
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -4539,7 +4574,7 @@ private fun SliderValueInputDialog(
                 // 范围提示
                 Text(
                     text = "${format(range.start)} ~ ${format(range.endInclusive)}",
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = LightTextSecondary
                 )
             }
@@ -4550,7 +4585,7 @@ private fun SliderValueInputDialog(
             val borderColor = when {
                 textFieldValue.text.isEmpty() -> LightTextSecondary.copy(alpha = 0.3f)
                 isValid -> AppColors.TextPrimary.copy(alpha = 0.4f)
-                else -> Color(0xFFFF3B30)
+                else -> AppColors.Destructive
             }
             Box(
                 modifier = Modifier
@@ -4566,26 +4601,24 @@ private fun SliderValueInputDialog(
                     onValueChange = { textFieldValue = it },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Decimal,
+                        keyboardType = if (range.start < 0f) KeyboardType.Text else KeyboardType.Decimal,
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(onDone = { confirm() }),
                     textStyle = TextStyle(
-                        fontSize = 32.sp,
+                        fontSize = AppType.Display,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isValid || textFieldValue.text.isEmpty()) AppColors.TextPrimary
-                                else Color(0xFFFF3B30),
+                                else AppColors.Destructive,
                         textAlign = TextAlign.Center
                     ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     decorationBox = { inner ->
                         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             if (textFieldValue.text.isEmpty()) {
                                 Text(
                                     format(value),
-                                    fontSize = 32.sp,
+                                    fontSize = AppType.Display,
                                     fontWeight = FontWeight.SemiBold,
                                     color = LightTextSecondary,
                                     textAlign = TextAlign.Center,
@@ -4619,7 +4652,6 @@ private fun SliderValueInputDialog(
         }
     }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }
 
 @Composable
@@ -4641,7 +4673,7 @@ internal fun SettingSlider(
     var showInputDialog by remember { mutableStateOf(false) }
 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 14.sp, color = AppColors.TextPrimary)
+        Text(label, fontSize = AppType.BodySmall, color = AppColors.TextPrimary)
         Spacer(Modifier.weight(1f))
         // 点击数值弹出精细输入对话框
         Box(
@@ -4655,7 +4687,7 @@ internal fun SettingSlider(
         ) {
             Text(
                 text = format(sliderValue),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 color = AppColors.TextPrimary,
                 fontWeight = FontWeight.SemiBold
             )
@@ -4771,13 +4803,7 @@ private fun FontSelector(
                         }
                         is FontSelectorItem.Custom -> {
                             val preset = item.preset
-                            val fontFamily = remember(preset.path) {
-                                runCatching {
-                                    val f = java.io.File(preset.path)
-                                    if (f.exists()) FontFamily(android.graphics.Typeface.createFromFile(f))
-                                    else FontFamily.Default
-                                }.getOrDefault(FontFamily.Default)
-                            }
+                            val fontFamily = rememberCustomReaderFontFamily(preset.fontTypeKey, preset.path)
                             val isSelected = currentFont == preset.fontTypeKey
                             val isDeleteArmed = deleteArmedId == preset.id
                             Box(
@@ -4898,7 +4924,7 @@ private fun FontImportNameDialog(
         backdrop = backdrop,
         shape = AppRoundedCornerShape(24.dp),
         transparencyOverride = (LocalLiquidGlassTransparency.current - 0.10f).coerceIn(0f, 0.90f),
-        backgroundBlurRadius = 12.dp
+        fallbackBlurRadius = 12.dp
     ) {
         Column(Modifier.padding(horizontal = 28.dp, vertical = 22.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -4911,7 +4937,7 @@ private fun FontImportNameDialog(
                 Spacer(Modifier.weight(1f))
                 Text(
                     stringResource(R.string.font_import_name_count, count.coerceAtMost(12)),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = LightTextSecondary
                 )
             }
@@ -4936,7 +4962,7 @@ private fun FontImportNameDialog(
                     },
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     singleLine = true,
-                    textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = 16.sp),
+                    textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = AppType.Body),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { confirm() }),
                     decorationBox = { inner ->
@@ -4944,7 +4970,7 @@ private fun FontImportNameDialog(
                             Text(
                                 stringResource(R.string.font_import_name_hint),
                                 color = LightTextSecondary,
-                                fontSize = 16.sp
+                                fontSize = AppType.Body
                             )
                         }
                         inner()
@@ -4996,7 +5022,7 @@ private fun FontButton(
     ) {
         Text(
             label,
-            fontSize = 14.sp,
+            fontSize = AppType.BodySmall,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
             fontFamily = fontFamily,
             color = AppColors.TextPrimary

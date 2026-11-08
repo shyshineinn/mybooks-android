@@ -2,10 +2,8 @@ package com.huangder.lumibooks.reading
 
 import android.os.SystemClock
 import android.util.Log
-import androidx.room.withTransaction
-import com.huangder.lumibooks.data.local.database.AppDatabase
-import com.huangder.lumibooks.data.local.entity.ReadingRecordEntity
-import com.huangder.lumibooks.data.sync.SyncIdentityStore
+import com.huangder.lumibooks.domain.repository.ReadingRepository
+import com.huangder.lumibooks.edition.EditionActivityObserver
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -14,39 +12,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** One owner for all elapsed time, independent of the reader and playback service lifetimes. */
 @Singleton
 class ReadingActivityTracker internal constructor(
     private val persist: suspend (ActivityIncrement) -> Unit,
     private val scope: CoroutineScope,
-    private val timeline: ActivityTimeline
+    private val timeline: ActivityTimeline,
+    private val onPersisted: (ActivityIncrement) -> Unit = {}
 ) {
-    @Inject constructor(database: AppDatabase, identity: SyncIdentityStore) : this(
-        { increment ->
-            val device = identity.deviceId()
-            database.withTransaction {
-                val book = database.bookDao().getBookById(increment.bookId)
-                if (book == null || book.isArchived) return@withTransaction
-                val records = database.readingRecordDao()
-                val old = records.getRecordByBookAndDate(increment.bookId, increment.date, device)
-                records.insertRecord(
-                    ReadingRecordEntity(
-                        id = old?.id ?: 0,
-                        bookId = increment.bookId,
-                        date = increment.date,
-                        duration = (old?.duration ?: 0) + increment.readingDuration,
-                        listeningDuration = (old?.listeningDuration ?: 0) + increment.listeningDuration,
-                        sourceDeviceId = device,
-                        startTime = minOf(old?.startTime ?: increment.startTime, increment.startTime),
-                        endTime = maxOf(old?.endTime ?: increment.endTime, increment.endTime),
-                        updatedAt = maxOf(old?.updatedAt ?: 0, System.currentTimeMillis())
-                    )
-                )
-            }
-        },
+    @Inject constructor(repository: ReadingRepository, observer: EditionActivityObserver) : this(
+        { increment -> withContext(Dispatchers.IO) {
+            observer.prepare()
+            repository.appendActivityDuration(increment.bookId, increment.date,
+                increment.readingDuration, increment.listeningDuration, increment.startTime, increment.endTime)
+        } },
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-        ActivityTimeline(SystemClock::elapsedRealtime, System::currentTimeMillis)
+        ActivityTimeline(SystemClock::elapsedRealtime, System::currentTimeMillis),
+        { observer.record(it.readingDuration, it.listeningDuration) }
     )
     private val pending = ArrayDeque<ActivityIncrement>()
     private var saving = false
@@ -100,6 +84,11 @@ class ReadingActivityTracker internal constructor(
                         if (error is CancellationException) throw error
                         Log.w("ReadingActivity", "Unable to save activity; retrying on next checkpoint", error)
                         break
+                    }
+                    // Imports never pass through this live timeline. An observer failure must
+                    // not retry the already committed database increment.
+                    runCatching { onPersisted(increment) }.onFailure {
+                        Log.w("ReadingActivity", "Unable to record local activity", it)
                     }
                 }
             } finally { saving = false }

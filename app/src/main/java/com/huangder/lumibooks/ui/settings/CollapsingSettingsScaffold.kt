@@ -4,7 +4,6 @@ import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,8 +23,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -41,38 +42,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.R
+import com.huangder.lumibooks.ui.components.CollapsingPageLargeTitle
+import com.huangder.lumibooks.ui.components.CollapsingPageSmallTitle
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
 import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA
 import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA_DARK
 import com.huangder.lumibooks.ui.components.ProgressiveTopBlur
-import com.huangder.lumibooks.ui.components.largeTitleAlpha
-import com.huangder.lumibooks.ui.components.largeTitleScale
+import com.huangder.lumibooks.ui.components.ProgressiveTopScrim
 import com.huangder.lumibooks.ui.components.progressiveBlurEnabled
 import com.huangder.lumibooks.ui.components.progressiveTopScrimEnabled
 import com.huangder.lumibooks.ui.components.quantizeBlurStrength
-import com.huangder.lumibooks.ui.components.smallTitleAlpha
-import com.huangder.lumibooks.ui.components.smallTitleScale
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
-import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability
-import com.huangder.lumibooks.ui.theme.fangSongFamily
-import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.Backdrop
@@ -107,7 +100,11 @@ internal fun CollapsingSettingsScaffold(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     actions: (@Composable RowScope.() -> Unit)? = null,
-    content: @Composable () -> Unit
+    lazyListState: LazyListState? = null,
+    lazyContent: (LazyListScope.() -> Unit)? = null,
+    alignToolbarToContent: Boolean = false,
+    showBackButton: Boolean = true,
+    content: @Composable () -> Unit = {}
 ) {
     val capability = LocalLiquidGlassCapability.current
     val eInkMode = LocalEInkMode.current
@@ -134,7 +131,7 @@ internal fun CollapsingSettingsScaffold(
     val targetSection = LocalSettingsTargetSection.current
     var targetConsumed by rememberSaveable(targetSection) { mutableStateOf(false) }
     LaunchedEffect(targetSection, sectionNavigator) {
-        if (targetSection != null && !targetConsumed) {
+        if (targetSection != null && !targetConsumed && lazyListState == null) {
             val offset = snapshotFlow { sectionNavigator.offsets[targetSection] }.filterNotNull().first()
             scrollState.scrollTo((offset - toolbarBottomPx.roundToInt()).coerceAtLeast(0))
             targetConsumed = true
@@ -142,10 +139,13 @@ internal fun CollapsingSettingsScaffold(
     }
 
     // 单一进度源：模糊强度与大小标题过渡都读它，二者不会失步。
-    val collapseProgress = remember(scrollState, toolbarBottomPx) {
+    val collapseProgress = remember(scrollState, lazyListState, toolbarBottomPx) {
         derivedStateOf {
+            val scrollOffset = lazyListState?.let {
+                if (it.firstVisibleItemIndex == 0) it.firstVisibleItemScrollOffset.toFloat() else largeTitleHeight
+            } ?: scrollState.value.toFloat()
             detailTitleCollapseFraction(
-                titleTop = toolbarBottomPx - scrollState.value,
+                titleTop = toolbarBottomPx - scrollOffset,
                 titleHeight = largeTitleHeight,
                 viewportTop = toolbarBottomPx
             )
@@ -158,40 +158,33 @@ internal fun CollapsingSettingsScaffold(
                 .fillMaxSize()
                 .then(if (blurEnabled) Modifier.layerBackdrop(topBlurBackdrop) else Modifier)
         ) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .widthIn(max = 840.dp)
-                    .fillMaxWidth()
-                    .fillMaxHeight()
-                    .imePadding()
-                    .verticalScroll(scrollState)
-            ) {
-                Column(Modifier.fillMaxWidth().onGloballyPositioned(sectionNavigator::updateContent)) {
-                    Spacer(Modifier.height(toolbarTotalHeight))
-                    Text(
-                        text = title,
-                        modifier = Modifier
-                            .padding(horizontal = AppSpace.lg, vertical = AppSpace.sm)
-                            .onSizeChanged { size -> largeTitleHeight = size.height.toFloat() }
-                            .graphicsLayer {
-                                // 读取放在绘制阶段，滚动时只失效图层，不触发重组。
-                                val progress = collapseProgress.value
-                                val scale = largeTitleScale(progress)
-                                scaleX = scale
-                                scaleY = scale
-                                alpha = largeTitleAlpha(progress)
-                                transformOrigin = TransformOrigin(0f, 0.5f)
-                            },
-                        fontSize = AppType.Display,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = resolveAppFontFamily(fangSongFamily()),
-                        color = AppColors.TextPrimary
-                    )
-                    CompositionLocalProvider(LocalSettingsSectionNavigator provides sectionNavigator) {
-                        content()
+            val contentModifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp)
+                .fillMaxWidth().fillMaxHeight().imePadding()
+            val heading: @Composable () -> Unit = {
+                Spacer(Modifier.height(toolbarTotalHeight))
+                CollapsingPageLargeTitle(
+                    title = title,
+                    progress = { collapseProgress.value },
+                    modifier = Modifier
+                        .padding(horizontal = AppSpace.lg, vertical = AppSpace.sm)
+                        .onSizeChanged { size -> largeTitleHeight = size.height.toFloat() }
+                )
+            }
+            if (lazyListState != null && lazyContent != null) {
+                LazyColumn(modifier = contentModifier, state = lazyListState) {
+                    item(key = "settings-heading", contentType = "heading") { Column { heading() } }
+                    lazyContent()
+                    item(key = "settings-footer", contentType = "footer") { Spacer(Modifier.height(120.dp)) }
+                }
+            } else {
+                Column(contentModifier.verticalScroll(scrollState)) {
+                    Column(Modifier.fillMaxWidth().onGloballyPositioned(sectionNavigator::updateContent)) {
+                        heading()
+                        CompositionLocalProvider(LocalSettingsSectionNavigator provides sectionNavigator) {
+                            content()
+                        }
+                        Spacer(Modifier.height(120.dp))
                     }
-                    Spacer(Modifier.height(120.dp))
                 }
             }
         }
@@ -219,46 +212,32 @@ internal fun CollapsingSettingsScaffold(
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .then(if (alignToolbarToContent) Modifier.widthIn(max = 840.dp) else Modifier)
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .height(SettingsToolbarHeight)
                 .testTag("settings-toolbar")
-                .padding(horizontal = AppSpace.sm),
+                .padding(horizontal = if (alignToolbarToContent) AppSpace.lg else AppSpace.sm),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            LiquidGlassIconButton(
+            if (showBackButton) LiquidGlassIconButton(
                 imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
                 contentDescription = stringResource(R.string.back),
                 onClick = onBack,
-                settingsBackButton = true
-            )
+                settingsBackButton = !alignToolbarToContent
+            ) else Spacer(Modifier.size(48.dp))
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = AppSpace.sm),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = title,
-                    fontSize = AppType.Section,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = resolveAppFontFamily(fangSongFamily()),
-                    color = AppColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.graphicsLayer {
-                        val progress = collapseProgress.value
-                        val scale = smallTitleScale(progress)
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = smallTitleAlpha(progress)
-                    }
-                )
+                CollapsingPageSmallTitle(title = title, progress = { collapseProgress.value })
             }
             if (actions != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(AppSpace.sm, Alignment.End),
                     content = actions
                 )
             } else {
@@ -305,17 +284,11 @@ private fun ProgressiveTopScrimBand(
     val strength by remember(progress) {
         derivedStateOf { quantizeBlurStrength(progress.value) }
     }
-    // Keep text behind the toolbar fully covered when blur is unavailable; dissolve only below it.
-    val brush = remember(tint, bandHeight, toolbarHeight) {
-        Brush.verticalGradient(
-            0f to tint,
-            (toolbarHeight / bandHeight).coerceIn(0f, 1f) to tint,
-            1f to tint.copy(alpha = 0f)
-        )
-    }
-    Box(
-        modifier = modifier.fillMaxWidth().height(bandHeight)
-            .graphicsLayer { alpha = strength }
-            .background(brush)
+    ProgressiveTopScrim(
+        strength = strength,
+        modifier = modifier,
+        bandHeight = bandHeight,
+        tint = tint,
+        solidFraction = (toolbarHeight / bandHeight).coerceIn(0f, 1f)
     )
 }

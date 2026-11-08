@@ -13,6 +13,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewCompat
 import com.huangder.lumibooks.domain.model.*
 import com.huangder.lumibooks.ui.animation.VisualMotion.tween
+import com.huangder.lumibooks.ui.components.GlassSnapshotProvider
 import com.huangder.lumibooks.util.epub.*
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -25,7 +26,7 @@ internal data class EpubSpreadAppearance(
     val fontType: String,
     val fontPath: String?,
     val customFonts: List<CustomFontPreset>,
-    val weight: Int,
+    val weight: Float,
     val textColor: Int?,
     val theme: String,
     val coverColor: Int?,
@@ -109,6 +110,7 @@ internal fun EpubSpreadContent(
     onPageTextProviderReady: ((suspend (Int, Int) -> EpubPageText?)?) -> Unit,
     onPageTurnHandlerReady: (((Int) -> Boolean)?) -> Unit,
     onReleaseHandlerReady: (((() -> Unit) -> Unit)?) -> Unit,
+    onGlassSnapshotProviderReady: (GlassSnapshotProvider?) -> Unit,
     modifier: Modifier
 ) {
     val latest = rememberUpdatedState(callbacks)
@@ -341,6 +343,7 @@ internal fun EpubSpreadContent(
     val latestTextReady = rememberUpdatedState(onPageTextProviderReady)
     val latestTurnReady = rememberUpdatedState(onPageTurnHandlerReady)
     val latestReleaseReady = rememberUpdatedState(onReleaseHandlerReady)
+    val latestGlassReady = rememberUpdatedState(onGlassSnapshotProviderReady)
     DisposableEffect(session) {
         latestTextReady.value { chapter, page -> requestPageText(host?.readyView(EpubPageTarget(chapter, page))
             ?: host?.allWebViews()?.firstOrNull {
@@ -350,9 +353,10 @@ internal fun EpubSpreadContent(
             chapter, chapter, page, session.chapterUrl(chapter).substringBefore('#')) }
         latestTurnReady.value { direction -> host?.turn(direction) == true }
         latestReleaseReady.value { released -> host?.release(released) ?: released() }
+        latestGlassReady.value { quality -> host?.captureGlassBackdrop(quality) }
         onDispose {
             latestTextReady.value(null); latestTurnReady.value(null)
-            latestReleaseReady.value(null)
+            latestReleaseReady.value(null); latestGlassReady.value(null)
             host?.release(); latest.value.spread(null)
         }
     }

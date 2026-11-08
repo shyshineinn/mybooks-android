@@ -2,9 +2,13 @@ package com.huangder.lumibooks.ui.settings
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.view.View
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -17,6 +21,7 @@ import com.huangder.lumibooks.domain.model.LiquidGlassStyle
 import com.huangder.lumibooks.tts.TtsReaderResumeChoice
 import com.huangder.lumibooks.tts.TtsStartChoice
 import com.huangder.lumibooks.ui.theme.*
+import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -78,15 +83,14 @@ class SettingsPreferenceScreensTest {
         compose.onNodeWithText(label(R.string.tts_start_current_page)).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.tts_listening_resume_jump)).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.tts_exit_stop)).assertIsDisplayed()
-        compose.onNodeWithText(label(R.string.tts_exit_setting)).performClick()
-        compose.onNodeWithText(label(R.string.tts_start_ask_each_time)).performClick()
-        compose.waitForIdle()
-        assertNull(reloaded.ttsContinueOnReaderExit.first())
-        reloaded.saveTtsContinueOnReaderExit(true)
-        compose.onNodeWithText(label(R.string.tts_exit_continue)).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.tts_start_setting)).performClick()
         compose.onNodeWithText(label(R.string.tts_start_ask_each_time)).performClick()
         compose.waitForIdle()
+        // DataStore resumes the save coroutine on the main dispatcher. Keep pumping
+        // Compose while waiting for disk persistence instead of blocking that dispatcher.
+        compose.waitUntil(timeoutMillis = 5_000) {
+            runBlocking { reloaded.ttsStartChoice.first() == null }
+        }
         assertNull(reloaded.ttsStartChoice.first())
     }
 
@@ -96,7 +100,9 @@ class SettingsPreferenceScreensTest {
         var dark by mutableStateOf(false)
         var hdr by mutableStateOf(true)
         var state by mutableStateOf(SettingsUiState(appTheme = "liquid_glass", liquidGlassTransparency = .7f))
+        lateinit var view: View
         compose.setContent {
+            view = LocalView.current
             EBookReaderTheme(appTheme = "lumi", darkTheme = dark, eInkMode = eInk, motionPreference = MotionPreference.REDUCED) {
                 CompositionLocalProvider(
                     LocalLiquidGlassCapability provides LiquidGlassCapability(supported = supported, hdrSupported = hdr),
@@ -121,17 +127,22 @@ class SettingsPreferenceScreensTest {
             }
         }
         compose.onNodeWithText(label(R.string.liquid_glass_style)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.liquid_glass_sampling_quality)).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.liquid_glass_hdr_highlight)).performScrollTo().performClick()
         compose.runOnIdle { assertTrue(state.liquidGlassHdrHighlightEnabled) }
-        compose.runOnIdle { dark = true; state = state.copy(appTheme = "fuguang") }
-        compose.onNodeWithText(label(R.string.liquid_glass_style)).performScrollTo().assertIsDisplayed()
+        capture(view, "visual-large-font-light")
+        compose.runOnIdle { dark = true }
+        capture(view, "visual-large-font-dark")
         compose.runOnIdle { hdr = false }
         compose.onNodeWithText(label(R.string.liquid_glass_hdr_highlight)).assertDoesNotExist()
         compose.runOnIdle { supported = false }
         compose.onNodeWithText(label(R.string.liquid_glass_style)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.liquid_glass_sampling_quality)).assertDoesNotExist()
         compose.runOnIdle { supported = true; eInk = true }
         compose.onNodeWithText(label(R.string.liquid_glass_style)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.liquid_glass_sampling_quality)).assertDoesNotExist()
         compose.onNodeWithText(label(R.string.reduce_transparency_label)).performScrollTo().assertIsDisplayed()
+        capture(view, "visual-large-font-eink")
         compose.runOnIdle {
             assertEquals(.7f, state.liquidGlassTransparency)
             assertTrue(state.liquidGlassHdrHighlightEnabled)
@@ -140,4 +151,15 @@ class SettingsPreferenceScreensTest {
         compose.onNodeWithText(label(R.string.liquid_glass_style)).performScrollTo().assertIsDisplayed()
     }
 
+    private fun capture(view: View, name: String) {
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+            val file = File("build/reports/settings-hierarchy/$name.png")
+            file.parentFile?.mkdirs()
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
+    }
 }

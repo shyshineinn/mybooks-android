@@ -16,19 +16,14 @@ val releaseStartupTrace = providers.gradleProperty("lumiStartupTrace")
     .map { it.toBooleanStrict() }
     .orElse(false)
 
-// 本地正式签名（可选）：在 local.properties 里配置 MYBOOKS_KEYSTORE_FILE 等四项后生效。
-// local.properties 已被 git 忽略，密码不会进入仓库；未配置时保持原样（产出 unsigned 包）。
-val signingProperties = Properties()
-val signingPropertiesFile = rootProject.file("local.properties")
-if (signingPropertiesFile.exists()) {
-    signingPropertiesFile.inputStream().use { input -> signingProperties.load(input) }
-}
-val releaseKeystorePath = signingProperties.getProperty("MYBOOKS_KEYSTORE_FILE").orEmpty()
-val hasReleaseSigning = releaseKeystorePath.isNotBlank()
+// The optional private checkout supplies the official edition. A public clone builds on its own.
+val forceOss = providers.gradleProperty("lumi.oss").map { it.toBooleanStrict() }.orElse(false)
+val premiumEdition = !forceOss.get() && file("src/premium/java").isDirectory
+// KSP/Hilt outputs must not survive a switch to a source set with fewer declarations.
+layout.buildDirectory.set(layout.projectDirectory.dir("build/${if (premiumEdition) "official" else "oss"}"))
 
 android {
     namespace = "com.huangder.lumibooks"
-    buildToolsVersion = "36.0.0"
     ndkVersion = "28.0.13004108"
     externalNativeBuild {
         cmake {
@@ -36,10 +31,6 @@ android {
             version = "3.22.1"
         }
     }
-    sourceSets.getByName("main").assets.srcDirs(
-        "../third_party/libmobi/licenses",
-        "../third_party/libmobi/src"
-    )
     compileSdk {
         version = release(37) {
             minorApiLevel = 0
@@ -50,11 +41,12 @@ android {
         applicationId = "top.helloac.mybooks"
         minSdk = 26
         targetSdk = 37
-        versionCode = 2310
-        versionName = "2.3.10"
+        versionCode = 17
+        versionName = "2.3.11"
 
         buildConfigField("boolean", "DIAGNOSTIC_BUILD", "false")
         buildConfigField("boolean", "STARTUP_TRACE_ENABLED", "false")
+        buildConfigField("boolean", "PREMIUM_EDITION", premiumEdition.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -131,6 +123,19 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            java.srcDir(if (premiumEdition) "src/premium/java" else "src/oss/java")
+            assets.srcDir("../third_party/libmobi/licenses")
+            if (premiumEdition) {
+                res.srcDir("src/premium/res")
+                assets.srcDir("src/premium/assets")
+            }
+        }
+        getByName("test") {
+            java.srcDir(if (premiumEdition) "src/premium/test" else "src/oss/test")
+        }
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -144,6 +149,7 @@ android {
             all {
                 it.maxHeapSize = "2g"
                 it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+                // Optional host JNI build for real Kindle reconstruction tests, never packaged.
                 System.getenv("LUMI_KINDLE_NATIVE_DIR")?.let { nativeDirectory ->
                     it.systemProperty("java.library.path", nativeDirectory)
                 }
@@ -152,6 +158,12 @@ android {
             // 允许框架方法返回默认值，避免 "Method ... not mocked" 直接把用例打挂。
             isReturnDefaultValues = true
         }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        if (premiumEdition) variant.sources.manifests.addStaticManifestFile("src/premium/AndroidManifest.xml")
     }
 }
 
@@ -180,7 +192,7 @@ dependencies {
     // Vendored subset of Fluent UI System Icons containing only vectors used by AppIcons.
     implementation(files("libs/fluentui-system-icons-used.jar"))
     implementation("dev.chrisbanes.haze:haze:1.1.1")
-    implementation("io.github.kyant0:backdrop:1.0.6")
+    implementation(project(":third_party:backdrop"))
     implementation("io.github.kyant0:shapes:1.2.0")
 
     // Navigation

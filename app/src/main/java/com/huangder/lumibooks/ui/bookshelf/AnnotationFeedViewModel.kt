@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class AnnotationFeedUiState(
+    val entries: List<AnnotationFeedEntry> = emptyList(),
     val rows: List<AnnotationFeedRow> = emptyList(),
     val type: AnnotationFeedType = AnnotationFeedType.ALL,
     val selectedTag: String? = null,
@@ -65,6 +66,7 @@ class AnnotationFeedViewModel @Inject constructor(
         val entries = all.matching(query)
         val styleTab = query.type == AnnotationFeedType.HIGHLIGHTS || query.type == AnnotationFeedType.UNDERLINES
         AnnotationFeedUiState(
+            entries = entries,
             rows = entries.toDisplayRows(environment),
             type = query.type,
             selectedTag = query.filter.tag,

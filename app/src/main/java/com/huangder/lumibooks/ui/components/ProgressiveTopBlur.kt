@@ -3,11 +3,13 @@ package com.huangder.lumibooks.ui.components
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,12 +28,17 @@ import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability
 import com.huangder.lumibooks.ui.theme.LocalLumiBackgroundBackdrop
+import com.huangder.lumibooks.ui.theme.LocalProgressiveBlurBackgroundBackdrop
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.LocalBackdropSamplingScale
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
+import com.kyant.backdrop.effects.MiuixProgressiveBlurEffect
+import com.kyant.backdrop.effects.ProgressiveBlurDirection
+import com.kyant.backdrop.effects.progressiveBlurFraction
 import kotlin.math.roundToInt
 
 /** Discrete scroll strengths keep the effect chain stable between frames. */
@@ -200,7 +207,7 @@ internal fun ProgressiveSurface(
     val fallbackTint = (tint ?: AppColors.WindowBg).copy(alpha = 1f)
     // PageBg is intentionally transparent for artwork themes; making it opaque would be black.
     val pageBackground = AppColors.WindowBg.copy(alpha = 1f)
-    val artworkBackdrop = LocalLumiBackgroundBackdrop.current
+    val artworkBackdrop = LocalProgressiveBlurBackgroundBackdrop.current ?: LocalLumiBackgroundBackdrop.current
     val activeBackdrop = if (artworkBackdrop != null && backdrop != null && artworkBackdrop !== backdrop)
         rememberCombinedBackdrop(artworkBackdrop, backdrop) else backdrop
     val fallbackBrush = remember(fallbackTint, direction, solidFraction) {
@@ -215,27 +222,31 @@ internal fun ProgressiveSurface(
             .background(fallbackBrush))
         return
     }
-    Box(modifier.drawPlainBackdrop(
-        backdrop = activeBackdrop ?: backdrop,
-        shape = { RectangleShape },
-        effects = {
-            padding = MiuixProgressiveBlurEffect.padding(radius)
-            renderEffect = effect.effect(radius, size.width, size.height, padding, direction, blurStartFraction)
-        },
-        exportedBackdrop = exportedBackdrop,
-        // Captures may contain transparent text/card gaps; include their actual page color
-        // before blurring so alpha normalization cannot turn those gaps into dark halos.
-        onDrawBackdrop = { drawBackdrop ->
-            val pad = MiuixProgressiveBlurEffect.padding(radius)
-            drawRect(pageBackground, topLeft = Offset(-pad, -pad),
-                size = Size(size.width + pad * 2f, size.height + pad * 2f))
-            drawBackdrop()
-        },
-        onDrawSurface = {
-            if (effect.failed) drawRect(fallbackBrush, alpha = resolvedStrength)
-            else tintBrush?.let { drawRect(it, alpha = resolvedStrength) }
-        }
-    ))
+    // Miuix's native sharp end requires the ORIGINAL source pixels even when glass buttons use
+    // reduced-resolution buffers. Limit this override to the edge band, never the whole page.
+    CompositionLocalProvider(LocalBackdropSamplingScale provides 1f) {
+        Box(modifier.drawPlainBackdrop(
+            backdrop = activeBackdrop ?: backdrop,
+            shape = { RectangleShape },
+            effects = {
+                padding = MiuixProgressiveBlurEffect.padding(radius)
+                renderEffect = effect.effect(radius, size.width, size.height, padding, direction, blurStartFraction)
+            },
+            exportedBackdrop = exportedBackdrop,
+            // Captures may contain transparent text/card gaps; include their actual page color
+            // before blurring so alpha normalization cannot turn those gaps into dark halos.
+            onDrawBackdrop = { drawBackdrop ->
+                val pad = MiuixProgressiveBlurEffect.padding(radius)
+                drawRect(pageBackground, topLeft = Offset(-pad, -pad),
+                    size = Size(size.width + pad * 2f, size.height + pad * 2f))
+                drawBackdrop()
+            },
+            onDrawSurface = {
+                if (effect.failed) drawRect(fallbackBrush, alpha = resolvedStrength)
+                else tintBrush?.let { drawRect(it, alpha = resolvedStrength) }
+            }
+        ))
+    }
 }
 
 private fun progressiveBrush(

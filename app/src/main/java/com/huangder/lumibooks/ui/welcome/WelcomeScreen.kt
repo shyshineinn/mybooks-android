@@ -74,11 +74,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -108,6 +106,8 @@ import com.huangder.lumibooks.ui.components.ConfigurableBottomSheetBackHandler
 import com.huangder.lumibooks.ui.components.LiquidGlassButton
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.materialBottomSheetMotion
+import com.huangder.lumibooks.ui.components.adaptiveSheetFrame
+import com.huangder.lumibooks.ui.components.adaptiveSheetShape
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
 import com.huangder.lumibooks.ui.theme.KaiTi
 import com.huangder.lumibooks.ui.theme.AppColors
@@ -115,33 +115,32 @@ import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
+import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.domain.model.blendAppAccentArgb
 import com.huangder.lumibooks.util.LocaleHelper
 import java.util.Locale
 import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.delay
+import com.huangder.lumibooks.ui.theme.AppPresentation
 
 // 设计规范颜色 - 浅色模式
 private val AccentColor: Color @Composable get() = AppColors.Accent
-private val LightTextSecondary = Color(0xFF6E6E73)
-private val LightBgGray = Color(0xFFF2F2F7)
-private val LightBackground = Color(0xFFFBFBFC)
-private val LightCardBg = Color.White
+// Theme tokens (same hues as before in light/dark, and now also honour Material3 and e-ink).
+private val LightTextSecondary: Color @Composable get() = AppColors.TextSecondary
+private val LightBgGray: Color @Composable get() = AppColors.BgGray
+private val LightBackground: Color @Composable get() = AppColors.WindowBg
+private val LightCardBg: Color @Composable get() = AppColors.CardBg
 
-// 深色模式颜色
-private val DarkTextSecondary = Color(0xFF98989D)
-private val DarkBgGray = Color(0xFF2C2C2E)
-private val DarkBackground = Color(0xFF000000)
-private val DarkCardBg = Color(0xFF1C1C1E)
+private val DarkTextSecondary: Color @Composable get() = AppColors.TextSecondary
+private val DarkBgGray: Color @Composable get() = AppColors.BgGray
+private val DarkBackground: Color @Composable get() = AppColors.WindowBg
+private val DarkCardBg: Color @Composable get() = AppColors.CardBg
 private val WelcomeContentMaxWidth = 560.dp
 
 internal enum class WelcomePage {
     LANGUAGE_SETUP,
     INTRODUCTION,
     LIQUID_GLASS_PREVIEW,
-    EXCERPT_PREVIEW,
-    G2_PREVIEW,
-    DICTIONARY_PREVIEW,
     SUPPORT
 }
 
@@ -162,9 +161,6 @@ internal fun welcomePages(
     if (shouldShowLanguageSetup) add(WelcomePage.LANGUAGE_SETUP)
     add(WelcomePage.INTRODUCTION)
     if (isNewInstallation && !isEInkMode) add(WelcomePage.LIQUID_GLASS_PREVIEW)
-    add(WelcomePage.EXCERPT_PREVIEW)
-    add(WelcomePage.G2_PREVIEW)
-    add(WelcomePage.DICTIONARY_PREVIEW)
     add(WelcomePage.SUPPORT)
 }
 
@@ -292,16 +288,8 @@ fun WelcomeScreen(
                 onContinue = { currentPage = pages[(pages.indexOf(WelcomePage.INTRODUCTION) + 1).coerceAtMost(pages.lastIndex)] }
             )
 
-            WelcomePage.LIQUID_GLASS_PREVIEW,
-            WelcomePage.EXCERPT_PREVIEW,
-            WelcomePage.G2_PREVIEW,
-            WelcomePage.DICTIONARY_PREVIEW -> UpdatePreviewPage(
-                preview = when (page) {
-                    WelcomePage.LIQUID_GLASS_PREVIEW -> UpdatePreview.LIQUID_GLASS
-                    WelcomePage.EXCERPT_PREVIEW -> UpdatePreview.EXCERPT
-                    WelcomePage.G2_PREVIEW -> UpdatePreview.G2
-                    else -> UpdatePreview.DICTIONARY
-                },
+            WelcomePage.LIQUID_GLASS_PREVIEW -> UpdatePreviewPage(
+                preview = UpdatePreview.LIQUID_GLASS,
                 isEInkMode = isEInkMode,
                 isLiquidGlass = isLiquidGlass,
                 onBack = { currentPage = pages[(pages.indexOf(page) - 1).coerceAtLeast(0)] },
@@ -309,11 +297,19 @@ fun WelcomeScreen(
                 onEnableLiquidGlass = onEnableLiquidGlass
             )
 
-            WelcomePage.SUPPORT -> SupportProjectPage(
+            // 官方版替换为会员试用引导；OSS 保留原赞助页。
+            WelcomePage.SUPPORT -> com.huangder.lumibooks.edition.EditionWelcomeFinalPage(
                 isDark = isDark,
                 isLiquidGlass = isLiquidGlass,
-                onOpenSponsor = onOpenSponsor,
-                onFinished = onFinished
+                onFinished = onFinished,
+                default = {
+                    SupportProjectPage(
+                        isDark = isDark,
+                        isLiquidGlass = isLiquidGlass,
+                        onOpenSponsor = onOpenSponsor,
+                        onFinished = onFinished
+                    )
+                }
             )
         }
     }
@@ -432,7 +428,7 @@ private fun UpdatePreviewPage(
                     Text(
                         text = subtitle,
                         modifier = Modifier.padding(horizontal = 28.dp),
-                        fontSize = 16.sp,
+                        fontSize = AppType.Body,
                         lineHeight = 23.sp,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center,
@@ -650,7 +646,7 @@ private fun LiquidGlassPreviewFrame(
         )
         Text(
             text = stringResource(R.string.welcome_liquid_glass_preview_caption),
-            fontSize = 13.sp,
+            fontSize = AppType.Footnote,
             lineHeight = 19.sp,
             textAlign = TextAlign.Center,
             color = textSecondary,
@@ -726,11 +722,6 @@ private fun ThemeSwitchOverlay(
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
         label = "themeSwitchCapsuleScale"
     )
-    val sweepProgress by animateFloatAsState(
-        targetValue = if (stage == 5) 1f else 0f,
-        animationSpec = tween(900, easing = AppEasing.Accelerate),
-        label = "themeSwitchLightSweep"
-    )
 
     Box(
         modifier = Modifier
@@ -739,44 +730,6 @@ private fun ThemeSwitchOverlay(
                 detectTapGestures { }
             }
     ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(112.dp)
-                .align(Alignment.TopCenter)
-                .graphicsLayer {
-                    alpha = sweepProgress
-                    translationY = (-112).dp.toPx() + sweepProgress * 980.dp.toPx()
-                }
-        ) {
-            val arcWidth = size.width * 0.60f
-            val arcHeight = size.height * 1.45f
-            val arcTopLeft = Offset(
-                x = (size.width - arcWidth) / 2f,
-                y = -size.height * 0.42f
-            )
-            val arcSize = Size(arcWidth, arcHeight)
-
-            drawArc(
-                color = Color.White.copy(alpha = 0.16f),
-                startAngle = 202f,
-                sweepAngle = 136f,
-                useCenter = false,
-                topLeft = arcTopLeft,
-                size = arcSize,
-                style = Stroke(width = 20.dp.toPx(), cap = StrokeCap.Round)
-            )
-            drawArc(
-                color = Color.White.copy(alpha = 0.58f),
-                startAngle = 202f,
-                sweepAngle = 136f,
-                topLeft = arcTopLeft,
-                size = arcSize,
-                useCenter = false,
-                style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
-
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -813,7 +766,7 @@ private fun ThemeSwitchOverlay(
             Text(
                 text = stringResource(R.string.welcome_switching_theme),
                 color = Color(0xFF2C2C2E),
-                fontSize = 16.sp,
+                fontSize = AppType.Body,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -850,7 +803,7 @@ private fun WelcomeActionButton(
                     Text(
                         text = text,
                         color = contentColor,
-                        fontSize = 16.sp,
+                        fontSize = AppType.Body,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         softWrap = false,
@@ -872,7 +825,7 @@ private fun WelcomeActionButton(
                     Text(
                         text = text,
                         color = contentColor,
-                        fontSize = 16.sp,
+                        fontSize = AppType.Body,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -891,7 +844,7 @@ private fun WelcomeActionButton(
         ) {
             Text(
                 text = text,
-                fontSize = 16.sp,
+                fontSize = AppType.Body,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -939,7 +892,7 @@ private fun LanguageAndEInkPage(
             Column(modifier = Modifier.padding(horizontal = 40.dp)) {
                 Text(
                     text = languageTitle,
-                    fontSize = 32.sp,
+                    fontSize = AppType.Display,
                     lineHeight = 39.sp,
                     fontWeight = FontWeight.Bold,
                     color = textPrimary
@@ -947,7 +900,7 @@ private fun LanguageAndEInkPage(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = languageSubtitle,
-                    fontSize = 17.sp,
+                    fontSize = AppType.Headline,
                     lineHeight = 24.sp,
                     fontWeight = FontWeight.Medium,
                     color = textSecondary
@@ -977,7 +930,7 @@ private fun LanguageAndEInkPage(
                             Text(
                                 text = option.label,
                                 modifier = Modifier.padding(horizontal = 16.dp),
-                                fontSize = 17.sp,
+                                fontSize = AppType.Headline,
                                 fontWeight = if (option.languageTag == selectedLanguage) FontWeight.SemiBold else FontWeight.Medium,
                                 color = if (option.languageTag == selectedLanguage) AccentColor else textPrimary
                             )
@@ -994,7 +947,7 @@ private fun LanguageAndEInkPage(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = eInkTitle,
-                            fontSize = 20.sp,
+                            fontSize = AppType.Section,
                             lineHeight = 26.sp,
                             fontWeight = FontWeight.Bold,
                             color = textPrimary
@@ -1002,7 +955,7 @@ private fun LanguageAndEInkPage(
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             text = eInkDescription,
-                            fontSize = 12.sp,
+                            fontSize = AppType.Caption,
                             lineHeight = 17.sp,
                             color = textSecondary
                         )
@@ -1139,7 +1092,7 @@ private fun WelcomeIntroductionPage(
                     style = androidx.compose.ui.text.TextStyle(
                         color = privacyColor,
                         fontFamily = FontFamily.SansSerif,
-                        fontSize = 11.sp,
+                        fontSize = AppType.Caption2,
                         lineHeight = 16.sp,
                         fontWeight = FontWeight.Normal,
                         letterSpacing = 0.sp,
@@ -1291,7 +1244,7 @@ private fun SupportProjectPage(
                     alpha = messageProgress
                     translationY = (1f - messageProgress) * 16.dp.toPx()
                 },
-            fontSize = 15.sp,
+            fontSize = AppType.Subhead,
             lineHeight = 23.sp,
             fontWeight = FontWeight.Normal,
             textAlign = TextAlign.Center,
@@ -1338,8 +1291,9 @@ private fun SupportProjectPage(
     }
 }
 
+/** Shared with the edition-specific last welcome page so both match the same button style. */
 @Composable
-private fun SupportWelcomeButton(
+internal fun SupportWelcomeButton(
     text: String,
     onClick: () -> Unit,
     primary: Boolean,
@@ -1397,7 +1351,7 @@ private fun SupportWelcomeButton(
             Text(
                 text = text,
                 color = contentColor,
-                fontSize = 16.sp,
+                fontSize = AppType.Body,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -1697,18 +1651,16 @@ private fun PolicyBottomSheet(
                 }
         )
 
-        // 容器层（滑入动画）
+        // 容器层（滑入动画）；平板为居中卡片
+        val sheetShape = adaptiveSheetShape(AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner))
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.88f)
-                .align(Alignment.BottomCenter)
+            modifier = adaptiveSheetFrame(heightFraction = 0.88f)
                 .materialBottomSheetMotion(containerOffsetY.value, predictiveBackProgress)
                 .shadow(
                     elevation = 24.dp,
-                    shape = AppRoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+                    shape = sheetShape
                 )
-                .background(cardBg, AppRoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                .background(cardBg, sheetShape)
                 .padding(top = 24.dp, start = 24.dp, end = 24.dp)
         ) {
             // 标题栏
@@ -1718,7 +1670,7 @@ private fun PolicyBottomSheet(
             ) {
                 Text(
                     text = title,
-                    fontSize = 20.sp,
+                    fontSize = AppType.Section,
                     fontWeight = FontWeight.Bold,
                     fontFamily = resolveAppFontFamily(KaiTi),
                     color = textPrimary
@@ -1814,7 +1766,7 @@ private fun FormattedPolicyContent(
             isPolicySecondaryHeading(line) -> {
                 Text(
                     text = line,
-                    fontSize = 15.sp,
+                    fontSize = AppType.Subhead,
                     lineHeight = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = textColor,
@@ -1832,7 +1784,7 @@ private fun FormattedPolicyContent(
                 ) {
                     Text(
                         text = line,
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         lineHeight = 22.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = textColor
@@ -1852,7 +1804,7 @@ private fun FormattedPolicyContent(
             else -> {
                 Text(
                     text = line,
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     lineHeight = 22.sp,
                     color = textColor,
                     modifier = Modifier.padding(bottom = 5.dp)
@@ -1892,13 +1844,13 @@ private fun PolicyMetadataBlock(
                             append(value)
                         }
                     },
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     lineHeight = 18.sp
                 )
             } else {
                 Text(
                     text = line,
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     lineHeight = 18.sp,
                     color = secondaryColor
                 )
@@ -1928,7 +1880,7 @@ private fun PolicySectionHeading(
         Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = text,
-            fontSize = 17.sp,
+            fontSize = AppType.Headline,
             lineHeight = 23.sp,
             fontWeight = FontWeight.Bold,
             color = textColor
@@ -1958,7 +1910,7 @@ private fun PolicyBulletItem(
     ) {
         Text(
             text = marker,
-            fontSize = 16.sp,
+            fontSize = AppType.Body,
             lineHeight = 22.sp,
             fontWeight = FontWeight.Bold,
             color = AccentColor
@@ -1967,7 +1919,7 @@ private fun PolicyBulletItem(
         Text(
             text = body,
             modifier = Modifier.weight(1f),
-            fontSize = 14.sp,
+            fontSize = AppType.BodySmall,
             lineHeight = 22.sp,
             color = textColor
         )
@@ -1988,7 +1940,8 @@ private fun isPolicyBullet(line: String): Boolean =
 
 private fun isPolicyNotice(line: String): Boolean = listOf(
     "核心原则", "核心原則", "Core principle", "Core Principle",
-    "基本方針", "基本原則", "핵심 원칙", "핵심 원칙："
+    "基本方針", "基本原則", "핵심 원칙", "핵심 원칙：",
+    "重要提示", "Important notice", "重要なお知らせ", "중요 안내"
 ).any(line::startsWith)
 
 private fun isPolicyMetadataLine(line: String): Boolean = listOf(

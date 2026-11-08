@@ -1,10 +1,13 @@
 package com.huangder.lumibooks.ui.bookshelf
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
 import com.huangder.lumibooks.ui.excerpt.ExcerptLauncher
 import com.huangder.lumibooks.ui.excerpt.ExcerptRequest
-import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import com.huangder.lumibooks.ui.components.LocalCollapsingPageTopInset
+import com.huangder.lumibooks.ui.components.CollapsingPageScaffold
 import com.huangder.lumibooks.ui.components.lumiCardSurface
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,7 +32,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -128,9 +130,11 @@ fun BookNotesScreen(
     var editingNoteTags by remember { mutableStateOf<Note?>(null) }
     var editingBookmarkTags by remember { mutableStateOf<Bookmark?>(null) }
     var selectedTag by rememberSaveable { mutableStateOf<String?>(null) }
+    com.huangder.lumibooks.ui.components.ReconcileAnnotationTagDraft(listOfNotNull(selectedTag)) {
+        selectedTag = it.firstOrNull()
+    }
     var selectedColor by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLine by rememberSaveable { mutableStateOf<Int?>(null) }
-    var managingTags by remember { mutableStateOf(false) }
     val renameTag: (String, String) -> Unit = { old, new ->
         if (selectedTag == old) selectedTag = new.trim()
         viewModel.renameTag(old, new)
@@ -210,82 +214,53 @@ fun BookNotesScreen(
                 )
                 .background(AppColors.PageBg)
         )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .then(
-                    if (isLiquidGlass) Modifier.layerBackdrop(glassBackdrop) else Modifier
-                )
-                .background(AppColors.PageBg)
-        ) {
-            // ── 顶栏：返回 + 标题 ──
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = if (isLiquidGlass) AppSpace.sm else AppSpace.lg,
-                        vertical = AppSpace.sm
+        CollapsingPageScaffold(
+            title = stringResource(R.string.notes_title),
+            drawContentBehindHeader = true,
+            onBack = onNavigateBack,
+            modifier = Modifier.fillMaxSize()
+                .then(if (isLiquidGlass) Modifier.layerBackdrop(glassBackdrop) else Modifier),
+            actions = {
+                com.huangder.lumibooks.edition.EditionTagManagementButton(com.huangder.lumibooks.domain.model.TagTypes.ANNOTATION, toolbar = true)
+            },
+            pinnedContent = {
+                Column {
+                    SegmentedTabBar(
+                        selectedTab = selectedTab,
+                        tabs = tabs,
+                        onTabSelected = { selectedTab = it; selectedColor = null; selectedLine = null },
+                        modifier = Modifier.padding(horizontal = AppSpace.lg),
+                        backdrop = segmentedControlBackdrop.takeIf { isLiquidGlass }
                     )
-            ) {
-                LiquidGlassIconButton(
-                    imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-                    contentDescription = stringResource(R.string.back),
-                    onClick = onNavigateBack,
-                    size = if (isLiquidGlass) 48.dp else 36.dp,
-                    iconSize = if (isLiquidGlass) 20.dp else 18.dp,
-                    contentColor = AppColors.TextPrimary,
-                    normalContainerColor = AppColors.BgGray,
-                    settingsBackButton = true
-                )
-                Spacer(Modifier.width(AppSpace.md))
-                Text(
-                    text = stringResource(R.string.notes_title),
-                    fontSize = AppType.Section,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = resolveAppFontFamily(KaiTi),
-                    color = AppColors.TextPrimary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.Tag,
-                    contentDescription = stringResource(R.string.annotation_tag_manage),
-                    onClick = { managingTags = true }, size = 44.dp, iconSize = 20.dp,
-                    normalContainerColor = AppColors.BgGray
-                )
+
+                    Spacer(Modifier.height(AppSpace.md))
+
+                    // ── 内容列表 ──
+                    AnnotationListFilters(
+                        tags = remember(uiState.notes, uiState.bookmarks) {
+                            (uiState.notes.flatMap { it.tags } + uiState.bookmarks.flatMap { it.tags }).distinct().sorted()
+                        },
+                        selectedTag = selectedTag,
+                        onTagSelected = { selectedTag = it },
+                        colors = if (selectedTab < 2) uiState.notes.filter { !it.isNoteEntry && (selectedTab == 1) == (it.type == "underline") }.map { it.color }.distinct() else emptyList(),
+                        selectedColor = selectedColor,
+                        onColorSelected = { selectedColor = it },
+                        selectedLine = selectedLine,
+                        onLineSelected = { selectedLine = it },
+                        showLines = selectedTab == 1,
+                        modifier = Modifier.padding(horizontal = AppSpace.lg)
+                    )
+                }
             }
-
-            Spacer(Modifier.height(AppSpace.md))
-
-            // ── 分段选择器 Tab ──
-            SegmentedTabBar(
-                selectedTab = selectedTab,
-                tabs = tabs,
-                onTabSelected = { selectedTab = it; selectedColor = null; selectedLine = null },
-                modifier = Modifier.padding(horizontal = AppSpace.lg),
-                backdrop = segmentedControlBackdrop.takeIf { isLiquidGlass }
-            )
-
-            Spacer(Modifier.height(AppSpace.md))
-
-            // ── 内容列表 ──
-            AnnotationListFilters(
-                tags = (uiState.notes.flatMap { it.tags } + uiState.bookmarks.flatMap { it.tags }).distinct().sorted(),
-                selectedTag = selectedTag,
-                onTagSelected = { selectedTag = it },
-                colors = if (selectedTab < 2) uiState.notes.filter { !it.isNoteEntry && (selectedTab == 1) == (it.type == "underline") }.map { it.color }.distinct() else emptyList(),
-                selectedColor = selectedColor,
-                onColorSelected = { selectedColor = it },
-                selectedLine = selectedLine,
-                onLineSelected = { selectedLine = it },
-                showLines = selectedTab == 1,
-                modifier = Modifier.padding(horizontal = AppSpace.lg)
-            )
+        ) {
             val filter = ReadingMarkFilter(selectedTag, selectedColor, selectedLine)
-            when (selectedTab) {
+            // Tabs cross-fade their content instead of snapping (instant on e-ink / reduced motion).
+            val tabMotion = com.huangder.lumibooks.ui.theme.LocalMotionEnabled.current &&
+                !com.huangder.lumibooks.ui.theme.LocalEInkMode.current
+            androidx.compose.animation.Crossfade(selectedTab,
+                animationSpec = if (tabMotion) com.huangder.lumibooks.ui.animation.VisualMotion.tween(200)
+                    else androidx.compose.animation.core.snap(), label = "notesTab") { tab ->
+            when (tab) {
                 0 -> NoteList(
                     onShare = shareNote,
                     notes = uiState.highlights.filter(filter::matches),
@@ -319,6 +294,7 @@ fun BookNotesScreen(
                     onDelete = { viewModel.deleteBookmark(it) }
                 )
             }
+            }
         }
 
         ProvideLiquidGlassBackdrop(
@@ -327,31 +303,38 @@ fun BookNotesScreen(
             ExportBookmarksButton(
                 isLiquidGlass = isLiquidGlass,
                 isExporting = uiState.isExporting,
-                enabled = uiState.book != null &&
-                    (uiState.bookmarks.isNotEmpty() || uiState.notes.isNotEmpty()),
-                onClick = {
-                    viewModel.prepareExport { result ->
-                        result.onSuccess { document ->
-                            pendingExportText = document.text
-                            runCatching {
-                                createDocumentLauncher.launch(document.fileName)
+                enabled = uiState.book?.isHidden == false &&
+                    com.huangder.lumibooks.edition.canOpenBookNotesExport(
+                        uiState.bookmarks.isNotEmpty() || uiState.notes.isNotEmpty()
+                    ),
+                onClick = com.huangder.lumibooks.edition.rememberBookNotesExportAction(
+                    book = uiState.book,
+                    notes = uiState.notes,
+                    bookmarks = uiState.bookmarks,
+                    onExportTxt = {
+                        viewModel.prepareExport { result ->
+                            result.onSuccess { document ->
+                                pendingExportText = document.text
+                                runCatching {
+                                    createDocumentLauncher.launch(document.fileName)
+                                }.onFailure {
+                                    pendingExportText = null
+                                    Toast.makeText(
+                                        context,
+                                        R.string.export_bookmarks_failed,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             }.onFailure {
-                                pendingExportText = null
                                 Toast.makeText(
                                     context,
                                     R.string.export_bookmarks_failed,
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
-                        }.onFailure {
-                            Toast.makeText(
-                                context,
-                                R.string.export_bookmarks_failed,
-                                Toast.LENGTH_SHORT
-                            ).show()
                         }
                     }
-                },
+                ),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
@@ -401,17 +384,6 @@ fun BookNotesScreen(
                 onDelete = deleteTag
             )
         }
-        if (managingTags) AnnotationTagSheet(
-            backdrop = glassBackdrop.takeIf { isLiquidGlass },
-            selected = emptyList(),
-            available = uiState.availableTags,
-            onSave = { names -> names.forEach { viewModel.createTag(it) } },
-            onCreate = viewModel::createTag,
-            onDismiss = { managingTags = false },
-            onRename = renameTag,
-            onDelete = deleteTag,
-            managementOnly = true
-        )
     }
 }
 
@@ -453,63 +425,14 @@ internal fun SegmentedTabBar(
         return
     }
 
-    val isDark = LocalIsDarkTheme.current
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(tabHeight)
-            .clip(AppRoundedCornerShape(20.dp))
-            .background(AppColors.BgGray)
-            .padding(2.dp)
-    ) {
-        // 选中指示器（graphicsLayer translationX 实现平滑滑动）
-        val indicatorOffset by animateFloatAsState(
-            targetValue = selectedTab.toFloat(),
-            animationSpec = tween(200),
-            label = "tabIndicator"
-        )
-        val tabFraction = 1f / tabs.size
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(tabFraction)
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = indicatorOffset * size.width
-                }
-                .clip(AppRoundedCornerShape(18.dp))
-                .shadow(2.dp, AppRoundedCornerShape(18.dp))
-                .background(if (isDark) AppColors.CardBg else Color.White)
-        )
-
-        // Tab 文字
-        Row(modifier = Modifier.fillMaxSize()) {
-            tabs.forEachIndexed { index, label ->
-                val isSelected = index == selectedTab
-                val interactionSource = remember { MutableInteractionSource() }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .clickable(
-                            indication = null,
-                            interactionSource = interactionSource,
-                            onClick = { onTabSelected(index) }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        fontSize = labelFontSize,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) AppColors.TextPrimary else AppColors.TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
+    // Shared Lumi track (Role.Tab semantics, unclipped pill shadow) for non-glass themes.
+    com.huangder.lumibooks.ui.components.LumiSegmentedTrack(
+        labels = tabs,
+        selectedIndex = selectedTab,
+        onSelect = onTabSelected,
+        modifier = modifier.fillMaxWidth(),
+        height = tabHeight
+    )
 }
 
 // ─── 内容列表 ────────────────────────────────────────────────────
@@ -522,15 +445,15 @@ private fun NoteList(
     onEditTags: (Note) -> Unit,
     onDelete: (Note) -> Unit
 ) {
+    val topInset = LocalCollapsingPageTopInset.current
     if (notes.isEmpty()) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(top = topInset),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = stringResource(R.string.no_content),
-                fontSize = AppType.Body,
-                color = AppColors.TextSecondary
+            com.huangder.lumibooks.ui.components.EmptyState(
+                message = stringResource(R.string.no_content),
+                icon = AppIcons.FileText
             )
         }
     } else {
@@ -550,7 +473,7 @@ private fun NoteList(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = AppSpace.lg,
-                top = AppSpace.sm,
+                top = topInset + AppSpace.sm,
                 end = AppSpace.lg,
                 bottom = 96.dp
             ),
@@ -560,12 +483,14 @@ private fun NoteList(
                 items = notes,
                 key = { note -> note.id }
             ) { note ->
-                HighlightNoteItem(
-                    note = note,
-                    onShare = { onShare(note) },
-                    onEditTags = { onEditTags(note) },
-                    onDelete = { onDelete(note) }
-                )
+                Box(Modifier.animateItem()) {
+                    HighlightNoteItem(
+                        note = note,
+                        onShare = { onShare(note) },
+                        onEditTags = { onEditTags(note) },
+                        onDelete = { onDelete(note) }
+                    )
+                }
             }
         }
     }
@@ -579,15 +504,15 @@ private fun BookmarkList(
     onEditTags: (Bookmark) -> Unit,
     onDelete: (Bookmark) -> Unit
 ) {
+    val topInset = LocalCollapsingPageTopInset.current
     if (bookmarks.isEmpty()) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(top = topInset),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = stringResource(R.string.no_bookmarks),
-                fontSize = AppType.Body,
-                color = AppColors.TextSecondary
+            com.huangder.lumibooks.ui.components.EmptyState(
+                message = stringResource(R.string.no_bookmarks),
+                icon = AppIcons.Bookmark.regular
             )
         }
     } else {
@@ -595,20 +520,22 @@ private fun BookmarkList(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = AppSpace.lg,
-                top = AppSpace.sm,
+                top = topInset + AppSpace.sm,
                 end = AppSpace.lg,
                 bottom = 96.dp
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
         ) {
-            items(bookmarks) { bookmark ->
-                BookmarkItem(
-                    bookmark = bookmark,
-                    onShare = { onShare(bookmark) },
-                    onEditTags = { onEditTags(bookmark) },
-                    onEditRemark = { onEditRemark(bookmark) },
-                    onDelete = { onDelete(bookmark) }
-                )
+            items(bookmarks, key = { it.id }) { bookmark ->
+                Box(Modifier.animateItem()) {
+                    BookmarkItem(
+                        bookmark = bookmark,
+                        onShare = { onShare(bookmark) },
+                        onEditTags = { onEditTags(bookmark) },
+                        onEditRemark = { onEditRemark(bookmark) },
+                        onDelete = { onDelete(bookmark) }
+                    )
+                }
             }
         }
     }
@@ -669,7 +596,7 @@ internal fun HighlightNoteItem(
                 Spacer(Modifier.width(12.dp))
                 Text(
                     text = if (expanded) note.selectedText else note.selectedText.replace('\n', ' '),
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     color = AppColors.TextPrimary,
                     maxLines = if (expanded) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis,
@@ -679,7 +606,7 @@ internal fun HighlightNoteItem(
             }
 
             if (note.isStale) {
-                Text(stringResource(R.string.markdown_original_changed), fontSize = 12.sp, color = AppColors.Accent)
+                Text(stringResource(R.string.markdown_original_changed), fontSize = AppType.Caption, color = AppColors.Accent)
             }
             // 笔记内容（如果有）
             if (note.note.isNotBlank()) {
@@ -705,12 +632,12 @@ internal fun HighlightNoteItem(
             ) {
                 Text(
                     text = stringResource(R.string.chapter_number, note.chapterIndex + 1),
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.Accent
                 )
                 Text(
                     text = dateText,
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.Accent
                 )
             }
@@ -805,7 +732,7 @@ private fun ExportBookmarksButton(
                 strokeWidth = 2.4.dp
             )
         } else {
-            Icon(
+            ControlIcon(
                 imageVector = AppIcons.DownloadSimple,
                 contentDescription = stringResource(R.string.export_bookmarks),
                 tint = Color.White,

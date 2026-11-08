@@ -145,12 +145,99 @@ class WebdavPortableStateSync @Inject constructor(
         if (error.statusCode == 404) null else throw error
     }
 
-    private fun WebdavConfig.selection() = SyncContentSelection(syncBookFiles, syncProfileAndSettings, syncLibraryOrganization, syncReadingData)
-    private fun PortableSnapshotBundle.forWebdav(config: WebdavConfig) = PortableSyncRules.filterBundle(this, config.selection())
-    private fun selectForRemote(local: PortableSnapshot, remote: PortableSnapshot, merged: PortableSnapshot, config: WebdavConfig) =
-        PortableSyncRules.forRemote(local, remote, merged, config.selection())
-    private fun selectForLocal(local: PortableSnapshot, remotePayload: PortableSnapshot, config: WebdavConfig) =
-        PortableSyncRules.forLocal(local, remotePayload, config.selection())
+    private fun PortableSnapshotBundle.forWebdav(config: WebdavConfig): PortableSnapshotBundle {
+        val allowedKinds = buildSet {
+            if (config.syncProfileAndSettings) addAll(listOf("avatar", "font", "reader_background"))
+            if (config.syncLibraryOrganization) addAll(listOf("book_cover", "folder_cover"))
+        }
+        val allowedAssets = snapshot.assets.filter { it.kind in allowedKinds }
+        val allowedIds = allowedAssets.mapTo(mutableSetOf()) { it.id }
+        return copy(
+            snapshot = stripHighlightRuleLibraryForWebdav(snapshot.copy(
+                books = snapshot.books.map { it.copy(bodyAssetId = null) },
+                assets = allowedAssets
+            )),
+            assetSources = assetSources.filterKeys { it in allowedIds }
+        )
+    }
+
+    private fun selectForRemote(
+        local: PortableSnapshot,
+        remote: PortableSnapshot,
+        merged: PortableSnapshot,
+        config: WebdavConfig
+    ): PortableSnapshot {
+        val readingNamespaces = setOf("bookmark", "note")
+        val libraryNamespaces = setOf("book", "folder", "tag", "book_folder", "book_tag")
+        val selected = merged.copy(
+            preferences = if (config.syncProfileAndSettings) merged.preferences else remote.preferences,
+            books = chooseBooks(local, remote, merged, config, forLocal = false),
+            folders = if (config.syncLibraryOrganization) merged.folders else remote.folders,
+            bookFolderLinks = if (config.syncLibraryOrganization) merged.bookFolderLinks else remote.bookFolderLinks,
+            tags = if (config.syncLibraryOrganization) merged.tags else remote.tags,
+            annotationTags = if (config.syncReadingData) merged.annotationTags else remote.annotationTags,
+            tagGroups = chooseWebdavTagGroups(merged, remote, config.syncLibraryOrganization, config.syncReadingData),
+            bookTagsWithoutGroupId = if (config.syncLibraryOrganization) merged.bookTagsWithoutGroupId else remote.unknownBookGroupIds(),
+            annotationTagsWithoutGroupId = if (config.syncReadingData) merged.annotationTagsWithoutGroupId else remote.unknownAnnotationGroupNames(),
+            bookTagLinks = if (config.syncLibraryOrganization) merged.bookTagLinks else remote.bookTagLinks,
+            readingRecords = if (config.syncReadingData) merged.readingRecords else remote.readingRecords,
+            bookmarks = if (config.syncReadingData) merged.bookmarks else remote.bookmarks,
+            notes = if (config.syncReadingData) merged.notes else remote.notes,
+            tombstones = merged.tombstones.filter { tombstone ->
+                when (tombstone.namespace) {
+                    in readingNamespaces -> config.syncReadingData
+                    in libraryNamespaces -> config.syncLibraryOrganization
+                    else -> true
+                }
+            } + remote.tombstones.filter { tombstone ->
+                (tombstone.namespace in readingNamespaces && !config.syncReadingData) ||
+                    (tombstone.namespace in libraryNamespaces && !config.syncLibraryOrganization)
+            },
+            assets = (remote.assets + local.assets).associateBy { it.id }.values.toList()
+        )
+        return stripHighlightRuleLibraryForWebdav(
+            selected.copy(assets = selected.assets.filter { assetReferenced(selected, it.id) })
+        )
+    }
+
+    private fun selectForLocal(
+        local: PortableSnapshot,
+        remotePayload: PortableSnapshot,
+        config: WebdavConfig
+    ) = remotePayload.copy(
+        preferences = if (config.syncProfileAndSettings) remotePayload.preferences else local.preferences,
+        books = chooseBooks(local, remotePayload, remotePayload, config, forLocal = true),
+        folders = if (config.syncLibraryOrganization) remotePayload.folders else local.folders,
+        bookFolderLinks = if (config.syncLibraryOrganization) remotePayload.bookFolderLinks else local.bookFolderLinks,
+        tags = if (config.syncLibraryOrganization) remotePayload.tags else local.tags,
+        annotationTags = if (config.syncReadingData) remotePayload.annotationTags else local.annotationTags,
+        tagGroups = chooseWebdavTagGroups(remotePayload, local, config.syncLibraryOrganization, config.syncReadingData),
+        bookTagsWithoutGroupId = if (config.syncLibraryOrganization) remotePayload.unknownBookGroupIds() else local.unknownBookGroupIds(),
+        annotationTagsWithoutGroupId = if (config.syncReadingData) remotePayload.unknownAnnotationGroupNames() else local.unknownAnnotationGroupNames(),
+        bookTagLinks = if (config.syncLibraryOrganization) remotePayload.bookTagLinks else local.bookTagLinks,
+        readingRecords = if (config.syncReadingData) remotePayload.readingRecords else local.readingRecords,
+        bookmarks = if (config.syncReadingData) remotePayload.bookmarks else local.bookmarks,
+        notes = if (config.syncReadingData) remotePayload.notes else local.notes,
+        tombstones = (local.tombstones + remotePayload.tombstones).associateBy {
+            "${it.namespace}:${it.itemId}"
+        }.values.toList(),
+        assets = (local.assets + remotePayload.assets).associateBy { it.id }.values.toList()
+    )
+
+    private fun chooseBooks(
+        local: PortableSnapshot,
+        remote: PortableSnapshot,
+        merged: PortableSnapshot,
+        config: WebdavConfig,
+        forLocal: Boolean
+    ): List<PortableBook> = chooseWebdavBooksForDevice(
+        localBooks = local.books,
+        remoteBooks = remote.books,
+        mergedBooks = merged.books,
+        syncLibraryOrganization = config.syncLibraryOrganization,
+        syncReadingData = config.syncReadingData,
+        forLocal = forLocal
+    )
 
     private fun materialize(source: PortableAssetSource, directory: File): File {
         val target = File(directory, source.asset.fileName)
@@ -189,8 +276,40 @@ class WebdavPortableStateSync @Inject constructor(
         }
     }
 
-    private fun emptySnapshot(deviceId: String) = PortableSyncRules.empty(deviceId)
-    private fun stateFingerprint(snapshot: PortableSnapshot) = PortableSyncRules.fingerprint(snapshot)
+    private fun emptySnapshot(deviceId: String) = PortableSnapshot(
+        createdAt = 0L,
+        sourceDeviceId = deviceId,
+        preferences = emptyList(), books = emptyList(), folders = emptyList(),
+        bookFolderLinks = emptyList(), tags = emptyList(), bookTagLinks = emptyList(),
+        readingRecords = emptyList(), bookmarks = emptyList(), notes = emptyList(),
+        tombstones = emptyList(), assets = emptyList()
+    )
+
+    private fun stateFingerprint(snapshot: PortableSnapshot): String {
+        val canonical = snapshot.copy(
+            createdAt = 0L,
+            sourceDeviceId = "",
+            preferences = snapshot.preferences.sortedBy { it.key },
+            books = snapshot.books.sortedBy { it.id },
+            folders = snapshot.folders.sortedBy { it.id },
+            bookFolderLinks = snapshot.bookFolderLinks.sortedBy { it.bookId },
+            tags = snapshot.tags.sortedBy { it.id },
+            annotationTags = snapshot.annotationTags.sortedBy { it.name },
+            tagGroups = snapshot.tagGroups.sortedBy { it.id },
+            bookTagLinks = snapshot.bookTagLinks.sortedBy { "${it.bookId}:${it.tagId}" },
+            readingRecords = snapshot.readingRecords.sortedBy { "${it.bookId}:${it.date}:${it.sourceDeviceId}" },
+            bookmarks = snapshot.bookmarks.sortedBy { it.syncId },
+            notes = snapshot.notes.sortedBy { it.syncId },
+            highlightRules = snapshot.highlightRules.sortedBy { it.id },
+            bookHighlightRuleStates = snapshot.bookHighlightRuleStates.sortedBy { "${it.bookId}:${it.ruleId}" },
+            bookHighlightSettings = snapshot.bookHighlightSettings.sortedBy { it.bookId },
+            highlightRuleExclusions = snapshot.highlightRuleExclusions.sortedBy { "${it.bookId}:${it.ruleId}:${it.matchKey}" },
+            tombstones = snapshot.tombstones.sortedBy { "${it.namespace}:${it.itemId}" },
+            assets = snapshot.assets.sortedBy { it.id }
+        ).toJson().toByteArray(Charsets.UTF_8)
+        return MessageDigest.getInstance("SHA-256").digest(canonical)
+            .joinToString("") { "%02x".format(it) }
+    }
 
     companion object {
         private const val MAX_CONFLICT_RETRIES = 3
@@ -203,6 +322,17 @@ internal fun stripHighlightRuleLibraryForWebdav(snapshot: PortableSnapshot): Por
     bookHighlightRuleStates = emptyList(),
     bookHighlightSettings = emptyList()
 )
+
+internal fun chooseWebdavTagGroups(
+    merged: PortableSnapshot,
+    fallback: PortableSnapshot,
+    syncLibraryOrganization: Boolean,
+    syncReadingData: Boolean
+) = (if (syncLibraryOrganization) merged.tagGroups else fallback.tagGroups).filter { it.type == "book" } +
+    (if (syncReadingData) merged.tagGroups else fallback.tagGroups).filter { it.type == "annotation" }
+
+private fun PortableSnapshot.unknownBookGroupIds() = if (hasTagGroups) bookTagsWithoutGroupId else tags.mapTo(mutableSetOf()) { it.id }
+private fun PortableSnapshot.unknownAnnotationGroupNames() = if (hasTagGroups) annotationTagsWithoutGroupId else annotationTags.mapTo(mutableSetOf()) { it.name }
 
 /**
  * 选取应用到本机（[forLocal]=true）或写回服务器 state.json（[forLocal]=false）的书籍列表。

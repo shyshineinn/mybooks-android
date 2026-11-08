@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.bookshelf
+
+import com.huangder.lumibooks.ui.icons.ControlIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.activity.compose.BackHandler
@@ -153,7 +155,7 @@ internal fun BookshelfSearchLauncher(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f)
             )
-            Icon(
+            ControlIcon(
                 imageVector = AppIcons.MagnifyingGlass,
                 contentDescription = stringResource(R.string.search),
                 tint = AppColors.TextPrimary,
@@ -188,6 +190,7 @@ internal fun BookshelfSearchOverlay(
     onBookmarksNotes: (Book) -> Unit,
     onToggleReadStatus: (Book) -> Unit,
     launcherBounds: Rect,
+    onArchive: ((Book) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -207,36 +210,18 @@ internal fun BookshelfSearchOverlay(
         ?.boundsInRoot()
         ?: Rect.Zero
     val hasReturnTarget = launcherBounds != Rect.Zero && activeFieldBounds != Rect.Zero
-    val returnOffsetX by animateFloatAsState(
-        targetValue = if (!visible && hasReturnTarget) {
-            launcherBounds.left - activeFieldBounds.left
-        } else {
-            0f
-        },
-        animationSpec = if (eInkMode) snap() else spring(dampingRatio = positionDampingRatio, stiffness = 220f),
-        label = "bookshelfSearchReturnX"
-    )
-    val returnOffsetY by animateFloatAsState(
-        targetValue = if (!visible && hasReturnTarget) {
-            launcherBounds.top - activeFieldBounds.top
-        } else {
-            0f
-        },
-        animationSpec = if (eInkMode) snap() else spring(dampingRatio = positionDampingRatio, stiffness = 220f),
-        label = "bookshelfSearchReturnY"
-    )
-    val activeFieldHeight by animateDpAsState(
-        targetValue = if (visible) 62.dp else 48.dp,
-        animationSpec = if (eInkMode) {
-            snap()
-        } else {
-            spring(
-                dampingRatio = if (isLiquidGlass) 0.74f else 0.82f,
-                stiffness = 240f
-            )
-        },
-        label = "bookshelfSearchReturnHeight"
-    )
+    val morph = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(visible, eInkMode) {
+        val target = if (visible) 1f else 0f
+        if (eInkMode) morph.snapTo(target)
+        else morph.animateTo(target, spring(dampingRatio = positionDampingRatio.coerceAtLeast(.78f), stiffness = 260f))
+    }
+    val fieldWidthPx = if (hasReturnTarget) {
+        androidx.compose.ui.util.lerp(launcherBounds.width, activeFieldBounds.width, morph.value.coerceIn(0f, 1.05f))
+    } else null
+    val returnOffsetX = if (hasReturnTarget) (launcherBounds.left - activeFieldBounds.left) * (1f - morph.value) else 0f
+    val returnOffsetY = if (hasReturnTarget) (launcherBounds.top - activeFieldBounds.top) * (1f - morph.value) else 0f
+    val activeFieldHeight = androidx.compose.ui.unit.lerp(48.dp, 62.dp, morph.value.coerceIn(0f, 1f))
     val resultContentAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = if (eInkMode) snap() else tween(if (visible) 160 else 110),
@@ -261,13 +246,8 @@ internal fun BookshelfSearchOverlay(
         enter = if (eInkMode) {
             EnterTransition.None
         } else {
-            fadeIn(tween(150)) + slideInVertically(
-                initialOffsetY = { (it * 0.14f).toInt() },
-                animationSpec = spring(
-                    dampingRatio = if (isLiquidGlass) 0.68f else 0.84f,
-                    stiffness = if (isLiquidGlass) 220f else 190f
-                )
-            )
+            // The field itself morphs out of the launcher; the page only fades in around it.
+            fadeIn(tween(150))
         },
         exit = if (eInkMode) ExitTransition.None else fadeOut(tween(durationMillis = 70, delayMillis = 430)),
         modifier = modifier.fillMaxSize()
@@ -301,6 +281,7 @@ internal fun BookshelfSearchOverlay(
                     focusRequester = focusRequester,
                     onSearch = { keyboardController?.hide() },
                     height = activeFieldHeight,
+                    widthPx = fieldWidthPx,
                     translationX = returnOffsetX,
                     translationY = returnOffsetY,
                     onPositioned = { activeFieldCoordinates = it },
@@ -364,6 +345,7 @@ internal fun BookshelfSearchOverlay(
                                         onExpandedBookChange(if (expandedBookId == book.id) null else book.id)
                                     },
                                     onClick = { onBookClick(book) },
+                                    onArchive = onArchive?.let { archive -> { archive(book) } },
                                     onEditInfo = { onEditInfo(book) },
                                     onBookDetails = { onBookDetails(book) },
                                     onMoveToFolder = { onMoveToFolder(book) },
@@ -392,12 +374,18 @@ private fun ActiveBookshelfSearchField(
     focusRequester: FocusRequester,
     onSearch: () -> Unit,
     height: androidx.compose.ui.unit.Dp,
+    widthPx: Float?,
     translationX: Float,
     translationY: Float,
     onPositioned: (LayoutCoordinates) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val shape = CircleShape
+    val density = LocalDensity.current
+    // The slot keeps the resting (full) geometry for measurement; the field inside it takes the
+    // morphing width, so the field shrinks to the launcher's real width instead of overlapping
+    // the filter capsule beside it.
+    Box(modifier.fillMaxWidth().height(62.dp).onGloballyPositioned(onPositioned)) {
     LiquidGlassSurface(
         controlEdge = true,
         shape = shape,
@@ -405,10 +393,9 @@ private fun ActiveBookshelfSearchField(
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.78f),
         effectPadding = 1.dp,
         decorationModifier = Modifier,
-        modifier = modifier
-            .fillMaxWidth()
+        modifier = Modifier
+            .then(if (widthPx != null) Modifier.width(with(density) { widthPx.toDp() }) else Modifier.fillMaxWidth())
             .height(height)
-            .onGloballyPositioned(onPositioned)
             .graphicsLayer {
                 this.translationX = translationX
                 this.translationY = translationY
@@ -448,7 +435,7 @@ private fun ActiveBookshelfSearchField(
                         innerTextField()
                     }
                     Spacer(Modifier.width(12.dp))
-                    Icon(
+                    ControlIcon(
                         imageVector = AppIcons.MagnifyingGlass,
                         contentDescription = stringResource(R.string.search),
                         tint = AppColors.TextPrimary,
@@ -457,6 +444,7 @@ private fun ActiveBookshelfSearchField(
                 }
             }
         )
+    }
     }
 }
 
@@ -485,7 +473,9 @@ internal fun BookshelfSearchResultItem(
     selected: Boolean = false,
     onSelectionToggle: () -> Unit = {},
     coverModifier: Modifier = Modifier,
-    selectionScaleEnabled: Boolean = true
+    selectionScaleEnabled: Boolean = true,
+    onToggleHidden: (() -> Unit)? = null,
+    onArchive: (() -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     val eInkMode = LocalEInkMode.current
@@ -578,7 +568,9 @@ internal fun BookshelfSearchResultItem(
                     onRemoveCustomCover = onRemoveCustomCover,
                     onTags = onTags,
                     onBookmarksNotes = onBookmarksNotes,
-                    onToggleReadStatus = onToggleReadStatus
+                    onToggleReadStatus = onToggleReadStatus,
+                    onToggleHidden = onToggleHidden,
+                    onArchive = onArchive
                 )
             }
         }
@@ -692,7 +684,7 @@ private fun BookshelfSearchResultCard(
                 Text(
                     text = book.author,
                     color = AppColors.TextSecondary,
-                    fontSize = 13.sp,
+                    fontSize = AppType.Footnote,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -769,9 +761,13 @@ private fun SearchResultActionRow(
     onRemoveCustomCover: () -> Unit,
     onTags: () -> Unit,
     onBookmarksNotes: () -> Unit,
-    onToggleReadStatus: () -> Unit
+    onToggleReadStatus: () -> Unit,
+    onToggleHidden: (() -> Unit)? = null,
+    onArchive: (() -> Unit)? = null
 ) {
     val hasCustomCover = FileUtils.isCustomCover(book.coverPath)
+    // Hidden books leave favourites, tags and folders alone until they return to the shelf.
+    val organise = !book.isHidden
     val favoritePink = if (LocalIsDarkTheme.current) Color(0xFFFF8A80) else Color(0xFFE85D5D)
     val gap = 4.dp
     HorizontalOverscrollBounce(modifier = Modifier.fillMaxWidth()) {
@@ -804,15 +800,17 @@ private fun SearchResultActionRow(
             animationIndex = 2,
             onClick = onDelete
         )
-        SearchActionButton(
-            icon = AppIcons.Heart.resolve(book.isFavorite),
-            contentDescription = stringResource(R.string.favorite),
-            tintedColor = if (book.isFavorite) favoritePink else Color.Black,
-            contentColor = Color.White,
-            visible = visible,
-            animationIndex = 3,
-            onClick = onFavorite
-        )
+        if (organise) {
+            SearchActionButton(
+                icon = AppIcons.Heart.resolve(book.isFavorite),
+                contentDescription = stringResource(R.string.favorite),
+                tintedColor = if (book.isFavorite) favoritePink else Color.Black,
+                contentColor = Color.White,
+                visible = visible,
+                animationIndex = 3,
+                onClick = onFavorite
+            )
+        }
 
         if (hasCustomCover) {
             SearchActionButton(
@@ -845,13 +843,15 @@ private fun SearchResultActionRow(
             )
         }
 
-        SearchActionButton(
-            icon = AppIcons.Tag,
-            contentDescription = stringResource(R.string.add_tag),
-            visible = visible,
-            animationIndex = if (hasCustomCover) 6 else 5,
-            onClick = onTags
-        )
+        if (organise) {
+            SearchActionButton(
+                icon = AppIcons.Tag,
+                contentDescription = stringResource(R.string.add_tag),
+                visible = visible,
+                animationIndex = if (hasCustomCover) 6 else 5,
+                onClick = onTags
+            )
+        }
         SearchActionButton(
             icon = AppIcons.Bookmark.regular,
             contentDescription = stringResource(R.string.bookmarks_notes),
@@ -868,15 +868,35 @@ private fun SearchResultActionRow(
             animationIndex = if (hasCustomCover) 8 else 7,
             onClick = onToggleReadStatus
         )
-        SearchActionButton(
-            icon = AppIcons.FolderSimple,
-            contentDescription = stringResource(R.string.move_to_folder),
-            label = stringResource(R.string.move_to_folder),
-            width = 104.dp,
-            visible = visible,
-            animationIndex = if (hasCustomCover) 8 else 7,
-            onClick = onMoveToFolder
-        )
+        if (organise) {
+            SearchActionButton(
+                icon = AppIcons.FolderSimple,
+                contentDescription = stringResource(R.string.move_to_folder),
+                label = stringResource(R.string.move_to_folder),
+                width = 104.dp,
+                visible = visible,
+                animationIndex = if (hasCustomCover) 8 else 7,
+                onClick = onMoveToFolder
+            )
+        }
+        if (onArchive != null && !book.isHidden) {
+            val archiveLabel = stringResource(R.string.archive_book)
+            SearchActionButton(icon = AppIcons.Archive, contentDescription = archiveLabel,
+                label = archiveLabel, width = 100.dp, visible = visible,
+                animationIndex = if (hasCustomCover) 9 else 8, onClick = onArchive)
+        }
+        if (onToggleHidden != null) {
+            val hideLabel = stringResource(if (book.isHidden) R.string.hidden_library_unhide else R.string.hidden_library_hide)
+            SearchActionButton(
+                icon = if (book.isHidden) AppIcons.Eye else AppIcons.EyeSlash,
+                contentDescription = hideLabel,
+                label = hideLabel,
+                width = 116.dp,
+                visible = visible,
+                animationIndex = if (hasCustomCover) 9 else 8,
+                onClick = onToggleHidden
+            )
+        }
     }
     }
 }
@@ -1027,7 +1047,7 @@ internal fun SearchActionButton(
             )
     ) {
         if (label == null) {
-            Icon(
+            ControlIcon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = effectiveContentColor,
@@ -1039,7 +1059,7 @@ internal fun SearchActionButton(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                Icon(
+                ControlIcon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = effectiveContentColor,

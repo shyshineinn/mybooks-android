@@ -1,5 +1,8 @@
 package com.huangder.lumibooks.ui.settings
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.lumiGroupedSurface
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,6 +50,7 @@ import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppType
+import com.huangder.lumibooks.ui.theme.AppSpace
 
 @Composable
 fun TranslationSettingsDetail(viewModel: TranslationSettingsViewModel = hiltViewModel()) {
@@ -82,7 +86,7 @@ internal fun TranslationSettingsContent(
     }
     LaunchedEffect(action.saved) { if (action.saved) token = "" }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+    Column(Modifier.fillMaxWidth().padding(horizontal = AppSpace.page, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(stringResource(R.string.translation_description), color = AppColors.TextSecondary, fontSize = AppType.Body)
         TranslationSectionCard {
@@ -148,8 +152,7 @@ private fun TranslationSectionCard(content: @Composable ColumnScope.() -> Unit) 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(AppRoundedCornerShape(AppRadius.md))
-            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+            .lumiGroupedSurface()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         content = content
@@ -194,7 +197,7 @@ private fun TranslationChoice(label: String, value: String, choices: List<String
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(value, Modifier.weight(1f), color = AppColors.TextPrimary, fontSize = AppType.Body,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Icon(AppIcons.CaretDown, null, Modifier.size(18.dp), tint = AppColors.TextSecondary)
+            ControlIcon(AppIcons.CaretDown, null, Modifier.size(18.dp), tint = AppColors.TextSecondary)
         }
     }
 }

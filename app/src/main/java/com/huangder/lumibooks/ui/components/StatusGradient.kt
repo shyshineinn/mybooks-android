@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.effects.ProgressiveBlurDirection
 import com.kyant.backdrop.backdrops.LayerBackdrop
 
 /**

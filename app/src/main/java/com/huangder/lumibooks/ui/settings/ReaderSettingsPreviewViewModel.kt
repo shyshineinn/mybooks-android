@@ -10,6 +10,7 @@ import com.huangder.lumibooks.domain.model.ReaderBackgroundPreset
 import com.huangder.lumibooks.domain.model.ReaderBackgroundType
 import com.huangder.lumibooks.domain.model.CustomFontPreset
 import com.huangder.lumibooks.domain.model.ReaderPageAnimationSettings
+import com.huangder.lumibooks.domain.model.ReaderPageTransition
 import com.huangder.lumibooks.domain.model.ReaderLayoutTarget
 import com.huangder.lumibooks.domain.model.ReaderThemeSettings
 import com.huangder.lumibooks.domain.model.ReaderThemeSuite
@@ -82,31 +83,20 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.customReaderBackgrounds.collectLatest { backgrounds ->
                 _uiState.update { it.copy(backgrounds = backgrounds) }
-            }
-        }
-        viewModelScope.launch {
-            val target = _uiState.map { state ->
-                state.editingSuiteId?.let { Triple(it, state.editingLayout, state.editingDark) }
-            }.distinctUntilChanged()
-            combine(dataStoreManager.readerThemeSuiteState, dataStoreManager.customReaderBackgrounds, target) {
-                    suites, backgrounds, editing ->
-                val (suiteId, layout, dark) = editing ?: return@combine null
-                val settings = suites.suites.firstOrNull { it.id == suiteId }?.settingsFor(layout, dark)
-                    ?: return@combine null
-                val preset = backgrounds.firstOrNull {
-                    it.selectionKey == settings.backgroundSelection && it.type == ReaderBackgroundType.IMAGE
-                } ?: return@combine null
-                Triple(preset.id, preset.value, settings.backgroundImageBlurDp.coerceIn(0f, 40f))
-            }.distinctUntilChanged().collectLatest { request ->
-                val (id, path, blur) = request ?: return@collectLatest
-                val original = dataStoreManager.customReaderBackgrounds.first().firstOrNull { it.id == id && it.value == path }
-                    ?: return@collectLatest
-                val processed = withContext(Dispatchers.IO) { prepareProcessedBackground(original, blur) }
-                    ?: return@collectLatest
-                if (dataStoreManager.saveProcessedReaderBackground(original, processed)) {
-                    withContext(Dispatchers.IO) {
-                        original.processedValue?.takeUnless { it == processed.processedValue }
-                            ?.let { File(it).delete() }
+                // The settings screen can receive the background list after a slider
+                // change has already persisted the theme. Reconcile that state here so
+                // a blurred copy is still produced instead of leaving the reader on
+                // the original image.
+                val editingSettings = _uiState.value.editingSettings ?: return@collectLatest
+                val prepared = withContext(Dispatchers.IO) {
+                    prepareProcessedBackground(editingSettings, backgrounds)
+                }
+                if (prepared != backgrounds) {
+                    prepared.forEach { processed ->
+                        val original = backgrounds.first { it.id == processed.id }
+                        if (processed != original) {
+                            dataStoreManager.saveProcessedReaderBackground(original, processed)
+                        }
                     }
                 }
             }
@@ -123,7 +113,7 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
         }
         viewModelScope.launch {
             dataStoreManager.pageTransition().collectLatest { mode ->
-                if (mode in setOf("slide", "scroll", "fade", "curl")) {
+                if (mode in setOf("slide", "scroll", "fade", "curl", "wave")) {
                     _uiState.update { it.copy(animationMode = mode) }
                 }
             }
@@ -495,9 +485,9 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
                 textColor = textColor,
                 fontSize = config.optDouble("textSize", 16.0).toFloat(),
                 fontType = sharedFontType,
-                bodyFontWeight = config.optInt("textBold", 400).coerceIn(100, 900),
+                bodyFontWeight = config.optDouble("textBold", 400.0).toFloat().coerceIn(100f, 900f),
                 lineHeight = (1.35f + config.optDouble("lineSpacingExtra", 0.0).toFloat() /
-                    config.optDouble("textSize", 16.0).toFloat().coerceAtLeast(1f)).coerceIn(1f, 2.5f),
+                    config.optDouble("textSize", 16.0).toFloat().coerceAtLeast(1f)).coerceIn(ReaderThemeSettings.LINE_HEIGHT_RANGE),
                 letterSpacing = config.optDouble("letterSpacing", 0.0).toFloat(),
                 paragraphSpacing = config.optDouble("paragraphSpacing", 2.0).toFloat(),
                 firstLineIndent = if (config.optString("paragraphIndent").isNotBlank()) 2f else 0f,
@@ -534,7 +524,8 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
     }
 
     fun setAnimationMode(mode: String) {
-        if (mode !in setOf("slide", "scroll", "fade", "curl") || _uiState.value.eInkMode) return
+        if (mode !in setOf("slide", "scroll", "fade", "curl", "wave")) return
+        if (_uiState.value.eInkMode && !ReaderPageTransition.isAvailableInEInk(mode)) return
         _uiState.update { it.copy(animationMode = mode) }
         viewModelScope.launch { dataStoreManager.savePageTransition(mode) }
     }
@@ -581,7 +572,7 @@ class ReaderSettingsPreviewViewModel @Inject constructor(
             } ?: return@launch
             // Publish the asset and its selection together, using the target
             // chosen before the photo picker copy, and the latest saved settings.
-            val added = dataStoreManager.addReaderThemeSuiteBackground(
+            dataStoreManager.addReaderThemeSuiteBackground(
                 suiteId,
                 layout,
                 preset,

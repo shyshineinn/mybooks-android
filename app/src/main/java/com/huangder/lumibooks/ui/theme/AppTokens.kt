@@ -120,6 +120,9 @@ object AppColors {
     private val DarkDivider = Color(0xFF38383A)
 
     val Accent: Color @Composable get() = LocalAppAccentColor.current
+    val Destructive: Color @Composable get() = if (LocalEInkMode.current) Color.Black
+        else if (LocalUseMaterial3Theme.current) MaterialTheme.colorScheme.error
+        else if (LocalIsDarkTheme.current) Color(0xFFFF6961) else Color(0xFFD92D3A)
     val OnAccent: Color @Composable get() = LocalOnAppAccentColor.current
     val ControlActive: Color @Composable get() = if (LocalEInkMode.current) {
         Color.Black
@@ -151,9 +154,14 @@ object AppType {
     val Display = 32.sp
     val Title = 28.sp
     val Section = 20.sp
+    // iOS-style intermediate steps; use these instead of literal sizes.
+    val Headline = 17.sp
     val Body = 16.sp
+    val Subhead = 15.sp
     val BodySmall = 14.sp
+    val Footnote = 13.sp
     val Caption = 12.sp
+    val Caption2 = 11.sp
     val Huge = 36.sp
 }
 
@@ -164,6 +172,8 @@ object AppSpace {
     val md = 16.dp
     val lg = 24.dp
     val xl = 32.dp
+    // Horizontal page margin shared by large titles, cards and grouped lists.
+    val page = 24.dp
 }
 
 // ─── 圆角 ───

@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import com.huangder.lumibooks.R
+import com.huangder.lumibooks.ui.components.GroupedSectionTitle
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
@@ -62,14 +63,10 @@ internal fun SettingsSectionTitle(text: String, sectionKey: String) {
     DisposableEffect(navigator, sectionKey) {
         onDispose { navigator?.removeSection(sectionKey) }
     }
-    Text(
+    GroupedSectionTitle(
         text = text,
-        color = AppColors.TextSecondary,
-        fontSize = AppType.BodySmall,
-        fontWeight = FontWeight.Medium,
         modifier = Modifier.onGloballyPositioned { navigator?.updateSection(sectionKey, it) }
             .testTag("settings-section-$sectionKey")
-            .padding(start = AppSpace.lg, end = AppSpace.lg, top = AppSpace.md, bottom = AppSpace.sm)
     )
 }
 
@@ -96,7 +93,7 @@ internal fun SettingsSearchHint(
     FlowRow(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.lg),
+            .padding(horizontal = AppSpace.page),
         horizontalArrangement = Arrangement.spacedBy(AppSpace.xs, Alignment.CenterHorizontally),
         verticalArrangement = Arrangement.spacedBy(AppSpace.xs)
     ) {

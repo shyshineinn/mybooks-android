@@ -4,13 +4,14 @@ import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.ui.home.DailyReading
 import com.huangder.lumibooks.ui.home.HomeUiState
 
-/** Navigation renders summaries. Open-book actions read the current download state on demand. */
+/** Only values actually rendered by navigation; download progress is read at action time. */
 internal data class HomeNavigationState(
     val isLoading: Boolean,
     val importMessage: String?,
     val tagMessage: String?,
     val error: String?,
     val lastReadBook: Book?,
+    val hiddenBookIds: Set<String>,
     val authorizedBookDirectories: List<String>,
     val importBooksLayoutMode: Int,
     val folderNames: Map<String, String>,
@@ -22,6 +23,7 @@ internal data class HomeNavigationState(
 
 internal fun HomeUiState.forNavigation() = HomeNavigationState(
     isLoading, importMessage, tagMessage, error,
-    books.maxByOrNull { it.lastReadTime }, authorizedBookDirectories, importBooksLayoutMode,
-    folders.associate { it.id to it.name }, todayReadingTime, dailyGoal, weeklyData, streakDays
+    books.maxByOrNull { it.lastReadTime }, hiddenBooks.mapTo(HashSet()) { it.id },
+    authorizedBookDirectories, importBooksLayoutMode, folders.associate { it.id to it.name },
+    todayReadingTime, dailyGoal, weeklyData, streakDays
 )

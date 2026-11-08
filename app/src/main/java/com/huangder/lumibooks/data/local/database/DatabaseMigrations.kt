@@ -5,45 +5,56 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.huangder.lumibooks.domain.model.AnnotationTags
 
 object DatabaseMigrations {
-    // v23/v24 only added the independent reading_sessions table. All v22 tables
-    // retain their schema. Explicit downgrade paths preserve the complete library,
-    // pending sync edits and the retired session table instead of deleting data.
-    private fun preserveLibraryOnRollback(fromVersion: Int) = object : Migration(fromVersion, 22) {
-        override fun migrate(db: SupportSQLiteDatabase) = Unit
-    }
-
-    val MIGRATION_23_22: Migration = preserveLibraryOnRollback(23)
-    val MIGRATION_24_22: Migration = preserveLibraryOnRollback(24)
-
-    private fun addBookArchive(fromVersion: Int) = object : Migration(fromVersion, 25) {
+    val MIGRATION_26_27 = object : Migration(26, 27) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE books ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE books ADD COLUMN archiveUpdatedAt INTEGER NOT NULL DEFAULT 0")
         }
     }
 
-    // v23/v24 are retired My Books schemas. Leave their reading_sessions table intact.
-    val MIGRATION_22_25: Migration = addBookArchive(22)
-    val MIGRATION_23_25: Migration = addBookArchive(23)
-    val MIGRATION_24_25: Migration = addBookArchive(24)
-
     val MIGRATION_25_26 = object : Migration(25, 26) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS tag_groups (id TEXT NOT NULL PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL, normalizedName TEXT NOT NULL, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_tag_groups_type_normalizedName ON tag_groups (type, normalizedName)")
+            db.execSQL("ALTER TABLE tags ADD COLUMN groupId TEXT")
+            db.execSQL("ALTER TABLE annotation_tags ADD COLUMN groupId TEXT")
+            // A secondary label previously implied its parent; make that membership explicit before flattening.
+            db.execSQL("INSERT OR IGNORE INTO book_tag_cross_refs (bookId, tagId, updatedAt) SELECT links.bookId, parents.id, links.updatedAt FROM book_tag_cross_refs AS links INNER JOIN tags AS children ON children.id = links.tagId INNER JOIN tags AS parents ON parents.id = children.parentId WHERE children.parentId IS NOT NULL")
+            db.execSQL("UPDATE tags SET parentId = NULL")
+        }
+    }
+
+    val MIGRATION_24_25 = object : Migration(24, 25) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE reading_records ADD COLUMN listeningDuration INTEGER NOT NULL DEFAULT 0")
         }
     }
 
-    val MIGRATION_21_22 = object : Migration(21, 22) {
+    val MIGRATION_23_24 = object : Migration(23, 24) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE mybooks_sync_state ADD COLUMN remoteDeleted INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE mybooks_sync_state ADD COLUMN conflictFieldsJson TEXT NOT NULL DEFAULT '[]'")
-            db.execSQL("ALTER TABLE mybooks_pending_delete ADD COLUMN expectedRevision INTEGER")
-            db.execSQL("ALTER TABLE mybooks_pending_delete ADD COLUMN expectedUuid TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE mybooks_pending_delete ADD COLUMN expectedUpdatedAt TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE mybooks_pending_delete ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE highlight_rules ADD COLUMN highlightColor INTEGER")
         }
     }
+
+    val MIGRATION_22_23 = object : Migration(22, 23) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE highlight_rules ADD COLUMN highlightMode INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE books ADD COLUMN isHidden INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val MIGRATION_21_22 = object : Migration(21, 22) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE books ADD COLUMN isManuallyMarkedRead INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE books SET isManuallyMarkedRead = 1 WHERE readingProgress >= 1")
+        }
+    }
+
+    val MIGRATION_19_20 = object : Migration(19, 20) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS annotation_tags (name TEXT NOT NULL PRIMARY KEY, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
             // Android SQLite versions do not all provide json_each; decode in Kotlin.

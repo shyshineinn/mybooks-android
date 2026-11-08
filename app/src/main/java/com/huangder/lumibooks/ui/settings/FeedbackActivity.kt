@@ -1,4 +1,9 @@
 package com.huangder.lumibooks.ui.settings
+
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import com.huangder.lumibooks.ui.components.lumiCardSurface
@@ -84,6 +89,7 @@ import com.huangder.lumibooks.util.diagnostics.DiagnosticLogger
 import com.huangder.lumibooks.util.diagnostics.DiagnosticSessionManager
 import kotlinx.coroutines.launch
 import java.io.File
+import com.huangder.lumibooks.ui.components.DisclosureChevron
 
 @AndroidEntryPoint
 class FeedbackActivity : ComponentActivity() {
@@ -122,10 +128,13 @@ class FeedbackActivity : ComponentActivity() {
             val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
             val liquidGlassStyle by dataStoreManager.liquidGlassStyle
                 .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val liquidGlassSamplingQuality by dataStoreManager.liquidGlassSamplingQuality
+                .collectAsState(initial = launchTheme.liquidGlassSamplingQuality)
             val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
                 .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
                 liquidGlassStyle = liquidGlassStyle,
+                liquidGlassSamplingQuality = liquidGlassSamplingQuality,
                 reduceTransparencyEnabled = reduceTransparencyEnabled,
                 menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(motion),
@@ -162,7 +171,7 @@ private fun FeedbackOverviewPage(onBack: () -> Unit) {
             onClick = { context.startActivity(Intent(context, DiagnosticActivity::class.java)) }
         )
         Spacer(Modifier.height(AppSpace.lg))
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.lg).shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000)).clip(AppRoundedCornerShape(AppRadius.lg)).lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg)).padding(AppSpace.lg), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.lg).shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow).clip(AppRoundedCornerShape(AppRadius.lg)).lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg)).padding(AppSpace.lg), horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(R.drawable.feedback_qr), stringResource(R.string.feedback_qr_desc), Modifier.size(220.dp).clip(AppRoundedCornerShape(AppRadius.md)), contentScale = ContentScale.Fit)
             Spacer(Modifier.height(AppSpace.md))
             Text(stringResource(R.string.feedback_thanks), fontSize = AppType.Body, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, textAlign = TextAlign.Center)
@@ -338,7 +347,7 @@ fun DiagnosticPage(
         if (showPreview) {
             LiquidGlassAlertDialog(
                 onDismissRequest = { showPreview = false },
-                title = { Text(stringResource(R.string.diagnostic_title)) },
+                titleText = stringResource(R.string.diagnostic_title),
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(AppSpace.sm)) {
                         Text(stringResource(R.string.diagnostic_preview))
@@ -367,19 +376,25 @@ fun DiagnosticPage(
                         }
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { showPreview = false; generate() }, enabled = !isGenerating) {
-                        Text(stringResource(R.string.diagnostic_stop))
-                    }
-                },
-                dismissButton = { TextButton(onClick = { showPreview = false }) { Text(stringResource(android.R.string.cancel)) } }
-            )
+                actions = listOf(
+                    AppDialogAction(
+                        text = stringResource(R.string.diagnostic_stop),
+                        onClick = { showPreview = false; generate() },
+                        role = AppDialogActionRole.Primary,
+                        enabled = !isGenerating
+                    ),
+                    AppDialogAction(
+                        text = stringResource(android.R.string.cancel),
+                        onClick = { showPreview = false },
+                        role = AppDialogActionRole.Cancel
+                    )
+                ))
         }
 
         if (showConsent) {
             LiquidGlassAlertDialog(
                 onDismissRequest = { showConsent = false },
-                title = { Text(stringResource(R.string.diagnostic_consent_title)) },
+                titleText = stringResource(R.string.diagnostic_consent_title),
                 text = {
                     Column(
                         modifier = Modifier
@@ -399,31 +414,24 @@ fun DiagnosticPage(
                         )
                     }
                 },
-                confirmButton = {
-                    LiquidGlassButton(
+                actions = listOf(
+                    AppDialogAction(
+                        text = stringResource(R.string.diagnostic_consent_agree),
                         onClick = {
                         activeSessionId = diagnosticSessionManager.start(issueType).id
                         showConsent = false
                         },
+                        role = AppDialogActionRole.Primary,
                         tintedColor = AppColors.Accent,
-                        contentColor = Color.White,
-                        shape = AppRoundedCornerShape(AppRadius.capsule),
-                        modifier = Modifier.heightIn(min = 52.dp)
-                    ) {
-                        Text(stringResource(R.string.diagnostic_consent_agree), color = Color.White, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    }
-                },
-                dismissButton = {
-                    LiquidGlassButton(
+                        contentColor = Color.White
+                    ),
+                    AppDialogAction(
+                        text = stringResource(R.string.diagnostic_consent_decline),
                         onClick = { showConsent = false },
-                        contentColor = AppColors.TextPrimary,
-                        shape = AppRoundedCornerShape(AppRadius.capsule),
-                        modifier = Modifier.heightIn(min = 52.dp)
-                    ) {
-                        Text(stringResource(R.string.diagnostic_consent_decline), color = AppColors.TextPrimary, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    }
-                }
-            )
+                        role = AppDialogActionRole.Cancel,
+                        contentColor = AppColors.TextPrimary
+                    )
+                ))
         }
 
     }
@@ -509,7 +517,7 @@ private fun DiagnosticComposer(
                 }
             }
         }
-        TextField(
+        com.huangder.lumibooks.ui.components.LumiTextField(
             value = description,
             onValueChange = onDescriptionChange,
             modifier = Modifier.fillMaxWidth(),
@@ -517,26 +525,7 @@ private fun DiagnosticComposer(
             placeholder = { Text(stringResource(R.string.diagnostic_description_hint)) },
             minLines = 3,
             maxLines = 6,
-            singleLine = false,
-            shape = AppRoundedCornerShape(26.dp),
-            colors = TextFieldDefaults.colors(
-                focusedTextColor = AppColors.TextPrimary,
-                unfocusedTextColor = AppColors.TextPrimary,
-                disabledTextColor = AppColors.TextSecondary,
-                focusedLabelColor = AppColors.Accent,
-                unfocusedLabelColor = AppColors.TextSecondary,
-                disabledLabelColor = AppColors.TextSecondary,
-                focusedPlaceholderColor = AppColors.TextSecondary,
-                unfocusedPlaceholderColor = AppColors.TextSecondary,
-                disabledPlaceholderColor = AppColors.TextSecondary,
-                cursorColor = AppColors.Accent,
-                focusedContainerColor = AppColors.BgGray,
-                unfocusedContainerColor = AppColors.BgGray,
-                disabledContainerColor = AppColors.BgGray,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent
-            )
+            singleLine = false
         )
         LiquidGlassButton(
             onClick = onAddScreenshot,
@@ -546,7 +535,7 @@ private fun DiagnosticComposer(
             shape = AppRoundedCornerShape(AppRadius.capsule),
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
         ) {
-            Icon(AppIcons.ImageSquare, contentDescription = null)
+            ControlIcon(AppIcons.ImageSquare, contentDescription = null)
             Spacer(Modifier.width(AppSpace.xs))
             Text("${stringResource(R.string.diagnostic_add_screenshot)} ($screenshotCount/3)", maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
@@ -568,7 +557,7 @@ private fun DiagnosticComposer(
                     prominentShadow = true,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 ) {
-                    Icon(AppIcons.Play, contentDescription = null, tint = Color.White)
+                    ControlIcon(AppIcons.Play, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(AppSpace.xs))
                     Text(stringResource(R.string.diagnostic_start), color = Color.White, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
@@ -582,7 +571,7 @@ private fun DiagnosticComposer(
                     prominentShadow = true,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 ) {
-                    Icon(AppIcons.Stop, contentDescription = null, tint = Color.White)
+                    ControlIcon(AppIcons.Stop, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(AppSpace.xs))
                     Text(stringResource(R.string.diagnostic_stop), color = Color.White, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
@@ -621,7 +610,7 @@ private fun DiagnosticComposer(
                     contentColor = AppColors.TextPrimary,
                     shape = AppRoundedCornerShape(AppRadius.capsule)
                 ) {
-                    Icon(AppIcons.ShareNetwork, contentDescription = null)
+                    ControlIcon(AppIcons.ShareNetwork, contentDescription = null)
                     Spacer(Modifier.width(AppSpace.xs))
                     Text(stringResource(R.string.diagnostic_share), maxLines = 1)
                 }
@@ -632,7 +621,7 @@ private fun DiagnosticComposer(
                     contentColor = AppColors.TextPrimary,
                     shape = AppRoundedCornerShape(AppRadius.capsule)
                 ) {
-                    Icon(AppIcons.DownloadSimple, contentDescription = null)
+                    ControlIcon(AppIcons.DownloadSimple, contentDescription = null)
                     Spacer(Modifier.width(AppSpace.xs))
                     Text(stringResource(R.string.diagnostic_save), maxLines = 1)
                 }
@@ -751,12 +740,7 @@ private fun FeedbackLinkSection(
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(AppSpace.sm))
-            Icon(
-                imageVector = AppIcons.CaretRight,
-                contentDescription = null,
-                tint = AppColors.TextSecondary,
-                modifier = Modifier.size(20.dp)
-            )
+            DisclosureChevron()
         }
     }
 }
@@ -787,7 +771,7 @@ private fun FeedbackLinksCard(
                     Text(title, fontSize = AppType.Body, color = AppColors.TextPrimary)
                 }
                 Spacer(Modifier.width(AppSpace.sm))
-                Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+                DisclosureChevron()
             }
             if (index != links.lastIndex) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md).height(1.dp).background(AppColors.Divider))

@@ -120,6 +120,18 @@ class TtsController(
         nextSentencePrefetchJob?.cancel()
     }
 
+    /** A live anchor for viewport restoration, independent of throttled persistence. */
+    fun liveListeningPosition(bookId: String, sessionId: Long): TtsListeningPosition? {
+        if (_activeBookId.value != bookId || sessionId != sessionGeneration ||
+            _playbackState.value == TtsPlaybackState.IDLE) return null
+        val audible = _listeningFrame.value.takeIf { activeEngine.supportsQueuedPlayback }
+        val page = audible?.page ?: _currentPage.value ?: return null
+        val sentence = audible?.utterance ?: activeSentenceSegment ?: return null
+        val offset = if (crossPageMerge != null && sentence === activeSentenceSegment) sentence.startCharacterOffset
+            else _currentSentence.value?.startCharacterOffset ?: sentence.startCharacterOffset
+        return TtsListeningPosition(bookId, page.location.chapterIndex, page.location.pageIndex,
+            offset.coerceAtLeast(0), System.currentTimeMillis())
+    }
     private var sessionGeneration = 0L
     private var utteranceSequence = 0L
     private var pageLoadToken = 0L
@@ -157,7 +169,8 @@ class TtsController(
     private data class PendingPageTurn(
         val request: TtsPageTurnRequest,
         val sourceLocation: TtsPageLocation?,
-        val resumeWhenAcknowledged: Boolean
+        val resumeWhenAcknowledged: Boolean,
+        val retryCount: Int = 0
     )
 
     private data class AcknowledgedPageTurn(
@@ -170,6 +183,16 @@ class TtsController(
         engine: TtsPlaybackEngine,
         callbackSource: String
     ) = object : TtsPlaybackListener {
+        override fun onPlaybackActivity(utteranceId: String, active: Boolean) {
+            // Do not wait behind synthesis/network work holding commandMutex. All controller
+            // state and the accounting sink are confined to Main, and stale audio is ignored.
+            scope.launch {
+                if (engine !== activeEngine || utteranceId != activeUtteranceId) return@launch
+                if (active && _playbackState.value != TtsPlaybackState.PLAYING) return@launch
+                onListeningActivity(if (active) _activeBookId.value else null)
+            }
+        }
+
         override fun onStart(utteranceId: String) {
             scope.launch {
                 commandMutex.withLock {
@@ -201,6 +224,7 @@ class TtsController(
                         callbackSource = callbackSource
                     )
                     if (engine !== activeEngine) return@withLock
+                    if (utteranceId == activeUtteranceId) onListeningActivity(null)
                     handleUtteranceDone(utteranceId)
                 }
             }
@@ -216,6 +240,7 @@ class TtsController(
                         callbackSource = callbackSource
                     )
                     if (engine !== activeEngine) return@withLock
+                    if (utteranceId == activeUtteranceId) onListeningActivity(null)
                     handleUtteranceError(utteranceId, throwable)
                 }
             }
@@ -249,8 +274,8 @@ class TtsController(
                         callbackSource = callbackSource
                     )
                     if (_playbackState.value == TtsPlaybackState.PLAYING) {
-                        onListeningActivity(null)
                         clearQueuedSentence()
+                        onListeningActivity(null)
                         _playbackState.value = TtsPlaybackState.PAUSED
                         logTtsEvent("state_changed", state = TtsPlaybackState.PAUSED)
                     }
@@ -460,6 +485,8 @@ class TtsController(
             logTtsCommand("PAUSE", accepted = true)
             onListeningActivity(null)
             val engine = activeEngine
+            onListeningActivity(null)
+            clearQueuedSentence()
             if (!engine.canResumeWithoutRestart) activeUtteranceId = null
             engine.pause()
             persistListeningPosition(force = true)
@@ -515,6 +542,23 @@ class TtsController(
         }
     }
 
+    fun onBookOpened(bookId: String) {
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value != null && _activeBookId.value != bookId) stopInternal()
+            }
+        }
+    }
+
+    fun leaveReader(bookId: String) {
+        setReaderAttached(bookId, false)
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value == bookId) pageSource?.detachReader()
+            }
+        }
+    }
+
     fun skip(forward: Boolean = true) {
         scope.launch {
             commandMutex.withLock {
@@ -525,6 +569,7 @@ class TtsController(
                 return@withLock
             }
             logTtsCommand(command, accepted = true)
+            onListeningActivity(null)
             activeUtteranceId = null
             resetClausePlayback()
             clearQueuedSentence()
@@ -570,54 +615,6 @@ class TtsController(
                 updateReaderAttachment(attached)
             }
         }
-    }
-
-    internal fun cancelReaderStart(source: TtsPageSource) {
-        scope.launch {
-            commandMutex.withLock {
-                if (pageSource === source) stopInternal()
-                else source.close()
-            }
-        }
-    }
-
-    fun finishReaderExit(bookId: String, keepListening: Boolean, onReady: () -> Unit) {
-        scope.launch {
-            commandMutex.withLock {
-                if (_activeBookId.value == bookId) {
-                    if (keepListening) {
-                        pageSource?.detachReader()
-                        updateReaderAttachment(false)
-                    } else stopInternal()
-                }
-            }
-            onReady()
-        }
-    }
-
-    fun stopForOtherReader(bookId: String) {
-        scope.launch {
-            commandMutex.withLock {
-                if (_activeBookId.value?.let { it != bookId } == true) stopInternal()
-            }
-        }
-    }
-
-    private suspend fun updateReaderAttachment(attached: Boolean) {
-        readerAttached = attached
-        if (attached) {
-            followReaderPageTurns = true
-            return
-        }
-        val pending = pendingPageTurn
-        cancelPageTurnAckTimeout()
-        pendingPageTurn = null
-        clearPageTurnReplay()
-        acknowledgedPageTurn = null
-        pageTurnSequence++
-        if (pending?.resumeWhenAcknowledged == true &&
-            _playbackState.value == TtsPlaybackState.PLAYING && activeUtteranceId == null
-        ) speakCurrentSegment()
     }
 
     /** A visual lease only: source, timer, user follow policy and engine stay alive. */
@@ -693,6 +690,7 @@ class TtsController(
             engineRollback = null
             nextSentencePrefetchJob?.cancel()
             activeUtteranceId = null
+            onListeningActivity(null)
             clearQueuedSentence()
             previousEngine.stop()
             pendingResume = null
@@ -739,6 +737,28 @@ class TtsController(
         }
     }
 
+    /** A real gesture supersedes animation callbacks from the previous audio-driven turn. */
+    fun onReaderNavigationStarted(bookId: String) {
+        scope.launch {
+            commandMutex.withLock {
+                if (_activeBookId.value != bookId || !_followUserPageTurns.value ||
+                    _playbackState.value == TtsPlaybackState.IDLE
+                ) return@withLock
+                readerAttached = true
+                followReaderPageTurns = true
+                val pending = pendingPageTurn
+                cancelPageTurnAckTimeout()
+                pendingPageTurn = null
+                acknowledgedPageTurn = null
+                clearPageTurnReplay()
+                pageTurnSequence++
+                if (pending?.resumeWhenAcknowledged == true &&
+                    _playbackState.value == TtsPlaybackState.PLAYING && activeUtteranceId == null
+                ) speakCurrentSegment()
+            }
+        }
+    }
+
     fun onPageVisible(
         bookId: String,
         chapterIndex: Int,
@@ -764,6 +784,17 @@ class TtsController(
                     return@withLock
                 }
                 if (origin != TtsPageChangeOrigin.USER) return@withLock
+                if (_followUserPageTurns.value) {
+                    acknowledgedPageTurn = null
+                    clearPageTurnReplay()
+                    pageTurnSequence++
+                    followReaderPageTurns = true
+                    if (!moveToPage(location, startAtEnd = false, publishLocation = false)) {
+                        _errors.tryEmit(pageContentError ?: IllegalStateException("No readable text found"))
+                        stopInternal()
+                    }
+                    return@withLock
+                }
                 // The reader moved elsewhere while playback was waiting for it. Never block playback.
                 cancelPageTurnAckTimeout()
                 pendingPageTurn = null
@@ -785,29 +816,21 @@ class TtsController(
                 ) return@withLock
                 acknowledgedPageTurn = null
             }
-            // Only the reader confirming a page turn requested by playback may move playback.
-            // Manual page turns and layout callbacks leave the listening position untouched.
-            if (origin != TtsPageChangeOrigin.TTS_FOLLOW) {
-                if (origin == TtsPageChangeOrigin.USER) {
-                    if (_followUserPageTurns.value && location != _currentPage.value?.location) {
-                        followReaderPageTurns = true
-                        if (!moveToPage(location, startAtEnd = false, publishLocation = false)) {
-                            _errors.tryEmit(pageContentError ?: IllegalStateException("No readable text found"))
-                            stopInternal()
-                        }
-                        return@withLock
+            // TTS_FOLLOW is visual feedback, not a seek command. Only the pending target above
+            // may acknowledge it: a delayed animation callback can outlive its turn or session.
+            if (origin == TtsPageChangeOrigin.TTS_FOLLOW) return@withLock
+            // Manual navigation moves playback only when explicitly enabled by the user.
+            if (origin == TtsPageChangeOrigin.USER) {
+                if (_followUserPageTurns.value && location != _currentPage.value?.location) {
+                    followReaderPageTurns = true
+                    if (!moveToPage(location, startAtEnd = false, publishLocation = false)) {
+                        _errors.tryEmit(pageContentError ?: IllegalStateException("No readable text found"))
+                        stopInternal()
                     }
-                    // Passing the spoken page while browsing must not re-enable following.
-                    followReaderPageTurns = followReaderPageTurns && _currentPage.value?.location == location
+                    return@withLock
                 }
-                return@withLock
-            }
-            if (!readerAttached || !followReaderPageTurns) return@withLock
-            if (_currentPage.value?.location == location) return@withLock
-            if (crossPageMerge?.landingLocation == location) return@withLock
-            if (!moveToPage(location, startAtEnd = false, publishLocation = false)) {
-                _errors.tryEmit(pageContentError ?: IllegalStateException("No readable text found"))
-                stopInternal()
+                // Passing the spoken page while browsing must not re-enable following.
+                followReaderPageTurns = followReaderPageTurns && _currentPage.value?.location == location
             }
             }
         }
@@ -939,31 +962,59 @@ class TtsController(
         }
     }
 
-    /**
-     * 阅读页可能已经不在（应用退到后台被回收、阅读器已关闭）或来不及翻页，
-     * 此时必须放弃等待确认继续朗读，否则会读完一页后长时间停住。
-     */
-    private fun schedulePageTurnAckTimeout(request: TtsPageTurnRequest) {
-        cancelPageTurnAckTimeout()
-        pendingPageTurnTimeoutJob = scope.launch {
+    /** Retry attached-reader turns instead of letting speech silently outrun the visible page. */
+    private fun schedulePageTurnAckTimeout(
+        request: TtsPageTurnRequest,
+        cancelCurrent: Boolean = true
+    ) {
+        if (cancelCurrent) cancelPageTurnAckTimeout()
+        val timeoutJob = scope.launch {
             delay(PAGE_TURN_ACK_TIMEOUT_MS)
             commandMutex.withLock {
                 val pending = pendingPageTurn ?: return@withLock
                 if (pending.request.requestId != request.requestId) return@withLock
-                pendingPageTurn = null
-                logTtsEvent(
-                    event = "page_turn_ack_timeout",
-                    location = pending.request.location,
-                    requestId = request.requestId
-                )
-                if (pending.resumeWhenAcknowledged &&
-                    _playbackState.value == TtsPlaybackState.PLAYING &&
-                    activeUtteranceId == null
-                ) {
-                    speakCurrentSegment()
+                val canRetry = pending.resumeWhenAcknowledged &&
+                    visualReaderAttached && followReaderPageTurns &&
+                    pending.retryCount < MAX_PAGE_TURN_RETRIES
+                if (canRetry) {
+                    val retryRequest = pending.request.copy(requestId = ++pageTurnSequence)
+                    val retry = pending.copy(request = retryRequest, retryCount = pending.retryCount + 1)
+                    pendingPageTurn = retry
+                    logTtsEvent(
+                        event = "page_turn_ack_timeout",
+                        location = retryRequest.location,
+                        requestId = request.requestId,
+                        retryAttempt = retry.retryCount,
+                        result = "retrying"
+                    )
+                    _pageTurnRequests.emit(retryRequest)
+                    schedulePageTurnAckTimeout(retryRequest, cancelCurrent = false)
+                } else {
+                    pendingPageTurn = null
+                    val mayContinueWithoutReader = !visualReaderAttached || !followReaderPageTurns
+                    logTtsEvent(
+                        event = "page_turn_ack_timeout",
+                        location = pending.request.location,
+                        requestId = request.requestId,
+                        retryAttempt = pending.retryCount,
+                        result = if (mayContinueWithoutReader) "continue_without_reader" else "paused"
+                    )
+                    if (pending.resumeWhenAcknowledged &&
+                        _playbackState.value == TtsPlaybackState.PLAYING &&
+                        activeUtteranceId == null
+                    ) {
+                        if (mayContinueWithoutReader) {
+                            speakCurrentSegment()
+                        } else {
+                            activeEngine.pause()
+                            _playbackState.value = TtsPlaybackState.PAUSED
+                            logTtsEvent("state_changed", state = TtsPlaybackState.PAUSED)
+                        }
+                    }
                 }
             }
         }
+        pendingPageTurnTimeoutJob = timeoutJob
     }
 
     private fun cancelPageTurnAckTimeout() {
@@ -1079,6 +1130,7 @@ class TtsController(
         if (activeEngine.isExternal || segments.isEmpty()) return
         val state = _playbackState.value
         if (state != TtsPlaybackState.PLAYING && state != TtsPlaybackState.PAUSED) return
+        onListeningActivity(null)
         activeUtteranceId = null
         activeSegment = null
         activeSentenceSegment = null
@@ -1099,6 +1151,7 @@ class TtsController(
         if (engineRollback?.utterance == utteranceId) engineRollback = null
         if (_playbackState.value != TtsPlaybackState.PLAYING) return
         persistListeningPosition(force = true, completed = true)
+        onListeningActivity(null)
         activeUtteranceId = null
         utteranceRetryCount = 0
         activeSegment = null
@@ -1155,6 +1208,7 @@ class TtsController(
             )
             // Invalidate the failed callback before stopping the engine. The sentence/page indices
             // remain untouched, so speakCurrentSegment() starts the same sentence again.
+            onListeningActivity(null)
             activeUtteranceId = null
             clearQueuedSentence()
             val initialized = runCatching { activeEngine.reinitialize() }
@@ -1192,6 +1246,7 @@ class TtsController(
 
     private suspend fun finishPlaybackError(error: Throwable, keepSession: Boolean) {
         val failedUtterance = activeUtteranceId
+        onListeningActivity(null)
         activeUtteranceId = null
         clearQueuedSentence()
         activeEngine.stop()
@@ -1240,6 +1295,7 @@ class TtsController(
         val source = pageSource ?: return false
         val token = ++pageLoadToken
         pageContentError = null
+        onListeningActivity(null)
         activeUtteranceId = null
         utteranceRetryCount = 0
         resetClausePlayback()
@@ -1255,6 +1311,7 @@ class TtsController(
         var target = location
         var selectedPage: TtsPageContent? = null
         var selectedSegments: List<TtsTextSegment> = emptyList()
+        var chapterSnapshot: TtsChapterSnapshot? = null
         var attempts = 0
         while (attempts < 50 && selectedPage == null) {
             val page = try {
@@ -1267,15 +1324,44 @@ class TtsController(
                 return false
             }
             if (page == null) return token != pageLoadToken
-            val pageSegments = textExtractor.splitIntoSegments(
+            var playablePage = page
+            var pageSegments = textExtractor.splitIntoSegments(
                 text = page.text,
                 baseCharacterOffset = page.startCharacterOffset,
                 startCharacterOffset = startCharacterOffset.takeIf { page.location == location }
             ).filter { segment -> textExtractor.hasSpeakableContent(segment.text) }
+            if (pageSegments.isEmpty() && page.endCharacterOffset > page.startCharacterOffset) {
+                val chapter = chapterSnapshot?.takeIf { it.index == page.location.chapterIndex }
+                    ?: try {
+                        source.getChapter(page.location.chapterIndex)?.also { chapterSnapshot = it }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                val recovered = chapter?.let { recoverTtsPageText(page, it) }
+                val recoveredSegments = recovered?.let { recoveredPage ->
+                    textExtractor.splitIntoSegments(
+                        text = recoveredPage.text,
+                        baseCharacterOffset = recoveredPage.startCharacterOffset,
+                        startCharacterOffset = startCharacterOffset.takeIf { recoveredPage.location == location }
+                    ).filter { segment -> textExtractor.hasSpeakableContent(segment.text) }
+                }.orEmpty()
+                if (recovered != null && recoveredSegments.isNotEmpty()) {
+                    playablePage = recovered
+                    pageSegments = recoveredSegments
+                    logTtsEvent("page_text_recovered", location = page.location,
+                        result = "chapter_range", characterStart = recovered.startCharacterOffset,
+                        characterEnd = recovered.endCharacterOffset, textLength = recovered.text.length)
+                }
+            }
             if (pageSegments.isNotEmpty()) {
-                selectedPage = page
+                selectedPage = playablePage
                 selectedSegments = pageSegments
             } else {
+                logTtsEvent("page_skipped", location = page.location, result = "no_speakable_text",
+                    characterStart = page.startCharacterOffset, characterEnd = page.endCharacterOffset,
+                    textLength = page.text.length)
                 target = if (startAtEnd) page.previous ?: return false else page.next ?: return false
             }
             attempts++
@@ -1299,8 +1385,7 @@ class TtsController(
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { null }
         }
-        val previewPausedSelection = _fullscreenVisible.value && _playbackState.value == TtsPlaybackState.PAUSED
-        if (!activeEngine.supportsQueuedPlayback || previewPausedSelection) {
+        if (!activeEngine.supportsQueuedPlayback) {
             _currentUtterance.value = segments.getOrNull(sentenceIndex)
             _currentSentence.value = _currentUtterance.value
             _listeningFrame.value = TtsListeningFrame(_chapterSnapshot.value, page, _currentUtterance.value)
@@ -1732,6 +1817,7 @@ class TtsController(
         prefetchedPage = null
         clearPageTurnReplay()
         pageLoadToken++
+        onListeningActivity(null)
         activeUtteranceId = null
         utteranceRetryCount = 0
         resetClausePlayback()
@@ -1771,7 +1857,7 @@ class TtsController(
     }
 
     fun shutdown() {
-        activeUtteranceId = null
+        onListeningActivity(null)
         cancelSleepTimer()
         scope.cancel()
         systemTtsEngine.shutdown()
@@ -1796,6 +1882,7 @@ class TtsController(
         const val MAX_UTTERANCE_RETRIES = 1
         const val PAGE_TURN_CALLBACK_GRACE_NANOS = 1_000_000_000L
         const val PAGE_TURN_ACK_TIMEOUT_MS = 1_200L
+        const val MAX_PAGE_TURN_RETRIES = 3
     }
 
     private fun currentProsodySettings() = TtsProsodySettings(
@@ -1814,6 +1901,9 @@ class TtsController(
         requestId: Long? = null,
         utteranceId: String? = null,
         sentenceOffset: Int? = null,
+        characterStart: Int? = null,
+        characterEnd: Int? = null,
+        textLength: Int? = null,
         errorType: String? = null,
         retryAttempt: Int? = null,
         result: String? = null
@@ -1834,6 +1924,9 @@ class TtsController(
                 requestId?.let { put("requestId", it) }
                 utteranceId?.let { put("utteranceId", it) }
                 sentenceOffset?.let { put("sentenceOffset", it) }
+                characterStart?.let { put("characterStart", it) }
+                characterEnd?.let { put("characterEnd", it) }
+                textLength?.let { put("textLength", it) }
                 errorType?.let { put("errorType", it) }
                 retryAttempt?.let { put("retryAttempt", it) }
                 result?.let { put("result", it) }

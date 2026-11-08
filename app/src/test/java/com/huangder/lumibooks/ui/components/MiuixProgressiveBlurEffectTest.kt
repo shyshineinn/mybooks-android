@@ -1,6 +1,8 @@
 package com.huangder.lumibooks.ui.components
 
 import android.app.Application
+import com.kyant.backdrop.effects.MiuixProgressiveBlurEffect
+import com.kyant.backdrop.effects.ProgressiveBlurDirection
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,3 +47,4 @@ class MiuixProgressiveBlurEffectTest {
         assertNotSame(resized, held)
     }
 }
+

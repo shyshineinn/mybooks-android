@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.home
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import com.huangder.lumibooks.ui.icons.AppIcons
 
@@ -91,8 +93,10 @@ import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
+import com.huangder.lumibooks.ui.components.usesCardSheets
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.util.parser.BookParserFactory
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -102,6 +106,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import coil.compose.AsyncImage
 import com.huangder.lumibooks.domain.model.BookFormat
+import com.huangder.lumibooks.ui.components.AppDropdownMenu
 
 /** A file waiting for confirmation in the multi-book import flow. */
 data class SelectedImportBook(
@@ -184,7 +189,7 @@ private fun ImportDestinationButton(
             Text(
                 text = text,
                 color = if (primary) AppColors.OnAccent else AppColors.TextPrimary,
-                fontSize = 16.sp,
+                fontSize = AppType.Body,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -193,7 +198,7 @@ private fun ImportDestinationButton(
                 Text(
                     text = it,
                     color = if (primary) AppColors.OnAccent.copy(alpha = 0.78f) else AppColors.TextSecondary,
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -265,6 +270,7 @@ fun ImportBooksConfirmationSheet(
             onLayoutModeChange = onLayoutModeChange,
             onBookSelectionToggle = onBookSelectionToggle,
             onSelectAll = onSelectAll,
+            onClose = onDismiss,
             onConfirmImport = onConfirmImport
         )
     }
@@ -278,24 +284,34 @@ private fun ImportBooksContainer(
     content: @Composable (floatingContainer: Boolean) -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
+    // Tablets show the import sheets as centered cards in every theme.
+    val cardSheets = usesCardSheets()
+    val floating = isLiquidGlass || cardSheets
     val shape = AppRoundedCornerShape(
         topStart = 28.dp,
         topEnd = 28.dp,
-        bottomStart = if (isLiquidGlass) 28.dp else 0.dp,
-        bottomEnd = if (isLiquidGlass) 28.dp else 0.dp
+        bottomStart = if (floating) 28.dp else 0.dp,
+        bottomEnd = if (floating) 28.dp else 0.dp
     )
     val sizeModifier = Modifier
         .widthIn(max = 480.dp)
         .fillMaxWidth()
-        .then(if (expanded) Modifier.fillMaxHeight(0.82f) else Modifier)
+        .then(
+            when {
+                !expanded -> Modifier
+                // The card frame already caps the height; let the book list use all of it.
+                cardSheets -> Modifier.fillMaxHeight()
+                else -> Modifier.fillMaxHeight(0.82f)
+            }
+        )
 
-    if (isLiquidGlass) {
+    if (floating) {
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
             alignment = Alignment.BottomCenter,
             shape = shape,
             modifier = sizeModifier,
-            backgroundBlurRadius = 0.dp,
+            fallbackBlurRadius = 0.dp,
             backgroundScrimColor = Color.Black.copy(alpha = 0.16f),
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.70f)
         ) {
@@ -363,14 +379,13 @@ private fun ImportActionsStage(
             text = stringResource(R.string.import_dialog_description) + "\n" +
                 stringResource(R.string.import_dialog_remote_description),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 17.sp
         )
         Spacer(Modifier.height(16.dp))
         ImportActionButton(
             text = stringResource(R.string.import_select_files),
             onClick = onSelectFiles,
-            primary = true,
             enabled = !isPreparing
         )
 
@@ -421,7 +436,7 @@ private fun ImportActionsStage(
                 Text(
                     text = stringResource(R.string.import_scanning_directory),
                     color = AppColors.TextSecondary,
-                    fontSize = 13.sp
+                    fontSize = AppType.Footnote
                 )
             }
         }
@@ -441,7 +456,7 @@ private fun ImportActionsStage(
                 stringResource(R.string.import_authorized_directories_current, authorizedDirectoryLabel)
             },
             color = AppColors.TextSecondary,
-            fontSize = 11.sp,
+            fontSize = AppType.Caption2,
             lineHeight = 15.sp
         )
     }
@@ -505,7 +520,7 @@ private fun ImportActionButton(
         Text(
             text = text,
             color = labelColor,
-            fontSize = 15.sp,
+            fontSize = AppType.Subhead,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             softWrap = false,
@@ -523,7 +538,8 @@ private fun SelectedBooksStage(
     onLayoutModeChange: (Int) -> Unit,
     onBookSelectionToggle: (SelectedImportBook) -> Unit,
     onSelectAll: () -> Unit,
-    onConfirmImport: () -> Unit
+    onConfirmImport: () -> Unit,
+    onClose: () -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val coverBackdrop = rememberLayerBackdrop()
@@ -551,20 +567,13 @@ private fun SelectedBooksStage(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
+            com.huangder.lumibooks.ui.components.AppSheetHeader(
+                title = stringResource(R.string.import_selected_count, selectedBookUris.size),
+                onClose = onClose,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 28.dp, end = 28.dp, top = 26.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.import_selected_count, selectedBookUris.size),
-                    color = AppColors.TextPrimary,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(16.dp))
+                actions = {
                 ImportLayoutSwitchButton(
                     layoutMode = normalizedLayoutMode,
                     onLayoutModeChange = onLayoutModeChange
@@ -581,14 +590,15 @@ private fun SelectedBooksStage(
                     Text(
                         text = stringResource(R.string.import_select_all),
                         color = AppColors.OnAccent,
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         softWrap = false,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
-            }
+                }
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -690,7 +700,7 @@ private fun SelectedBooksStage(
                         Text(
                             text = stringResource(R.string.search_no_results),
                             color = AppColors.TextSecondary,
-                            fontSize = 14.sp
+                            fontSize = AppType.BodySmall
                         )
                     }
                 }
@@ -812,7 +822,7 @@ private fun ImportLayoutSwitchButton(
         Text(
             text = layoutMode.toString(),
             color = if (isLiquidGlass) AppColors.TextPrimary else AppColors.OnAccent,
-            fontSize = 15.sp,
+            fontSize = AppType.Subhead,
             fontWeight = FontWeight.Bold
         )
     }
@@ -843,7 +853,7 @@ private fun ImportSearchField(
             singleLine = true,
             textStyle = TextStyle(
                 color = AppColors.TextPrimary,
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 fontWeight = FontWeight.Medium
             ),
             cursorBrush = SolidColor(AppColors.Accent),
@@ -859,14 +869,14 @@ private fun ImportSearchField(
                             Text(
                                 text = stringResource(R.string.import_search_placeholder),
                                 color = AppColors.TextSecondary,
-                                fontSize = 13.sp,
+                                fontSize = AppType.Footnote,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
                         innerTextField()
                     }
-                    Icon(
+                    ControlIcon(
                         imageVector = AppIcons.MagnifyingGlass,
                         contentDescription = stringResource(R.string.search),
                         tint = AppColors.TextSecondary,
@@ -884,7 +894,7 @@ private fun ImportSearchField(
                                 ) { onQueryChange("") },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
+                            ControlIcon(
                                 imageVector = AppIcons.X,
                                 contentDescription = stringResource(R.string.import_search_clear),
                                 tint = AppColors.TextSecondary,
@@ -961,15 +971,11 @@ private fun ImportSortButton(
             modifier = Modifier.liquidGlassMenuAnchor().onGloballyPositioned { sortAnchorBounds = it.boundsInRoot() }
         )
 
-        if (!isLiquidGlass) {
-            DropdownMenu(
+        if (menuHost == null) {
+            AppDropdownMenu(
                 expanded = sortExpanded,
                 onDismissRequest = { sortExpanded = false },
-                modifier = Modifier.width(176.dp),
-                shape = AppRoundedCornerShape(16.dp),
-                containerColor = AppColors.WindowBg,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                modifier = Modifier.width(176.dp)
             ) {
                 ImportBookSort.entries.forEach { option ->
                     val label = when (option) {
@@ -983,7 +989,7 @@ private fun ImportSortButton(
                             Text(
                                 text = label,
                                 color = if (option == sortBy) AppColors.Accent else AppColors.TextPrimary,
-                                fontSize = 14.sp
+                                fontSize = AppType.BodySmall
                             )
                         },
                         onClick = {
@@ -1055,7 +1061,7 @@ private fun SelectedBookListRow(
             Text(
                 text = displayTitle,
                 color = AppColors.TextPrimary,
-                fontSize = 15.sp,
+                fontSize = AppType.Subhead,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -1064,7 +1070,7 @@ private fun SelectedBookListRow(
             Text(
                 text = extension.ifEmpty { stringResource(R.string.import_supported_formats) },
                 color = AppColors.TextSecondary,
-                fontSize = 12.sp,
+                fontSize = AppType.Caption,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

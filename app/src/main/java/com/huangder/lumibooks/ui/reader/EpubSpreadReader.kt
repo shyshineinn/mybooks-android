@@ -24,8 +24,10 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.huangder.lumibooks.BuildConfig
+import com.huangder.lumibooks.domain.model.LiquidGlassSamplingQuality
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapAction
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapMode
+import com.huangder.lumibooks.ui.components.GlassBitmapBackdrop
 import com.huangder.lumibooks.ui.reader.engine.BookmarkPullGestureTracker
 import com.huangder.lumibooks.ui.reader.engine.CurlFrameSource
 import com.huangder.lumibooks.ui.reader.engine.CurlPageAnim
@@ -36,6 +38,7 @@ import com.huangder.lumibooks.ui.reader.engine.RenderResourceLease
 import com.huangder.lumibooks.ui.reader.engine.RenderResourcePool
 import com.huangder.lumibooks.ui.reader.engine.ScrollPageAnim
 import com.huangder.lumibooks.ui.reader.engine.SlidePageAnim
+import com.huangder.lumibooks.ui.reader.engine.WavePageAnim
 import com.huangder.lumibooks.ui.reader.engine.isSystemBackGestureStart
 import com.huangder.lumibooks.ui.reader.engine.isSystemBackGestureSwipe
 import com.huangder.lumibooks.util.epub.BookRenderSession
@@ -451,7 +454,7 @@ internal class EpubSpreadTurnHost(
         leaf.semanticInFlight = false
         val url = book.chapterUrl(target.chapterIndex)
         val reload = leaf.documentUrl != url || leaf.configurationIdentity != configurationIdentity
-        trace("leaf", "wv=${System.identityHashCode(leaf.view)} target=${target} reload=$reload size=${leaf.view.width}x${leaf.view.height}")
+        trace("leaf", "wv=${leaf.view.traceId} target=${target.traceLabel()} reload=$reload size=${leaf.view.width}x${leaf.view.height}")
         leaf.documentUrl = url
         leaf.configurationIdentity = configurationIdentity
         armTimeout(leaf)
@@ -484,7 +487,7 @@ internal class EpubSpreadTurnHost(
 
     private fun failLeaf(leaf: Leaf, reason: EpubInitialLoadFailureReason) {
         if (released) return
-        trace("failure", "wv=${System.identityHashCode(leaf.view)} target=${leaf.request?.target} reason=$reason retry=${leaf.retryCount} active=${slotOf(leaf.view) === current}")
+        trace("failure", "wv=${leaf.view.traceId} target=${leaf.request?.target.traceLabel()} reason=$reason retry=${leaf.retryCount} active=${slotOf(leaf.view) === current}")
         if (reason == EpubInitialLoadFailureReason.RENDERER_GONE) {
             val active = slotOf(leaf.view) === current
             val job = preparation
@@ -793,7 +796,7 @@ internal class EpubSpreadTurnHost(
             val physicalFocus = listOfNotNull(first, second).firstOrNull { it.target == focused } ?: first
             val focusPage = if (focusedLocatorJson != null) physicalFocus.copy(locatorJson = focusedLocatorJson) else physicalFocus
             state = EpubSpreadState(target, first, second, reverseAxis, focusPage)
-            trace("commit", "op=${request?.operationId} first=${first.target} second=${second?.target} counts=${first.pageCount}/${second?.pageCount} reverse=$reverseAxis full=${target.fullWidth} size=${width}x$height")
+            trace("commit", "op=${request?.operationId} first=${first.target.traceLabel()} second=${second?.target.traceLabel()} counts=${first.pageCount}/${second?.pageCount} reverse=$reverseAxis full=${target.fullWidth} size=${width}x$height")
             resetSlots()
             onSpreadChanged(state!!)
             request?.let { onNavigationResult(EpubNavigationResult.Committed(it.operationId,
@@ -825,7 +828,7 @@ internal class EpubSpreadTurnHost(
             }
             return
         }
-        if (transition == "curl") {
+        if (transition == "curl" || transition == "wave") {
             if (!captureSlot(current) || !captureSlot(slot)) { commit(); return }
         }
         controller = createAnimation().also { animation ->
@@ -834,6 +837,7 @@ internal class EpubSpreadTurnHost(
             val dir = if (direction > 0) PageAnimationController.Direction.NEXT else PageAnimationController.Direction.PREV
             when (animation) {
                 is CurlPageAnim -> if (!animation.startFromTap(dir)) commit()
+                is WavePageAnim -> animation.startFromTap(dir)
                 is ScrollPageAnim -> animation.startFromTap(dir)
                 is SlidePageAnim -> animation.startFromTap(dir)
             }
@@ -853,6 +857,7 @@ internal class EpubSpreadTurnHost(
             })
         return when (transition) {
             "curl" -> CurlPageAnim(surface, baseDurationMs = durationMillis)
+            "wave" -> WavePageAnim(surface, durationMillis)
             "scroll" -> ScrollPageAnim(surface, durationMillis)
             "fade" -> EpubSpreadFadeAnimation(surface, durationMillis)
             else -> SlidePageAnim(surface, durationMillis)
@@ -1091,7 +1096,7 @@ internal class EpubSpreadTurnHost(
         if (direction == 0) return false
         val slot = if (direction > 0) next else previous
         if (!slot.isReady()) return false
-        if (transition == "curl") {
+        if (transition == "curl" || transition == "wave") {
             if (current.snapshot == null && !captureSlot(current)) return false
             if (slot.snapshot == null && !captureSlot(slot)) return false
         }
@@ -1155,7 +1160,7 @@ internal class EpubSpreadTurnHost(
 
     private fun captureSlot(slot: SpreadSlot): Boolean {
         val old = slot.snapshot
-        val snapshot = captureSpread(slot, old?.takeIf(bitmapPool::canReuse)) ?: return false
+        val snapshot = captureSpread(slot, old?.takeIf(bitmapPool::canReuse), androidx.compose.ui.unit.IntSize(width, height)) ?: return false
         if (snapshot !== old) bitmapPool.retire(old)
         slot.snapshot = bitmapPool.track(snapshot)
         return true
@@ -1164,15 +1169,16 @@ internal class EpubSpreadTurnHost(
     /** Capture each leaf at its own viewport size, then compose without changing
      * its aspect ratio. A hardware renderer must not move between WebViews: its
      * retained compositor constraints can vertically compress a different leaf. */
-    private fun captureSpread(slot: SpreadSlot, reusable: Bitmap?): Bitmap? {
-        if (width <= 0 || height <= 0) return null
+    private fun captureSpread(slot: SpreadSlot, reusable: Bitmap?, size: androidx.compose.ui.unit.IntSize): Bitmap? {
+        if (width <= 0 || height <= 0 || size.width <= 0 || size.height <= 0) return null
         val views = slot.target?.pages?.indices?.map { slot.leaves[it].view } ?: return null
         if (slot.width != width || slot.height != height || views.any { it.width <= 0 || it.height != height }) return null
-        val output = reusable?.takeIf { !it.isRecycled && it.width == width && it.height == height }
-            ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val output = reusable?.takeIf { !it.isRecycled && it.width == size.width && it.height == size.height }
+            ?: Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
         output.density = resources.displayMetrics.densityDpi
         val canvas = Canvas(output)
         canvas.drawColor(pageBackgroundColor)
+        canvas.scale(size.width.toFloat() / width, size.height.toFloat() / height)
         for (view in views) {
             val old = leafCapture
             val frame = capture(view, old, androidx.compose.ui.unit.IntSize(view.width, view.height))
@@ -1192,11 +1198,12 @@ internal class EpubSpreadTurnHost(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             runCatching {
                 EpubHardwareSnapshot(size.width, size.height).use { pipeline ->
-                    pipeline.capture(view, reusable, resources.displayMetrics.densityDpi) { it.drawColor(pageBackgroundColor) }
+                    pipeline.capture(view, reusable, resources.displayMetrics.densityDpi,
+                        size.width.toFloat() / view.width, size.height.toFloat() / view.height) { it.drawColor(pageBackgroundColor) }
                 }
             }.onFailure { trace("snapshot", "hardwareFailure=$it") }.getOrNull()?.let { return it }
             // Software WebView.draw can use different viewport geometry too.
-            // Do not use a distorted software fallback as a curl frame.
+            // Do not use a distorted software fallback as a curl/wave frame.
             return null
         }
         val bitmap = reusable?.takeIf { !it.isRecycled && it.width == size.width && it.height == size.height }
@@ -1207,6 +1214,14 @@ internal class EpubSpreadTurnHost(
         canvas.drawColor(pageBackgroundColor)
         view.draw(canvas)
         return bitmap
+    }
+
+    fun captureGlassBackdrop(quality: LiquidGlassSamplingQuality): GlassBitmapBackdrop? {
+        if (released || state == null || animationCommit != null) return null
+        val bitmap = captureSpread(current, null, quality.sampleSize(androidx.compose.ui.unit.IntSize(width, height))) ?: return null
+        val origin = IntArray(2).also(this::getLocationOnScreen)
+        return GlassBitmapBackdrop(bitmap, androidx.compose.ui.geometry.Offset(origin[0].toFloat(), origin[1].toFloat()),
+            androidx.compose.ui.unit.IntSize(width, height))
     }
 
     fun release(onReleased: () -> Unit = {}) {

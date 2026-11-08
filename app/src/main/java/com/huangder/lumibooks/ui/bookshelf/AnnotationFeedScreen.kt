@@ -1,38 +1,27 @@
 package com.huangder.lumibooks.ui.bookshelf
 
-import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.LocalCollapsingPageTopPaddingValues
+import com.huangder.lumibooks.ui.components.CollapsingPageScaffold
 import android.widget.Toast
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Icon
-import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Dp
 import com.huangder.lumibooks.ui.animation.LumiMotion
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassBackdrop
-import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA
-import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA_DARK
-import com.huangder.lumibooks.ui.components.ProgressiveTopBlur
-import com.huangder.lumibooks.ui.components.progressiveBlurEnabled
-import com.huangder.lumibooks.ui.components.progressiveTopScrimEnabled
-import com.huangder.lumibooks.ui.components.quantizeBlurStrength
 import com.huangder.lumibooks.ui.theme.AppRadius
-import com.huangder.lumibooks.ui.theme.LocalEInkMode
-import com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability
 import com.huangder.lumibooks.ui.theme.LocalLumiBackgroundBackdrop
+import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
-import com.kyant.backdrop.Backdrop
-import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +39,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,10 +48,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -90,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.Book
@@ -104,7 +94,6 @@ import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.excerpt.ExcerptLauncher
 import com.huangder.lumibooks.ui.excerpt.ExcerptRequest
 import com.huangder.lumibooks.ui.icons.AppIcons
-import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.reader.NoteInputSheet
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
@@ -127,6 +116,11 @@ internal fun AnnotationFeedScreen(
     viewModel: AnnotationFeedViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val displayEnvironment = rememberAnnotationFeedDisplayEnvironment()
+    LaunchedEffect(displayEnvironment) { viewModel.setDisplayEnvironment(displayEnvironment) }
+    com.huangder.lumibooks.ui.components.ReconcileAnnotationTagDraft(listOfNotNull(uiState.selectedTag)) {
+        viewModel.setTag(it.firstOrNull())
+    }
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val excerptDark = LocalIsDarkTheme.current
     val context = LocalContext.current
@@ -152,23 +146,8 @@ internal fun AnnotationFeedScreen(
     val scope = rememberCoroutineScope()
     val glassBackdrop = rememberLayerBackdrop()
     val segmentedControlBackdrop = rememberLayerBackdrop()
-    // Captures only the scrolling list, so the top band can blur cards sliding under the header.
-    val listBackdrop = rememberLayerBackdrop()
     val listState = rememberLazyListState()
-    val capability = LocalLiquidGlassCapability.current
-    val eInkMode = LocalEInkMode.current
-    val blurEnabled = progressiveBlurEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
-    val scrimEnabled = progressiveTopScrimEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
     val focusManager = LocalFocusManager.current
-    val density = LocalDensity.current
-    var headerHeightPx by remember { mutableIntStateOf(0) }
-    val headerHeight = with(density) { headerHeightPx.toDp() }
-    val scrollProgress = remember(listState) {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) 1f
-            else (listState.firstVisibleItemScrollOffset / 96f).coerceIn(0f, 1f)
-        }
-    }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var searchText by rememberSaveable { mutableStateOf("") }
     var editingNoteTags by remember { mutableStateOf<Note?>(null) }
@@ -176,7 +155,6 @@ internal fun AnnotationFeedScreen(
     var editingBookmarkRemark by remember { mutableStateOf<Bookmark?>(null) }
     var bookmarkRemarkText by remember { mutableStateOf("") }
     var bookmarkRemarkTags by remember { mutableStateOf<List<String>>(emptyList()) }
-    var managingTags by remember { mutableStateOf(false) }
 
     // The field owns the text so typing never waits on filtering; re-sync after process death.
     LaunchedEffect(Unit) { if (searchOpen) viewModel.setSearchText(searchText) }
@@ -228,18 +206,68 @@ internal fun AnnotationFeedScreen(
                 .then(if (isLiquidGlass) Modifier.layerBackdrop(segmentedControlBackdrop) else Modifier)
                 .background(AppColors.PageBg)
         )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isLiquidGlass) Modifier.layerBackdrop(glassBackdrop) else Modifier)
+        CollapsingPageScaffold(
+            title = stringResource(R.string.annotation_feed_title),
+            drawContentBehindHeader = true,
+            onBack = onNavigateBack,
+            modifier = Modifier.fillMaxSize()
+                .then(if (isLiquidGlass) Modifier.layerBackdrop(glassBackdrop) else Modifier),
+            actions = {
+                LiquidGlassIconButton(
+                    imageVector = AppIcons.MagnifyingGlass,
+                    contentDescription = stringResource(R.string.search),
+                    size = com.huangder.lumibooks.ui.components.PageToolbarButtonSize,
+                    iconSize = com.huangder.lumibooks.ui.components.PageToolbarIconSize,
+                    onClick = { if (searchOpen) closeSearch() else openSearch() }
+                )
+                com.huangder.lumibooks.edition.EditionAnnotationFeedExportButton(
+                    entries = uiState.entries,
+                    enabled = !uiState.isLoading && uiState.entries.isNotEmpty()
+                )
+                com.huangder.lumibooks.edition.EditionTagManagementButton(
+                    com.huangder.lumibooks.domain.model.TagTypes.ANNOTATION, toolbar = true
+                )
+            },
+            pinnedContent = {
+                Column {
+                    AnnotationFeedSearchField(
+                        open = searchOpen,
+                        text = searchText,
+                        onTextChange = { searchText = it; viewModel.setSearchText(it) },
+                        onClose = closeSearch,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.lg, vertical = AppSpace.sm)
+                    )
+                    SegmentedTabBar(
+                        selectedTab = uiState.type.ordinal,
+                        tabs = tabs,
+                        onTabSelected = { viewModel.setType(AnnotationFeedType.entries[it]) },
+                        modifier = Modifier.padding(horizontal = AppSpace.lg),
+                        backdrop = segmentedControlBackdrop.takeIf { isLiquidGlass },
+                        labelFontSize = 13.sp
+                    )
+
+                    Spacer(Modifier.height(AppSpace.md))
+
+                    AnnotationListFilters(
+                        tags = uiState.tags,
+                        selectedTag = uiState.selectedTag,
+                        onTagSelected = viewModel::setTag,
+                        colors = uiState.colors,
+                        selectedColor = uiState.selectedColor,
+                        onColorSelected = viewModel::setColor,
+                        selectedLine = uiState.selectedLine,
+                        onLineSelected = viewModel::setLine,
+                        showLines = uiState.type == AnnotationFeedType.UNDERLINES,
+                        modifier = Modifier.padding(horizontal = AppSpace.lg)
+                    )
+                }
+            }
         ) {
             AnnotationFeedList(
                 uiState = uiState,
                 listState = listState,
-                topPadding = headerHeight,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(if (blurEnabled) Modifier.layerBackdrop(listBackdrop) else Modifier)
                     .background(AppColors.PageBg),
                 onShare = shareEntry,
                 onEditNoteTags = { editingNoteTags = it },
@@ -253,79 +281,6 @@ internal fun AnnotationFeedScreen(
                 onDeleteBookmark = viewModel::deleteBookmark,
                 onToggleRuleHighlights = { viewModel.setIncludeRuleHighlights(!uiState.includeRuleHighlights) }
             )
-            // Cards dissolve into the header instead of being cut off under the filter row.
-            if (blurEnabled) {
-                FeedTopBlurBand(scrollProgress, listBackdrop, headerHeight + FeedHeaderBlurTail, Modifier.align(Alignment.TopCenter))
-            } else if (scrimEnabled) {
-                FeedTopScrimBand(scrollProgress, headerHeight + FeedHeaderBlurTail, headerHeight, Modifier.align(Alignment.TopCenter))
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onSizeChanged { headerHeightPx = it.height }
-                    .then(if (!blurEnabled && !scrimEnabled) Modifier.background(AppColors.WindowBg) else Modifier)
-                    .statusBarsPadding()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = if (isLiquidGlass) AppSpace.sm else AppSpace.lg, vertical = AppSpace.sm)
-                ) {
-                    LiquidGlassIconButton(
-                        imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-                        contentDescription = stringResource(R.string.back),
-                        onClick = onNavigateBack,
-                        size = if (isLiquidGlass) 48.dp else 36.dp,
-                        iconSize = if (isLiquidGlass) 20.dp else 18.dp,
-                        contentColor = AppColors.TextPrimary,
-                        normalContainerColor = AppColors.BgGray,
-                        settingsBackButton = true
-                    )
-                    Spacer(Modifier.width(AppSpace.md))
-                    SearchMorph(
-                        open = searchOpen,
-                        text = searchText,
-                        onTextChange = { searchText = it; viewModel.setSearchText(it) },
-                        onOpen = openSearch,
-                        onClose = closeSearch,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(Modifier.width(AppSpace.sm))
-                    LiquidGlassIconButton(
-                        imageVector = AppIcons.Tag,
-                        contentDescription = stringResource(R.string.annotation_tag_manage),
-                        onClick = { managingTags = true }, size = 44.dp, iconSize = 20.dp,
-                        normalContainerColor = AppColors.BgGray
-                    )
-                }
-
-                Spacer(Modifier.height(AppSpace.md))
-
-                SegmentedTabBar(
-                    selectedTab = uiState.type.ordinal,
-                    tabs = tabs,
-                    onTabSelected = { viewModel.setType(AnnotationFeedType.entries[it]) },
-                    modifier = Modifier.padding(horizontal = AppSpace.lg),
-                    backdrop = segmentedControlBackdrop.takeIf { isLiquidGlass },
-                    labelFontSize = 13.sp
-                )
-
-                Spacer(Modifier.height(AppSpace.md))
-
-                AnnotationListFilters(
-                    tags = uiState.tags,
-                    selectedTag = uiState.selectedTag,
-                    onTagSelected = viewModel::setTag,
-                    colors = uiState.colors,
-                    selectedColor = uiState.selectedColor,
-                    onColorSelected = viewModel::setColor,
-                    selectedLine = uiState.selectedLine,
-                    onLineSelected = viewModel::setLine,
-                    showLines = uiState.type == AnnotationFeedType.UNDERLINES,
-                    modifier = Modifier.padding(horizontal = AppSpace.lg)
-                )
-            }
         }
         NoteInputSheet(
             visible = editingBookmarkRemark != null,
@@ -370,17 +325,6 @@ internal fun AnnotationFeedScreen(
                 onDelete = viewModel::deleteTag
             )
         }
-        if (managingTags) AnnotationTagSheet(
-            backdrop = glassBackdrop.takeIf { isLiquidGlass },
-            selected = emptyList(),
-            available = uiState.availableTags,
-            onSave = { names -> names.forEach { viewModel.createTag(it) } },
-            onCreate = viewModel::createTag,
-            onDismiss = { managingTags = false },
-            onRename = viewModel::renameTag,
-            onDelete = viewModel::deleteTag,
-            managementOnly = true
-        )
     }
 }
 
@@ -388,8 +332,6 @@ internal fun AnnotationFeedScreen(
 private fun AnnotationFeedList(
     uiState: AnnotationFeedUiState,
     listState: LazyListState,
-    /** The header floats over the list, so the first item starts below it. */
-    topPadding: Dp,
     modifier: Modifier = Modifier,
     onShare: (AnnotationFeedEntry) -> Unit,
     onEditNoteTags: (Note) -> Unit,
@@ -399,21 +341,36 @@ private fun AnnotationFeedList(
     onDeleteBookmark: (Bookmark) -> Unit,
     onToggleRuleHighlights: () -> Unit
 ) {
-    // Room answers quickly; showing nothing first avoids flashing the empty message.
-    if (uiState.isLoading) return
+    val collapsingTopPadding = LocalCollapsingPageTopPaddingValues.current
+    val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + AppSpace.xl
+    val contentPadding = remember(collapsingTopPadding, bottomPadding) {
+        object : PaddingValues {
+            override fun calculateLeftPadding(layoutDirection: androidx.compose.ui.unit.LayoutDirection) = AppSpace.lg
+            override fun calculateRightPadding(layoutDirection: androidx.compose.ui.unit.LayoutDirection) = AppSpace.lg
+            override fun calculateTopPadding() = collapsingTopPadding.calculateTopPadding() + AppSpace.sm
+            override fun calculateBottomPadding() = bottomPadding
+        }
+    }
+    // Room usually answers within a frame, so stay blank first (no flash) and only show the
+    // skeleton when loading genuinely takes a moment.
+    if (uiState.isLoading) {
+        var showSkeleton by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { kotlinx.coroutines.delay(250); showSkeleton = true }
+        if (showSkeleton) LazyColumn(state = listState, modifier = modifier, contentPadding = contentPadding) {
+            item(key = "loading", contentType = "loading") {
+                com.huangder.lumibooks.ui.components.LumiListSkeleton(rows = 5, rowHeight = 92.dp)
+            }
+        }
+        return
+    }
     LazyColumn(
         state = listState,
         modifier = modifier,
-        contentPadding = PaddingValues(
-            start = AppSpace.lg,
-            top = topPadding + AppSpace.sm,
-            end = AppSpace.lg,
-            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + AppSpace.xl
-        ),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
     ) {
         if (uiState.ruleHighlightCount > 0) {
-            item(key = "rule_toggle") {
+            item(key = "rule_toggle", contentType = "rule-toggle") {
                 RuleHighlightToggle(
                     count = uiState.ruleHighlightCount,
                     shown = uiState.includeRuleHighlights,
@@ -421,43 +378,44 @@ private fun AnnotationFeedList(
                 )
             }
         }
-        if (uiState.rows.isEmpty()) {
-            item(key = "empty") {
-                Text(
-                    text = stringResource(R.string.no_content),
-                    fontSize = AppType.Body,
-                    color = AppColors.TextSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(top = 96.dp)
+        if (uiState.entries.isEmpty()) {
+            item(key = "empty", contentType = "empty") {
+                com.huangder.lumibooks.ui.components.EmptyState(
+                    message = stringResource(R.string.no_content),
+                    icon = com.huangder.lumibooks.ui.icons.AppIcons.PencilSimple,
+                    modifier = Modifier.fillMaxWidth().padding(top = 72.dp)
                 )
             }
         }
         items(uiState.rows, key = { it.key }, contentType = { it.contentType }) { row ->
             when (row) {
-                is AnnotationFeedRow.Day -> DayHeader(row.label)
+                is AnnotationFeedRow.Day -> Box(Modifier.animateItem()) { DayHeader(row.label) }
                 is AnnotationFeedRow.Entry -> {
                     val entry = row.entry
-                    when (entry) {
-                        is AnnotationFeedEntry.NoteEntry -> HighlightNoteItem(
-                            note = entry.note,
-                            onShare = { onShare(entry) },
-                            onEditTags = { onEditNoteTags(entry.note) },
-                            onDelete = { onDeleteNote(entry.note) },
-                            header = { FeedBookHeader(entry.book) },
-                            dateText = row.timeText,
-                            expandable = true,
-                            cornerRadius = AppRadius.lg
-                        )
-                        is AnnotationFeedEntry.BookmarkEntry -> BookmarkItem(
-                            bookmark = entry.bookmark,
-                            onShare = { onShare(entry) },
-                            onEditRemark = { onEditBookmarkRemark(entry.bookmark) },
-                            onEditTags = { onEditBookmarkTags(entry.bookmark) },
-                            onDelete = { onDeleteBookmark(entry.bookmark) },
-                            header = { FeedBookHeader(entry.book) },
-                            dateText = row.timeText,
-                            cornerRadius = AppRadius.lg
-                        )
+                    // Filters, tabs and deletions move rows instead of snapping them.
+                    Box(Modifier.animateItem()) {
+                        when (entry) {
+                            is AnnotationFeedEntry.NoteEntry -> HighlightNoteItem(
+                                note = entry.note,
+                                onShare = { onShare(entry) },
+                                onEditTags = { onEditNoteTags(entry.note) },
+                                onDelete = { onDeleteNote(entry.note) },
+                                header = { FeedBookHeader(entry.book) },
+                                dateText = row.timeText,
+                                expandable = true,
+                                cornerRadius = AppRadius.lg
+                            )
+                            is AnnotationFeedEntry.BookmarkEntry -> BookmarkItem(
+                                bookmark = entry.bookmark,
+                                onShare = { onShare(entry) },
+                                onEditRemark = { onEditBookmarkRemark(entry.bookmark) },
+                                onEditTags = { onEditBookmarkTags(entry.bookmark) },
+                                onDelete = { onDeleteBookmark(entry.bookmark) },
+                                header = { FeedBookHeader(entry.book) },
+                                dateText = row.timeText,
+                                cornerRadius = AppRadius.lg
+                            )
+                        }
                     }
                 }
             }
@@ -465,51 +423,57 @@ private fun AnnotationFeedList(
     }
 }
 
-/** Search button that grows into a capsule over the title; reduced motion and e-ink cross-fade. */
+/** Keep the transition composed while closed so both entering and leaving have a visible ramp. */
 @Composable
-private fun SearchMorph(
+internal fun AnnotationFeedSearchField(
     open: Boolean,
     text: String,
     onTextChange: (String) -> Unit,
-    onOpen: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val motionEnabled = LocalMotionEnabled.current
-    val progress = animateFloatAsState(
-        targetValue = if (open) 1f else 0f,
-        animationSpec = if (motionEnabled) LumiMotion.ProgrammaticSpring else tween(100),
-        label = "annotationSearchMorph"
-    )
-    val settled by remember { derivedStateOf { progress.value == 0f } }
-    Box(modifier = modifier.height(SearchButtonSize), contentAlignment = Alignment.CenterEnd) {
-        Text(
-            text = stringResource(R.string.annotation_feed_title),
-            fontSize = AppType.Section,
-            fontWeight = FontWeight.Bold,
-            fontFamily = resolveAppFontFamily(KaiTi),
-            color = AppColors.TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .fillMaxWidth()
-                .padding(end = SearchButtonSize + AppSpace.sm)
-                .graphicsLayer { alpha = 1f - morphFraction(progress.value, 0f, 0.35f) }
-                .then(if (open) Modifier.clearAndSetSemantics {} else Modifier)
-        )
-        LiquidGlassIconButton(
-            imageVector = AppIcons.MagnifyingGlass,
-            contentDescription = stringResource(R.string.search),
-            onClick = { if (!open) onOpen() },
-            size = SearchButtonSize, iconSize = 20.dp,
-            normalContainerColor = AppColors.BgGray,
-            // With motion the capsule takes over at once; otherwise the two cross-fade.
-            modifier = Modifier
-                .graphicsLayer { alpha = if (motionEnabled) (if (open || progress.value > 0f) 0f else 1f) else 1f - progress.value }
-                .then(if (open) Modifier.clearAndSetSemantics {} else Modifier)
-        )
-        if (open || !settled) SearchCapsule(progress, open, motionEnabled, text, onTextChange, onClose)
+    val eInk = LocalEInkMode.current
+    AnimatedVisibility(
+        visible = open,
+        modifier = Modifier.fillMaxWidth(),
+        enter = when {
+            eInk -> EnterTransition.None
+            motionEnabled -> expandVertically(animationSpec = tween(LumiMotion.MenuEnterMillis), expandFrom = Alignment.Top) +
+                fadeIn(tween(LumiMotion.MenuEnterMillis))
+            else -> fadeIn(tween(100))
+        },
+        exit = when {
+            eInk -> ExitTransition.None
+            motionEnabled -> shrinkVertically(animationSpec = tween(LumiMotion.MenuExitMillis), shrinkTowards = Alignment.Top) +
+                fadeOut(tween(LumiMotion.MenuExitMillis))
+            else -> fadeOut(tween(100))
+        }
+    ) {
+        Box(modifier.then(if (open) Modifier else Modifier.clearAndSetSemantics {})) {
+            LiquidGlassSurface(
+                controlEdge = true,
+                shape = CircleShape,
+                backdrop = LocalLiquidGlassBackdrop.current ?: LocalLumiBackgroundBackdrop.current,
+                fallbackColor = if (LocalAppTheme.current == "liquid_glass") AppColors.CardBg else AppColors.BgGray,
+                contentScrimColor = AppColors.CardBg.copy(alpha = if (LocalIsDarkTheme.current) 0.60f else 0.72f),
+                modifier = Modifier.fillMaxWidth().height(SearchButtonSize)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        AnnotationSearchInput(text = text, onTextChange = onTextChange, enabled = open)
+                    }
+                    Box(
+                        modifier = Modifier.size(SearchButtonSize).clip(CircleShape)
+                            .clickable(enabled = open, onClick = onClose),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ControlIcon(AppIcons.X, stringResource(R.string.close), tint = AppColors.TextPrimary,
+                            modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -524,33 +488,66 @@ private fun DayHeader(label: String) {
     )
 }
 
-/** Leaf node: scrolling only recomposes this band, within the quantized strength steps. */
 @Composable
-private fun FeedTopBlurBand(progress: State<Float>, backdrop: Backdrop, bandHeight: Dp, modifier: Modifier) {
-    val strength by remember(progress) { derivedStateOf { quantizeBlurStrength(progress.value) } }
-    val tintAlpha = if (LocalIsDarkTheme.current) PROGRESSIVE_BLUR_TINT_ALPHA_DARK else PROGRESSIVE_BLUR_TINT_ALPHA
-    ProgressiveTopBlur(
-        backdrop = backdrop,
-        strength = strength,
-        modifier = modifier,
-        bandHeight = bandHeight,
-        tint = AppColors.WindowBg.copy(alpha = tintAlpha)
-    )
-}
+private fun rememberAnnotationFeedDisplayEnvironment(): AnnotationFeedDisplayEnvironment {
+    val context = LocalContext.current
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val locale = LocalConfiguration.current.locales[0]
+    val todayLabel = stringResource(R.string.annotation_feed_today)
+    val yesterdayLabel = stringResource(R.string.annotation_feed_yesterday)
+    var revision by remember { mutableIntStateOf(0) }
 
-/** Without blur the header stays solid and only the tail dissolves, like the settings pages. */
-@Composable
-private fun FeedTopScrimBand(progress: State<Float>, bandHeight: Dp, headerHeight: Dp, modifier: Modifier) {
-    val strength by remember(progress) { derivedStateOf { quantizeBlurStrength(progress.value) } }
-    val tint = AppColors.WindowBg
-    val brush = remember(tint, bandHeight, headerHeight) {
-        Brush.verticalGradient(
-            0f to tint,
-            (headerHeight / bandHeight).coerceIn(0f, 1f) to tint,
-            1f to tint.copy(alpha = 0f)
+    DisposableEffect(context, lifecycle) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                revision++
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction(android.content.Intent.ACTION_TIME_CHANGED)
+            addAction(android.content.Intent.ACTION_TIMEZONE_CHANGED)
+            addAction(android.content.Intent.ACTION_DATE_CHANGED)
+        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            context, receiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) revision++
+        }
+        lifecycle.addObserver(lifecycleObserver)
+        val timeFormatObserver = object : android.database.ContentObserver(
+            android.os.Handler(android.os.Looper.getMainLooper())
+        ) {
+            override fun onChange(selfChange: Boolean) { revision++ }
+        }
+        context.contentResolver.registerContentObserver(
+            android.provider.Settings.System.getUriFor(android.provider.Settings.System.TIME_12_24),
+            false,
+            timeFormatObserver
+        )
+        onDispose {
+            context.unregisterReceiver(receiver)
+            lifecycle.removeObserver(lifecycleObserver)
+            context.contentResolver.unregisterContentObserver(timeFormatObserver)
+        }
+    }
+
+    return remember(locale, todayLabel, yesterdayLabel, revision) {
+        val zone = ZoneId.systemDefault()
+        val timePattern =
+            (android.text.format.DateFormat.getTimeFormat(context) as? SimpleDateFormat)?.toPattern()
+                ?: if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a"
+        AnnotationFeedDisplayEnvironment(
+            locale = locale,
+            zone = zone,
+            today = LocalDate.now(zone),
+            timePattern = timePattern,
+            dayPattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMMdEEE"),
+            otherYearPattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "yMMMMdEEE"),
+            todayLabel = todayLabel,
+            yesterdayLabel = yesterdayLabel
         )
     }
-    Box(modifier.fillMaxWidth().height(bandHeight).graphicsLayer { alpha = strength }.background(brush))
 }
 
 @Composable
@@ -578,57 +575,6 @@ private fun FeedBookHeader(book: Book) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-    }
-}
-
-@Composable
-private fun SearchCapsule(
-    progress: State<Float>,
-    open: Boolean,
-    motionEnabled: Boolean,
-    text: String,
-    onTextChange: (String) -> Unit,
-    onClose: () -> Unit
-) {
-    LiquidGlassSurface(
-        controlEdge = true, shape = CircleShape,
-        // Same materials as LiquidGlassIconButton, so the hand-off from the button is invisible.
-        backdrop = LocalLiquidGlassBackdrop.current ?: LocalLumiBackgroundBackdrop.current,
-        fallbackColor = if (LocalAppTheme.current == "liquid_glass") AppColors.CardBg else AppColors.BgGray,
-        contentScrimColor = AppColors.CardBg.copy(alpha = if (LocalIsDarkTheme.current) 0.60f else 0.72f),
-        decorationModifier = Modifier,
-        contentAlignment = Alignment.CenterEnd,
-        modifier = Modifier
-            .layout { measurable, constraints ->
-                val collapsed = SearchButtonSize.roundToPx()
-                val full = constraints.maxWidth.coerceAtLeast(collapsed)
-                // Reduced motion keeps the capsule full width and only fades it.
-                val fraction = if (motionEnabled) progress.value.coerceIn(0f, 1f) else 1f
-                val width = (collapsed + (full - collapsed) * fraction).roundToInt()
-                val placeable = measurable.measure(Constraints.fixed(width, collapsed))
-                layout(width, collapsed) { placeable.place(0, 0) }
-            }
-            .graphicsLayer { if (!motionEnabled) alpha = progress.value }
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).graphicsLayer { alpha = morphFraction(progress.value, 0.45f, 1f) }) {
-                AnnotationSearchInput(text = text, onTextChange = onTextChange, enabled = open)
-            }
-            // Stays where the button was; its magnifier turns into the close icon.
-            Box(
-                modifier = Modifier
-                    .size(SearchButtonSize)
-                    .clip(CircleShape)
-                    .clickable(enabled = open, onClick = onClose)
-                    .then(if (open) Modifier else Modifier.clearAndSetSemantics {}),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(AppIcons.MagnifyingGlass, null, tint = AppColors.TextPrimary,
-                    modifier = Modifier.size(20.dp).graphicsLayer { alpha = 1f - morphFraction(progress.value, 0.15f, 0.55f) })
-                Icon(AppIcons.X, stringResource(R.string.close), tint = AppColors.TextPrimary,
-                    modifier = Modifier.size(20.dp).graphicsLayer { alpha = morphFraction(progress.value, 0.15f, 0.55f) })
-            }
-        }
     }
 }
 
@@ -699,7 +645,3 @@ private fun AnnotationSearchInput(text: String, onTextChange: (String) -> Unit, 
 }
 
 private val SearchButtonSize = 44.dp
-private val FeedHeaderBlurTail = 56.dp
-
-private fun morphFraction(progress: Float, start: Float, end: Float): Float =
-    ((progress - start) / (end - start)).coerceIn(0f, 1f)

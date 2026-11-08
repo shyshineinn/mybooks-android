@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.home.remote
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
@@ -37,6 +39,7 @@ import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.components.AppDropdownMenu
 
 /** DEFAULT keeps the catalog's own order, which OPDS servers often curate (newest, popular). */
 enum class RemoteSortMode { DEFAULT, NAME, SIZE, TIME, FORMAT }
@@ -114,15 +117,11 @@ internal fun RemoteSortButton(
             liquidScrimColor = AppColors.CardBg.copy(alpha = 0.58f),
             modifier = Modifier.liquidGlassMenuAnchor().onGloballyPositioned { anchor = it.boundsInRoot() }
         )
-        if (!isLiquidGlass || menuHost == null) {
-            DropdownMenu(
+        if (menuHost == null) {
+            AppDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
-                modifier = Modifier.width(196.dp),
-                shape = AppRoundedCornerShape(AppRadius.md),
-                containerColor = AppColors.WindowBg,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                modifier = Modifier.width(196.dp)
             ) {
                 options.forEach { (label, selected, action) ->
                     DropdownMenuItem(
@@ -155,7 +154,7 @@ internal fun RemoteLayoutButton(layoutMode: Int, onClick: () -> Unit) {
         effectPadding = 1.dp,
         modifier = Modifier.size(44.dp)
     ) {
-        Icon(
+        ControlIcon(
             imageVector = if (layoutMode == 1) AppIcons.List else AppIcons.SquaresFour,
             contentDescription = stringResource(R.string.import_layout_mode),
             tint = AppColors.TextPrimary,

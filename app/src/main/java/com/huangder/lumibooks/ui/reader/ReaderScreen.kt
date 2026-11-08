@@ -1,5 +1,12 @@
 package com.huangder.lumibooks.ui.reader
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.domain.model.BookFormat
+
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
+
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.domain.model.SelectionMenuAction
@@ -17,7 +24,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.os.Build
@@ -52,6 +58,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -78,12 +85,15 @@ import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -103,6 +113,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
@@ -141,6 +152,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -191,6 +203,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.zIndex
@@ -229,6 +242,8 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
@@ -241,7 +256,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import com.huangder.lumibooks.ui.animation.AppEasing
 import com.huangder.lumibooks.ui.animation.LumiMotion
 import com.huangder.lumibooks.ui.animation.cardPressEffect
-import com.huangder.lumibooks.ui.layout.currentAdaptiveWindowInfo
 import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.components.ConfigurableBottomSheetBackHandler
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
@@ -267,6 +281,7 @@ import com.huangder.lumibooks.ui.components.animateBottomSheetOut
 import com.huangder.lumibooks.ui.components.LiquidGlassColumnSheetContainer
 import com.huangder.lumibooks.ui.components.LiquidGlassSheetContainer
 import com.huangder.lumibooks.ui.components.materialBottomSheetMotion
+import com.huangder.lumibooks.ui.components.adaptiveSheetFrame
 import com.huangder.lumibooks.ui.components.ReaderSystemBarStyle
 import com.huangder.lumibooks.ui.reader.engine.ReadView
 import com.huangder.lumibooks.ui.bookshelf.CoverSearchEngine
@@ -335,6 +350,8 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import coil.load
 import android.text.Spanned
 import androidx.compose.ui.layout.ContentScale
+import com.huangder.lumibooks.ui.components.AppSheetHeader
+import com.huangder.lumibooks.ui.theme.AppPresentation
 
 private data class ReaderLinkLocation(
     val chapterIndex: Int,
@@ -342,7 +359,8 @@ private data class ReaderLinkLocation(
     val chapterFraction: Float? = null,
     val characterOffset: Int? = null,
     val locatorJson: String? = null,
-    val paginationKey: Any? = null
+    val paginationKey: Any? = null,
+    val isListeningReadingReturn: Boolean = false
 )
 
 internal data class ContinuousScrollRequest(
@@ -1215,12 +1233,49 @@ fun ReaderScreen(
     onInteractive: () -> Unit = {},
     onReaderPaperColorChanged: (Int) -> Unit = {},
     readerActive: Boolean = true,
+    readingPositionReloadToken: Long = 0L,
     viewModel: ReaderViewModel = hiltViewModel()
+) {
+    LaunchedEffect(readingPositionReloadToken) {
+        if (readingPositionReloadToken != 0L) viewModel.reloadStoredReadingPosition(readingPositionReloadToken)
+    }
+    // Layout constraints update with rotation and split-screen resizing, even when a
+    // locale-wrapped Context still reports the previous Configuration dimensions.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        ReaderScreenContent(
+            viewport = DpSize(maxWidth, maxHeight),
+            bookId = bookId,
+            onNavigateBack = onNavigateBack,
+            onFirstContentDrawn = onFirstContentDrawn,
+            onInteractive = onInteractive,
+            onReaderPaperColorChanged = onReaderPaperColorChanged,
+            readerActive = readerActive,
+            viewModel = viewModel
+        )
+    }
+}
+
+@OptIn(kotlinx.coroutines.FlowPreview::class)
+@Composable
+private fun ReaderScreenContent(
+    viewport: DpSize,
+    bookId: String,
+    onNavigateBack: () -> Unit,
+    onFirstContentDrawn: () -> Unit,
+    onInteractive: () -> Unit,
+    onReaderPaperColorChanged: (Int) -> Unit,
+    readerActive: Boolean,
+    viewModel: ReaderViewModel
 ) {
     val backgroundPreparationEnabled = LocalReaderOpeningComplete.current
     val rawUiState by viewModel.uiState.collectAsState()
     val nativeBookPages by viewModel.pageLayoutEngine.bookPages.collectAsState()
     val ttsState by viewModel.ttsState.collectAsState()
+    val readerTtsPosition by viewModel.readerTtsPosition.collectAsState(com.huangder.lumibooks.tts.ReaderTtsPosition())
+    val floatingSubtitlesEnabled by viewModel.floatingSubtitlesEnabled.collectAsState(true)
+    var ttsFooterTop by remember { mutableStateOf<Float?>(null) }
+    var ttsCatalogBounds by remember { mutableStateOf<Rect?>(null) }
+    var ttsRevealKey by remember(bookId) { mutableIntStateOf(0) }
     val ttsCurrentPage by viewModel.ttsCurrentPage.collectAsState()
     val ttsCurrentSentence by viewModel.ttsSentencePosition.collectAsState()
     val listeningResumePrompt by viewModel.listeningResumePrompt.collectAsState()
@@ -1229,10 +1284,9 @@ fun ReaderScreen(
     val ttsReaderFollowEnabled by viewModel.ttsReaderFollowEnabled.collectAsState()
     val eInkMode = rawUiState.eInkModeEnabled
     val motionEnabled = LocalMotionEnabled.current
-    val basePageTransition = when {
-        eInkMode -> "none"
-        else -> rawUiState.pageTransition
-    }
+    val basePageTransition = com.huangder.lumibooks.domain.model.ReaderPageTransition.effectiveKey(
+        rawUiState.pageTransition, eInkMode
+    )
     val appIsDark = LocalIsDarkTheme.current
     val nightDisplay = if (eInkMode) false else when (rawUiState.readerDisplayMode) {
         "day" -> false
@@ -1240,12 +1294,7 @@ fun ReaderScreen(
         else -> appIsDark
     }
     val themedState = rawUiState.withActiveThemeSettingsForMode(nightDisplay).copy(pageTransition = basePageTransition)
-    val uiState = if (themedState.book?.format?.name == "MARKDOWN" && !themedState.markdownPaginationReady) {
-        com.huangder.lumibooks.domain.model.ReaderPageCorner.entries.fold(themedState) { state, corner ->
-            if (when (corner) { ReaderPageCorner.TOP_LEFT -> state.readerTopLeftContent; ReaderPageCorner.TOP_RIGHT -> state.readerTopRightContent; ReaderPageCorner.BOTTOM_LEFT -> state.readerBottomLeftContent; ReaderPageCorner.BOTTOM_RIGHT -> state.readerBottomRightContent } == com.huangder.lumibooks.domain.model.ReaderCornerContent.PAGE_NUMBER)
-                state.withReaderCornerContent(corner, com.huangder.lumibooks.domain.model.ReaderCornerContent.BOOK_PROGRESS) else state
-        }
-    } else themedState
+    val uiState = themedState
     val activeThemeSettings = uiState.activeThemeSettingsForMode(nightDisplay)
     val editorThemeSettings = uiState.activeThemeSettingsForMode(uiState.themeEditingDark)
     val effectiveReaderTheme = if (eInkMode) "day" else activeThemeSettings.backgroundSelection
@@ -1371,9 +1420,15 @@ fun ReaderScreen(
     LaunchedEffect(nightDisplay, uiState.activeThemeSuiteIdFor(uiState.readerLayoutTarget())) {
         viewModel.applyReaderThemeMode(nightDisplay)
     }
-    val adaptiveWindowInfo = currentAdaptiveWindowInfo()
-    val useWideLayout = adaptiveWindowInfo.isMediumWidthOrLarger
-    val useCompactLayout = !useWideLayout
+    val useWideLayout = viewport.width >= 600.dp
+    val menuLayout = resolveReaderMenuLayout(
+        viewport = viewport,
+        preferredRailItemSize = rememberReaderSideRailItemSize(),
+        statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    )
+    val sideRailItemSize = menuLayout.sideRailItemSize
+    val useSideReaderMenu = sideRailItemSize != null
+    val sideRailItemWidth = sideRailItemSize?.width
     val density = LocalDensity.current
 
     // ReadView 引用
@@ -1389,7 +1444,7 @@ fun ReaderScreen(
         MutableStateFlow<ContinuousScrollRequest?>(null)
     }
     val continuousSelectionController = remember { ContinuousSelectionController() }
-    val isEpub = uiState.book?.format?.name == "EPUB"
+    val supportsEpubFeatures = uiState.book?.format?.supportsEpubFeatures == true
     val supportsBookLayout = uiState.book?.format?.supportsBookLayout == true
     val isMarkdownNative = uiState.book?.format?.name == "MARKDOWN"
     // MarkdownNativeReader owns one virtualized continuous surface.  Keeping Markdown in the
@@ -1399,7 +1454,7 @@ fun ReaderScreen(
         uiState.renderMode == EpubRenderMode.BOOK_LAYOUT
     val isVerticalWriting = uiState.readerWritingMode == ReaderWritingMode.VERTICAL_RL &&
         uiState.useNewEngine && !isBookLayout
-    // 只判断“是否允许双页”（设备/设置/模式），实际是否启用由 ReadView 按自身宽高（横屏）决定
+    // 只判断“是否允许双页”（窗口宽度/设置/模式），实际由 ReadView 按横向或近正方形尺寸决定。
     val twoPageSpreadEligible = uiState.twoPageSpreadEnabled && useWideLayout &&
         uiState.useNewEngine && !isBookLayout && !eInkMode &&
         uiState.readerWritingMode == ReaderWritingMode.HORIZONTAL &&
@@ -1407,9 +1462,9 @@ fun ReaderScreen(
     val isBookLayoutContinuousScroll = isBookLayout &&
         uiState.readerWritingMode.usesContinuousScroll(basePageTransition, eInkMode)
     val bookLayoutSpreadEligible = originalEpubSpreadEligible(
-        enabled = uiState.twoPageSpreadEnabled && !isBookLayoutContinuousScroll,
-        isEpub = isEpub && isBookLayout,
-        widthDp = adaptiveWindowInfo.widthDp, heightDp = adaptiveWindowInfo.heightDp,
+        enabled = uiState.twoPageSpreadEnabled,
+        isEpub = uiState.book?.format?.name == "EPUB" && isBookLayout,
+        widthDp = viewport.width.value.toInt(), heightDp = viewport.height.value.toInt(),
         eInk = eInkMode, transition = basePageTransition
     )
     var originalSpreadState by remember(bookId) { mutableStateOf<EpubSpreadState?>(null) }
@@ -1454,10 +1509,10 @@ fun ReaderScreen(
             rendererBookPages = ReaderBookPages(chapterCounts = List(uiState.chapterCount) { null })
         }
     }
-    LaunchedEffect(originalPaginationSignature, isBookLayout, isBookLayoutContinuousScroll) {
+    LaunchedEffect(originalPaginationSignature, isBookLayout) {
         val signature = originalPaginationSignature ?: return@LaunchedEffect
         val book = uiState.book ?: return@LaunchedEffect
-        if (!isBookLayout || isBookLayoutContinuousScroll) return@LaunchedEffect
+        if (!isBookLayout) return@LaunchedEffect
         val cache = ReaderPageIndexCache.open(context, book, signature, uiState.chapterCount)
         if (originalPaginationSignature != signature) { cache.close(); return@LaunchedEffect }
         rendererBookPages = mergeReaderBookPages(cache.restored, rendererBookPages)
@@ -1468,9 +1523,36 @@ fun ReaderScreen(
             cache.close()
         }
     }
-    val lineGuideAvailable = uiState.book?.format?.supportsTextReading == true &&
+    val lineGuideAvailable = (uiState.book?.format?.supportsTextReading == true) &&
         uiState.useNewEngine && !isBookLayout && !isVerticalWriting
     val effectiveLineGuide = lineGuideAvailable && uiState.lineGuideEnabled
+    val autoReadingAvailable = !eInkMode && (uiState.useNewEngine || isBookLayout) &&
+        (uiState.book?.format?.supportsTextReading == true)
+    var autoReadingActive by remember(bookId) { mutableStateOf(false) }
+    var autoReadingPaused by remember(bookId) { mutableStateOf(false) }
+    var autoReadingAtChapterEnd by remember(bookId) { mutableStateOf(false) }
+    var autoReadingOriginalTransition by remember(bookId) { mutableStateOf<String?>(null) }
+    var autoReadingOriginalWritingMode by remember(bookId) { mutableStateOf<ReaderWritingMode?>(null) }
+    LaunchedEffect(uiState.currentChapterIndex) {
+        autoReadingAtChapterEnd = false
+    }
+    fun stopAutoReading() {
+        autoReadingActive = false
+        autoReadingPaused = false
+        autoReadingAtChapterEnd = false
+        autoReadingOriginalTransition?.let(viewModel::savePageTransition)
+        autoReadingOriginalWritingMode?.let(viewModel::saveReaderWritingMode)
+        autoReadingOriginalTransition = null
+        autoReadingOriginalWritingMode = null
+    }
+    fun onAutoReadingEnd() {
+        autoReadingPaused = true
+        autoReadingAtChapterEnd = isBookLayout &&
+            uiState.currentChapterIndex < uiState.chapterCount - 1
+    }
+    LaunchedEffect(autoReadingAvailable) {
+        if (!autoReadingAvailable) stopAutoReading()
+    }
 
     val currentBookmarkCharacterOffset = when {
         isBookLayout -> null
@@ -1602,21 +1684,27 @@ fun ReaderScreen(
     }
     var linkReturnLocation by remember(bookId) { mutableStateOf<ReaderLinkLocation?>(null) }
     var linkReturnToken by remember(bookId) { mutableStateOf(0) }
-    var continuousReturnAnchor by remember(bookId) { mutableStateOf<ContinuousViewportAnchor?>(null) }
-    var continuousVisibleCharacters by remember(bookId) { mutableStateOf<List<ReaderVisibleCharacters>>(emptyList()) }
+    // Keep the rapidly changing viewport as state holders. Read them in effects/events
+    // or derived UI state, rather than subscribing this entire screen to every line/pixel.
+    val continuousReturnAnchor = remember(bookId) { mutableStateOf<ContinuousViewportAnchor?>(null) }
+    val continuousVisibleCharacters = remember(bookId) { mutableStateOf<List<ReaderVisibleCharacters>>(emptyList()) }
+    val continuousViewportReady by remember(bookId) {
+        derivedStateOf { continuousVisibleCharacters.value.isNotEmpty() }
+    }
     var epubManualNavigationPending by remember(bookId) { mutableStateOf(false) }
     fun captureReaderLocation(
         chapter: Int = uiState.currentChapterIndex,
         page: Int = uiState.currentPageIndex,
-        locator: String? = uiState.epubLocatorJson
+        locator: String? = uiState.epubLocatorJson,
+        chapterFraction: Float? = null
     ): ReaderLinkLocation {
         val renderer = isBookLayout || isMarkdownNative
         val character = if (renderer) readerLocatorCharacter(locator) else if (isContinuousScrollMode)
-            continuousReturnAnchor?.takeIf { it.chapter == chapter }?.character
+            continuousReturnAnchor.value?.takeIf { it.chapter == chapter }?.character
         else viewModel.pageLayoutEngine.getPageLayout(chapter, page)?.startCharOffset
         return ReaderLinkLocation(chapter, page,
-            chapterFraction = if (isContinuousScrollMode && !isMarkdownNative)
-                page.toFloat() / uiState.totalPages.coerceAtLeast(1) else null,
+            chapterFraction = if (isContinuousScrollMode || isBookLayoutContinuousScroll)
+                chapterFraction ?: readerScrollChapterFraction(page, uiState.totalPages, locator.takeIf { renderer }) else null,
             characterOffset = character, locatorJson = locator.takeIf { renderer },
             paginationKey = if (renderer) rendererPageKey else nativeBookPages.generation)
     }
@@ -1818,6 +1906,8 @@ fun ReaderScreen(
     }
     val startTtsWithPermission = rememberTtsStartWithNotificationPermission(bookId, startTtsFromCurrentPage)
     val requestTtsStart: () -> Unit = {
+        ttsRevealKey++
+        viewModel.hideMenu()
         viewModel.requestTtsStart(startTtsWithPermission)
     }
 
@@ -1909,21 +1999,6 @@ fun ReaderScreen(
     // MainActivity 引用（用于注册 ActionMode 拦截回调）
     val activity = context as? MainActivity
 
-    // 手机阅读页始终保持竖屏；离开阅读页后恢复进入前的方向策略。
-    DisposableEffect(activity, useCompactLayout) {
-        if (activity == null || !useCompactLayout) {
-            return@DisposableEffect onDispose { }
-        }
-
-        val previousOrientation = activity.requestedOrientation
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        onDispose {
-            if (activity.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
-                activity.requestedOrientation = previousOrientation
-            }
-        }
-    }
-
     // TOC 跳转标记（区分用户点击 TOC 和正常翻页带来的章节变化）
 
     val requestWriteSettingsPermission = rememberReaderWindowLifecycle(uiState, viewModel, readViewRef)
@@ -1981,7 +2056,7 @@ fun ReaderScreen(
         uiState.currentPageIndex) { mutableStateOf<List<ReaderVisibleCharacters>>(emptyList()) }
     LaunchedEffect(rendererPageKey, epubPageTextProvider, uiState.currentChapterIndex,
         uiState.currentPageIndex, uiState.rightChapterIndex, uiState.rightPageIndex, uiState.pageReady,
-        originalSpreadState, bookLayoutSpreadEligible) {
+        originalSpreadState) {
         if ((!isBookLayout && !isMarkdownNative) || !uiState.pageReady) return@LaunchedEffect
         val provider = epubPageTextProvider ?: return@LaunchedEffect
         val visible = mutableListOf<ReaderVisibleCharacters>()
@@ -2000,20 +2075,25 @@ fun ReaderScreen(
         }
         rendererVisibleCharacters = visible
     }
-    val listeningVisibleCharacters = if (isContinuousScrollMode && !isMarkdownNative)
-        continuousVisibleCharacters else rendererVisibleCharacters
-    val listeningViewportReady = if (isBookLayout || isContinuousScrollMode)
-        listeningVisibleCharacters.isNotEmpty() else true
+    val nativeContinuousViewport = isContinuousScrollMode && !isBookLayout && !isMarkdownNative
+    val listeningVisibleCharacters = if (nativeContinuousViewport) emptyList() else rendererVisibleCharacters
+    val listeningViewportReady = when {
+        nativeContinuousViewport -> continuousViewportReady
+        isBookLayout || isContinuousScrollMode -> listeningVisibleCharacters.isNotEmpty()
+        else -> true
+    }
     ObserveListeningResume(viewModel, firstContentReported && listeningViewportReady && uiState.error == null &&
         !uiState.isLoading && uiState.pendingReaderPosition == null && uiState.pendingPageFraction <= 0f,
         readerActive, uiState.currentChapterIndex, uiState.currentPageIndex,
         allowPageFallback = !isBookLayout && !isContinuousScrollMode,
-        visibleCharacters = listeningVisibleCharacters)
+        visibleCharacters = listeningVisibleCharacters,
+        visibleCharactersState = continuousVisibleCharacters.takeIf { nativeContinuousViewport })
 
     LaunchedEffect(nativeBookPages.generation, firstContentReported, readerActive,
-        backgroundPreparationEnabled, isBookLayout, isContinuousScrollMode) {
+        backgroundPreparationEnabled, isBookLayout, isContinuousScrollMode, isMarkdownNative) {
         if (firstContentReported && readerActive &&
-            !isBookLayout && !isContinuousScrollMode && uiState.useNewEngine) {
+            !isBookLayout && !isMarkdownNative && uiState.useNewEngine &&
+            nativeBookPages.chapterCounts.size == uiState.chapterCount) {
             viewModel.indexBookPages(nativeBookPages.generation, countMissing = backgroundPreparationEnabled)
         }
     }
@@ -2086,8 +2166,8 @@ fun ReaderScreen(
     val ttsSessionActive = ttsState.activeBookId == uiState.book?.id &&
         ttsState.playbackState != TtsPlaybackState.IDLE
     fun rememberTtsReturnLocation(chapterIndex: Int, pageIndex: Int,
-        locator: String? = uiState.epubLocatorJson) {
-        val next = captureReaderLocation(chapterIndex, pageIndex, locator)
+        locator: String? = uiState.epubLocatorJson, chapterFraction: Float? = null) {
+        val next = captureReaderLocation(chapterIndex, pageIndex, locator, chapterFraction)
         val spoken = ttsCurrentPage?.location
         if (viewModel.listeningResumePrompt.value == null && ttsSessionActive && spoken != null &&
             (spoken.chapterIndex != next.chapterIndex || spoken.pageIndex != next.pageIndex) &&
@@ -2209,6 +2289,8 @@ fun ReaderScreen(
     val bookmarkPullEnabled = bookmarkPullSupported &&
         !uiState.isMenuVisible &&
         !isAnySheetOpen &&
+        footnoteBubble == null &&
+        renderedFootnote == null &&
         selectionState == null &&
         !isSelectionDragging
 
@@ -2323,24 +2405,26 @@ fun ReaderScreen(
         }
     }
     var exitRequested by remember(bookId) { mutableStateOf(false) }
-    var epubReleaseHandler by remember(bookId) { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
     var showTtsExitDialog by remember(bookId) { mutableStateOf(false) }
-    val floatingSubtitlesEnabled by viewModel.floatingSubtitlesEnabled.collectAsState(initial = true)
+    var epubReleaseHandler by remember(bookId) { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
     val completeReaderExit: (Boolean) -> Unit = { keepListening ->
         if (!exitRequested) {
+            showTtsExitDialog = false
             exitRequested = true
             showTtsExitDialog = false
             viewModel.keepReadingPosition()
-            viewModel.finishReaderExit(keepListening) {
+            val finishExit = {
                 val release = epubReleaseHandler.takeIf { isBookLayout }
                 if (release != null) release(onNavigateBack) else onNavigateBack()
+            }
+            if (keepListening) viewModel.continueTtsOutsideReader(finishExit) else {
+                viewModel.stopTts()
+                finishExit()
             }
         }
     }
     val exitReader: () -> Unit = {
-        if (!exitRequested && !showTtsExitDialog) {
-            viewModel.requestReaderExit(onAsk = { showTtsExitDialog = true }, onExit = completeReaderExit)
-        }
+        viewModel.requestTtsReaderExit(onAsk = { showTtsExitDialog = true }, onExit = completeReaderExit)
     }
     ConfigurableBackHandler(
         enabled = epubNavigationRequest != null,
@@ -2674,8 +2758,10 @@ fun ReaderScreen(
     } else {
         Color(0xFF1C1C1E)
     }
-    // 目录进度条颜色：比文字深，跟随阅读主题渲染效果
-    val catalogProgressColor = when (renderingTheme) {
+    // 原排版使用实色胶囊，进度仍跟随应用主题色，与玻璃胶囊保持一致。
+    val catalogProgressColor = if (isBookLayout && !isMarkdownNative) {
+        AppColors.Accent
+    } else when (renderingTheme) {
         "night" -> Color(0xFF555555)
         "sepia_dark" -> Color(0xFF8A6F55)
         "green_dark" -> Color(0xFF5E8F63)
@@ -2697,7 +2783,7 @@ fun ReaderScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = stringResource(R.string.reader_load_failed),
+                    text = stringResource(if (uiState.book?.isArchived == true) R.string.archived_books_title else R.string.reader_load_failed),
                     fontSize = AppType.Section,
                     fontWeight = FontWeight.Bold,
                     color = AppColors.TextPrimary
@@ -2709,6 +2795,12 @@ fun ReaderScreen(
                     color = AppColors.TextSecondary
                 )
                 Spacer(Modifier.height(16.dp))
+                if (uiState.book?.isArchived == true) {
+                    TextButton(onClick = {
+                        com.huangder.lumibooks.ui.privacy.openArchivedBooks(context)
+                        exitReader()
+                    }) { Text(stringResource(R.string.archived_books_title), color = AppColors.Accent) }
+                }
                 TextButton(onClick = exitReader) {
                     Text(stringResource(R.string.back), color = AppColors.Accent)
                 }
@@ -2749,22 +2841,33 @@ fun ReaderScreen(
         }
     }
     val epubSession = epubSessionState.value
+    var capturedListeningJump by remember(bookId) { mutableStateOf<com.huangder.lumibooks.tts.TtsListeningPosition?>(null) }
     // Explicit and remembered choices share the same one-shot visual navigation.
     LaunchedEffect(listeningResumeJumpRequest, readerActive, firstContentReported,
         uiState.isLoading, uiState.showEpubLayoutHint, uiState.showMobiLayoutHint,
         uiState.showTxtEncodingHint, isBookLayout, isMarkdownNative, isContinuousScrollMode,
         epubSession, readViewRef.value) {
         val position = listeningResumeJumpRequest ?: return@LaunchedEffect
+        if (!viewModel.isListeningResumeJumpCurrent(position)) return@LaunchedEffect
         if (!readerActive || !firstContentReported || uiState.isLoading ||
             uiState.showEpubLayoutHint || uiState.showMobiLayoutHint || uiState.showTxtEncodingHint
         ) return@LaunchedEffect
+        fun rememberReadingReturn() {
+            // Reattaching a renderer can restart this effect while its jump is in flight.
+            // Capture only once so the destination never replaces the original reading anchor.
+            if (capturedListeningJump == position) return
+            linkReturnLocation = captureReaderLocation().copy(isListeningReadingReturn = true)
+            linkReturnToken++
+            capturedListeningJump = position
+        }
         when {
             isBookLayout || isMarkdownNative -> {
                 if (isBookLayout && epubSession == null) return@LaunchedEffect
                 val length = withContext(Dispatchers.IO) {
                     viewModel.getChapterTextLength(position.chapterIndex)
                 }
-                if (viewModel.listeningResumeJumpRequest.value != position) return@LaunchedEffect
+                if (!viewModel.isListeningResumeJumpCurrent(position)) return@LaunchedEffect
+                rememberReadingReturn()
                 val json = if (isMarkdownNative) {
                     JSONObject().put("version", 3).put("href", "document.md")
                         .put("textPosition", position.characterOffset).toString()
@@ -2777,12 +2880,14 @@ fun ReaderScreen(
                         ?: EpubNavigationDestination.Page(position.pageIndex), true)
             }
             isContinuousScrollMode -> {
+                rememberReadingReturn()
                 continuousScrollRequests.value = ContinuousScrollRequest(
                     chapterIndex = position.chapterIndex, characterOffset = position.characterOffset,
                     origin = TtsPageChangeOrigin.LAYOUT)
             }
             else -> {
                 val readView = readViewRef.value ?: return@LaunchedEffect
+                rememberReadingReturn()
                 readView.jumpToCharacter(position.chapterIndex, position.characterOffset, TtsPageChangeOrigin.LAYOUT)
             }
         }
@@ -2821,6 +2926,16 @@ fun ReaderScreen(
             weight = uiState.bodyFontWeight
         )
     }
+    val scrollPaginationIdentity = viewModel.paginationContentIdentity()
+    LaunchedEffect(nativeContinuousViewport, readerRootSize.value, rendererPageKey,
+        scrollPaginationIdentity, effectiveBionicReadingEnabled, uiState.paragraphSpacing,
+        uiState.firstLineIndent, uiState.chineseMode, uiState.textAlignment, uiState.chapterCount,
+        uiState.twoPageSpreadEnabled, useWideLayout) {
+        val size = readerRootSize.value
+        if (!nativeContinuousViewport || size.width <= 0 || size.height <= 0) return@LaunchedEffect
+        configureScrollPagination(context, viewModel.pageLayoutEngine, uiState, size.width, size.height,
+            scrollPaginationIdentity, effectiveBionicReadingEnabled, uiState.twoPageSpreadEnabled && useWideLayout)
+    }
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" && !eInkMode
     val readerGlassContentScrim = if (isBookLayout && uiState.book?.format?.name != "MARKDOWN") {
         // Compose cannot reliably sample a WebView into the liquid-glass backdrop. Use a
@@ -2833,12 +2948,51 @@ fun ReaderScreen(
     } else {
         menuBgColor.copy(alpha = 0.18f)
     }
+    val glassSamplingQuality = com.huangder.lumibooks.ui.theme.LocalLiquidGlassSamplingQuality.current
     val readerGlassBackdrop = rememberLayerBackdrop(onDraw = {
         // The lens must sample the paper as well as the transparent reader content.
         drawRect(composeBgColor)
         drawContent()
     })
-    val activeReaderGlassBackdrop = readerGlassBackdrop.takeIf { isLiquidGlass && (!isBookLayout || isMarkdownNative) }
+    val nativeGlassReader = isBookLayout && !isMarkdownNative
+    var nativeGlassProvider by remember(bookId) {
+        mutableStateOf<com.huangder.lumibooks.ui.components.GlassSnapshotProvider?>(null)
+    }
+    val glassView = androidx.compose.ui.platform.LocalView.current
+    val glassConfiguration = LocalConfiguration.current
+    val freezeGlass = isAnySheetOpen || uiState.isMenuVisible || selectionState != null
+    val nativeGlassSnapshot = com.huangder.lumibooks.ui.components.rememberGlassSnapshot(
+        enabled = isLiquidGlass && nativeGlassReader && uiState.pageReady && !uiState.isLoading,
+        identity = listOf(bookId, uiState.currentChapterIndex, uiState.currentPageIndex,
+            glassConfiguration.screenWidthDp, glassConfiguration.screenHeightDp,
+            renderingTheme, readerBackgroundColorInt, nativeGlassProvider),
+        frozen = freezeGlass
+    ) {
+        nativeGlassProvider?.invoke(glassSamplingQuality) ?: if (!freezeGlass) {
+            com.huangder.lumibooks.ui.components.captureWindowGlassBackdrop(glassView, glassSamplingQuality)
+        } else null
+    }
+    // Keep the newest settled page for the next hero opening. Only an unobstructed, static page
+    // qualifies: the next opening shows it until the live reader takes over underneath.
+    ReaderOpeningSnapshotCapture(
+        enabled = readerActive && backgroundPreparationEnabled && firstContentReported && !exitRequested &&
+            uiState.pageReady && !uiState.isLoading && uiState.error == null && epubRenderFailure == null &&
+            uiState.pendingReaderPosition == null && uiState.pendingPageFraction <= 0f &&
+            !freezeGlass && !isSelectionDragging && footnoteBubble == null && renderedFootnote == null &&
+            linkReturnLocation == null && epubNavigationRequest == null && !bookmarkPullActive &&
+            listeningResumePrompt == null && ttsStartPrompt == null && !ttsSessionActive &&
+            !autoReadingActive && !effectiveLineGuide && !isContinuousScrollMode &&
+            !isBookLayoutContinuousScroll && !uiState.isEpubChapterHandoffInProgress &&
+            !uiState.showEpubLayoutHint && !uiState.showMobiLayoutHint && !uiState.showTxtEncodingHint &&
+            !uiState.epubComicPreparing && !uiState.epubComicConfirmation && uiState.epubComicError == null,
+        identity = listOf(uiState.currentChapterIndex, uiState.currentPageIndex, uiState.totalPages,
+            uiState.rightChapterIndex, uiState.rightPageIndex, uiState.epubLocatorJson, uiState.contentRevision,
+            rendererPageKey, renderingTheme, readerBackgroundColorInt, nightDisplay, isCurrentPageBookmarked,
+            renderedNotes.size, glassConfiguration.screenWidthDp, glassConfiguration.screenHeightDp)
+    )
+    val liveReaderGlassBackdrop = readerGlassBackdrop.takeIf { isLiquidGlass && !nativeGlassReader }
+    val activeReaderGlassBackdrop: Backdrop? = if (nativeGlassReader) nativeGlassSnapshot.backdrop else liveReaderGlassBackdrop
+    val forceNativeGlassFallback = nativeGlassReader && activeReaderGlassBackdrop == null
     // NavHost keeps the outgoing reader composed during pop animations; it must not
     // overwrite the home screen's system-bar style after navigation has switched.
     if (readerActive) {
@@ -2849,7 +3003,11 @@ fun ReaderScreen(
     }
 
     androidx.compose.runtime.CompositionLocalProvider(
-        LocalLiquidGlassContrastEnabled provides (uiState.readerButtonContrastEnabled && !eInkMode)
+        LocalLiquidGlassContrastEnabled provides (uiState.readerButtonContrastEnabled && !eInkMode),
+        com.huangder.lumibooks.ui.components.LocalLiquidGlassBackdrop provides activeReaderGlassBackdrop
+    ) {
+    com.huangder.lumibooks.ui.components.LiquidGlassDialogHost(
+        modifier = Modifier.fillMaxSize(), backdrop = activeReaderGlassBackdrop
     ) {
     Box(
         Modifier
@@ -2924,7 +3082,7 @@ fun ReaderScreen(
                 // the app-level theme backdrop, so encoding and TXT TOC dialogs can sample
                 // the hidden theme instead of the page that is actually being read.
                 .then(
-                    activeReaderGlassBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
+                    liveReaderGlassBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
                 )
         ) {
             // ── 新 Canvas 引擎（TXT/EPUB） ──
@@ -3004,6 +3162,7 @@ fun ReaderScreen(
                     },
                     layoutPreviewActive = epubLayoutPreviewActive,
                     onReleaseHandlerReady = { epubReleaseHandler = it },
+                    onGlassSnapshotProviderReady = { nativeGlassProvider = it },
                     imageAdjustments = uiState.imageAdjustments.forDisplay(eInkMode),
                     chapterIndex = uiState.currentChapterIndex,
                     fontSizeSp = uiState.fontSize,
@@ -3048,6 +3207,9 @@ fun ReaderScreen(
                             ReaderPageFractionSemantics.INCLUSIVE_PAGE_END,
                     initialFragment = epubPendingFragment,
                     continuousScroll = isBookLayoutContinuousScroll,
+                    autoScrollRunning = autoReadingActive && !autoReadingPaused && !uiState.isMenuVisible && !isAnySheetOpen && selectionState == null && isBookLayoutContinuousScroll,
+                    autoScrollSpeed = uiState.autoReadingSpeed,
+                    onAutoScrollEnd = ::onAutoReadingEnd,
                     pageTransition = if (isBookLayoutContinuousScroll) "none" else effectivePageTransition,
                     pageTransitionDurationMs = VisualMotion.durationMillis(
                         uiState.pageAnimationSettings.durationFor(effectivePageTransition)
@@ -3092,6 +3254,11 @@ fun ReaderScreen(
                         }
                     },
                     onPageChanged = { chapterIndex, pageIndex, pageCount, locatorJson ->
+                        if (isBookLayoutContinuousScroll) {
+                            val count = runCatching { org.json.JSONObject(locatorJson ?: "{}")
+                                .optInt("numberingPageCount", 0) }.getOrDefault(0)
+                            if (count > 0) rendererBookPages = rendererBookPages.withChapter(chapterIndex, count)
+                        }
                         // A page turn invalidates both the custom menu and the
                         // WebView's native selection. Clear them at commit time so
                         // a menu from the previous page cannot linger over the new one.
@@ -3337,6 +3504,9 @@ fun ReaderScreen(
                     bionicReadingEnabled = effectiveBionicReadingEnabled,
                     lineGuideEnabled = effectiveLineGuide,
                     lineGuideDimLevel = uiState.lineGuideDimLevel,
+                    autoScrollRunning = autoReadingActive && !autoReadingPaused && !uiState.isMenuVisible && !isAnySheetOpen && selectionState == null && !isBookLayout,
+                    autoScrollSpeed = uiState.autoReadingSpeed,
+                    onAutoScrollEnd = ::onAutoReadingEnd,
                     contentRevision = uiState.contentRevision,
                     loadChapterText = viewModel::getFrameworkDrawnChapterText,
                     loadChapterPreviewText = viewModel::getFrameworkDrawnChapterPreview,
@@ -3436,26 +3606,36 @@ fun ReaderScreen(
                     },
                     onChapterVisible = { chapterIndex, chapterFraction, origin ->
                         val pageCount = viewModel.pageLayoutEngine.getChapterPageCount(chapterIndex)
-                        val visiblePage = if (pageCount > 0) {
+                        val visibleCharacter = continuousReturnAnchor.value
+                            ?.takeIf { it.chapter == chapterIndex }
+                            ?.character
+                        val visiblePage = readerScrollPageIndex(
+                            nativeBookPages,
+                            chapterIndex,
+                            visibleCharacter,
+                            chapterFraction
+                        ) ?: if (pageCount > 0) {
                             (chapterFraction.coerceIn(0f, 0.9999f) * pageCount)
                                 .toInt()
                                 .coerceIn(0, pageCount - 1)
-                        } else {
-                            0
-                        }
+                        } else 0
                         if (origin == TtsPageChangeOrigin.USER) {
                             beginManualReaderBrowsing()
-                            rememberTtsReturnLocation(chapterIndex, visiblePage)
+                            rememberTtsReturnLocation(chapterIndex, visiblePage, chapterFraction = chapterFraction)
                         } else {
-                            lastVisibleReaderLocation = captureReaderLocation(chapterIndex, visiblePage)
+                            lastVisibleReaderLocation = captureReaderLocation(chapterIndex, visiblePage,
+                                chapterFraction = chapterFraction)
                         }
-                        viewModel.onContinuousScrollPosition(chapterIndex, chapterFraction, origin)
+                        viewModel.onContinuousScrollPosition(
+                            chapterIndex, chapterFraction, origin, visibleCharacter
+                        )
                     },
                     onViewportAnchor = {
-                        continuousReturnAnchor = it
+                        continuousReturnAnchor.value = it
+                        viewModel.onContinuousViewportAnchor(it)
                         viewModel.onNativeComicAnchor(it, uiState.contentRevision)
                     },
-                    onVisibleCharacters = { continuousVisibleCharacters = it },
+                    onVisibleCharacters = { continuousVisibleCharacters.value = it },
                     onRestoreComplete = viewModel::clearPendingPageFraction,
                     onFirstContentDrawn = { continuousFirstContentDrawn = true },
                     onSentenceDoubleTap = { chapterIndex, characterOffset ->
@@ -3469,6 +3649,7 @@ fun ReaderScreen(
                     comicModeEnabled = uiState.comicModeEnabled,
                     ttsFollowEnabled = ttsReaderFollowEnabled,
                     onManualScrollStarted = ::beginManualReaderBrowsing,
+                    ttsFollowUserPageTurns = ttsState.followUserPageTurns,
                     imageAdjustments = uiState.imageAdjustments.forDisplay(eInkMode),
                     bodyFontWeight = uiState.bodyFontWeight
                 )
@@ -3950,21 +4131,47 @@ fun ReaderScreen(
             } else {
                 liveMenuSnapshot
             }
-            val hideRightPage = isContinuousScrollMode || isBookLayoutContinuousScroll
-            val displayCurrentPage = displayedMenuSnapshot.pageIndex + 1
-            val displayRightPageIndex = displayedMenuSnapshot.rightPageIndex.takeUnless { hideRightPage }
-            val displayRightChapterIndex = displayedMenuSnapshot.rightChapterIndex.takeUnless { hideRightPage }
-            val displayPageCount = displayedMenuSnapshot.pageCount
-
             val displayedBookPages = when {
-                isMarkdownNative || isBookLayout && !isBookLayoutContinuousScroll -> rendererBookPages
-                isContinuousScrollMode || isBookLayoutContinuousScroll -> ReaderBookPages()
+                isMarkdownNative || isBookLayout -> rendererBookPages
                 else -> nativeBookPages
             }
+            val chapterFraction = if (isContinuousScrollMode || isBookLayoutContinuousScroll)
+                readerScrollChapterFraction(displayedMenuSnapshot.pageIndex, displayedMenuSnapshot.pageCount,
+                    uiState.epubLocatorJson.takeIf { isBookLayout || isMarkdownNative })
+                else ((displayedMenuSnapshot.pageIndex + 1).toFloat() /
+                    displayedMenuSnapshot.pageCount.coerceAtLeast(1)).coerceIn(0f, 1f)
+            val nativeScrollPageIndex by remember(displayedBookPages, displayedMenuSnapshot.chapterIndex, chapterFraction) {
+                derivedStateOf {
+                    readerScrollPageIndex(displayedBookPages, displayedMenuSnapshot.chapterIndex,
+                        continuousReturnAnchor.value?.takeIf { it.chapter == displayedMenuSnapshot.chapterIndex }?.character,
+                        chapterFraction)
+                }
+            }
+            val scrollPageIndex = if (nativeContinuousViewport) nativeScrollPageIndex
+                else if (isBookLayoutContinuousScroll) runCatching {
+                org.json.JSONObject(uiState.epubLocatorJson ?: "{}").optInt("numberingPageIndex", 0)
+            }.getOrDefault(0) else null
+            val displayCurrentPage = if (nativeContinuousViewport || isBookLayoutContinuousScroll) {
+                (scrollPageIndex ?: 0) + 1
+            } else {
+                displayedMenuSnapshot.pageIndex + 1
+            }
+            val displayRightPageIndex = if (isContinuousScrollMode || isBookLayoutContinuousScroll) null else {
+                displayedMenuSnapshot.rightPageIndex
+            }
+            val displayRightChapterIndex = if (isContinuousScrollMode || isBookLayoutContinuousScroll) null else {
+                displayedMenuSnapshot.rightChapterIndex
+            }
+            val displayPageCount = if (nativeContinuousViewport || isBookLayoutContinuousScroll) {
+                displayedBookPages.chapterCounts.getOrNull(displayedMenuSnapshot.chapterIndex) ?: 0
+            } else {
+                if (isMarkdownNative && !uiState.markdownPaginationReady) 0 else displayedMenuSnapshot.pageCount
+            }
+
+            val scrollPageLabel = readerScrollPageLabel(displayedMenuSnapshot.chapterIndex, chapterFraction)
             val globalPageLabel = readerBookPageLabel(displayedBookPages,
-                displayedMenuSnapshot.chapterIndex, displayedMenuSnapshot.pageIndex,
-                displayedMenuSnapshot.rightChapterIndex, displayedMenuSnapshot.rightPageIndex)
-                ?: formatReadingProgressPercent(displayedMenuSnapshot.bookProgressPercent)
+                displayedMenuSnapshot.chapterIndex, scrollPageIndex ?: displayedMenuSnapshot.pageIndex,
+                displayRightChapterIndex, displayRightPageIndex) ?: "… / …"
             val listeningTarget = listeningResumePrompt.takeIf { linkReturnLocation == null }
             val returnChapter = linkReturnLocation?.chapterIndex ?: listeningTarget?.chapterIndex
             val returnCharacter = linkReturnLocation?.characterOffset ?: listeningTarget?.characterOffset
@@ -3973,18 +4180,22 @@ fun ReaderScreen(
                     ?: source.pageIndex.takeIf { source.paginationKey ==
                         if (isBookLayout || isMarkdownNative) rendererPageKey else nativeBookPages.generation }
             } ?: listeningTarget?.let { displayedBookPages.pageAtCharacter(it.chapterIndex, it.characterOffset) }
+            val continuousReturnSide by rememberContinuousReturnSide(
+                returnChapter, returnCharacter, uiState.currentChapterIndex,
+                continuousReturnAnchor, continuousVisibleCharacters)
             val currentCharacter = if (isBookLayout || isMarkdownNative)
                 readerLocatorCharacter(uiState.epubLocatorJson) ?: rendererVisibleCharacters.firstOrNull()?.start
-                else if (isContinuousScrollMode) continuousReturnAnchor?.character
+                else if (isContinuousScrollMode) null
                 else nativeBookPages.chapterStarts[uiState.currentChapterIndex]?.getOrNull(uiState.currentPageIndex)
             val returnSide = when {
                 returnChapter == null -> null
                 returnPage != null && !isContinuousScrollMode && !isBookLayoutContinuousScroll -> readerReturnSide(
                     returnChapter, returnPage.toFloat(), uiState.currentChapterIndex, uiState.currentPageIndex.toFloat(),
                     uiState.rightChapterIndex, uiState.rightPageIndex?.toFloat())
+                returnCharacter != null && nativeContinuousViewport -> continuousReturnSide
                 returnCharacter != null -> readerReturnSideAtCharacter(returnChapter, returnCharacter,
                     uiState.currentChapterIndex, currentCharacter ?: 0,
-                    if (isContinuousScrollMode && !isMarkdownNative) continuousVisibleCharacters else rendererVisibleCharacters)
+                    rendererVisibleCharacters)
                 else -> readerReturnSide(returnChapter, linkReturnLocation?.chapterFraction ?: 0f,
                     uiState.currentChapterIndex, uiState.currentPageIndex.toFloat() / uiState.totalPages.coerceAtLeast(1))
             }
@@ -3993,6 +4204,23 @@ fun ReaderScreen(
                 selectionState == null && !isSelectionDragging
             val targetBookPage = if (returnChapter != null && returnPage != null)
                 displayedBookPages.pageNumber(returnChapter, returnPage) else null
+            val targetCharacterFraction by produceState<Float?>(null, returnChapter, returnCharacter,
+                isContinuousScrollMode, isBookLayoutContinuousScroll, uiState.contentRevision, epubSession) {
+                value = null
+                val chapter = returnChapter ?: return@produceState
+                val character = returnCharacter ?: return@produceState
+                if (!isContinuousScrollMode && !isBookLayoutContinuousScroll) return@produceState
+                val length = withContext(Dispatchers.IO) {
+                    if (isBookLayout) epubSession?.searchText(chapter)?.length
+                        ?: viewModel.getChapterTextLength(chapter)
+                    else viewModel.getChapterTextLength(chapter)
+                }
+                value = if (length > 0) character.toFloat() / length else null
+            }
+            val targetPageLabel = if (isContinuousScrollMode || isBookLayoutContinuousScroll) {
+                val fraction = linkReturnLocation?.chapterFraction ?: targetCharacterFraction
+                if (returnChapter != null && fraction != null) readerScrollPageLabel(returnChapter, fraction) else null
+            } else targetBookPage?.toString()
             ListeningResumeHintExpiry(listeningResumePrompt,
                 cornerButtonVisible && listeningTarget != null, viewModel::keepReadingPosition)
             ListeningResumeHintExpiry(linkReturnLocation?.let { it to linkReturnToken },
@@ -4015,14 +4243,17 @@ fun ReaderScreen(
                         top = (uiState.readerCornerMargins.resolvedTopDp() - 10f).coerceAtLeast(0f).dp)
             ) {
                 ReaderReturnChip(
-                    pageNumber = targetBookPage,
+                    pageLabel = targetPageLabel,
                     side = returnSide ?: ReaderReturnSide.LEFT,
                     headphones = listeningTarget != null,
                     paperColor = Color(customBackgroundThemeColorInt),
                     contentColor = Color(readerTextColorInt),
                     eInkMode = eInkMode,
-                    description = stringResource(if (listeningTarget != null)
-                        R.string.tts_listening_resume_jump else R.string.reader_link_return),
+                    description = stringResource(when {
+                        listeningTarget != null -> R.string.tts_listening_resume_jump
+                        linkReturnLocation?.isListeningReadingReturn == true -> R.string.tts_return_reading_progress
+                        else -> R.string.reader_link_return
+                    }),
                     entryKey = listeningTarget ?: linkReturnToken,
                     onClick = {
                         if (listeningTarget != null) {
@@ -4073,14 +4304,16 @@ fun ReaderScreen(
             ) {
                 val bookTitle = uiState.book?.title ?: ""
                 val isTxtBook = uiState.book?.format?.name == "TXT"
-                val supportsHighlightRules = uiState.book?.format?.let { it == BookFormat.TXT || it.supportsEpubFeatures } == true
+                val supportsHighlightRules = (uiState.book?.format?.let { it == BookFormat.TXT || it.supportsEpubFeatures } == true)
                 ReaderTopBar(
                     title = bookTitle,
                     onBack = exitReader,
+                    sideRailItemSize = sideRailItemSize,
+                    horizontalActions = menuLayout.horizontalTopActions,
                     bgColor = menuBgColor,
                     contentColor = menuContentColor,
                     glassContentScrimColor = readerGlassContentScrim,
-                    forceSolidButtons = isBookLayout && !isMarkdownNative,
+                    forceSolidButtons = forceNativeGlassFallback,
                     isTtsActive = ttsState.activeBookId == uiState.book?.id &&
                         ttsState.playbackState != TtsPlaybackState.IDLE,
                     onTtsClick = requestTtsStart,
@@ -4098,6 +4331,26 @@ fun ReaderScreen(
                     onLineGuideToggle = {
                         clearActiveTextSelection()
                         viewModel.saveLineGuideEnabled(!viewModel.uiState.value.lineGuideEnabled)
+                        viewModel.hideMenu()
+                    },
+                    autoReadingAvailable = autoReadingAvailable,
+                    autoReadingEnabled = autoReadingActive,
+                    onAutoReadingToggle = {
+                        if (autoReadingActive) {
+                            stopAutoReading()
+                        } else {
+                            autoReadingOriginalTransition = uiState.pageTransition
+                            autoReadingOriginalWritingMode = uiState.readerWritingMode
+                            if (uiState.readerWritingMode != ReaderWritingMode.HORIZONTAL) {
+                                viewModel.saveReaderWritingMode(ReaderWritingMode.HORIZONTAL)
+                            }
+                            if (uiState.pageTransition != "continuous") {
+                                viewModel.savePageTransition("continuous")
+                            }
+                            autoReadingActive = true
+                            autoReadingPaused = false
+                            autoReadingAtChapterEnd = false
+                        }
                         viewModel.hideMenu()
                     },
                     bionicReadingEnabled = uiState.bionicReadingEnabled,
@@ -4174,7 +4427,8 @@ fun ReaderScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp)
+                            // 竖向工具栏布局底部只剩一行胶囊，遮罩随之变矮
+                            .height(if (useSideReaderMenu) 132.dp else 220.dp)
                             .align(Alignment.BottomCenter)
                             .graphicsLayer { alpha = menuAlpha.value }
                             .then(
@@ -4204,6 +4458,9 @@ fun ReaderScreen(
                 ) {
                     FloatingReaderMenu(
                         visible = uiState.isMenuVisible,
+                        onCatalogBoundsChanged = { bounds ->
+                            ttsCatalogBounds = bounds.translate(Offset(0f, -menuOffset.value))
+                        },
                         chapterTitle = chapterTitle,
                         chapterTitles = uiState.chapterTitles,
                         chapterCount = uiState.chapterCount,
@@ -4218,7 +4475,7 @@ fun ReaderScreen(
                         capsuleContentColor = if (isLiquidGlass && (!isBookLayout || isMarkdownNative)) menuContentColor else capsuleContentColor,
                         catalogProgressColor = catalogProgressColor,
                         glassContentScrimColor = readerGlassContentScrim,
-                        forceSolidCapsules = isBookLayout && !isMarkdownNative,
+                        forceSolidCapsules = forceNativeGlassFallback,
                         canGoToPreviousChapter = uiState.currentChapterIndex > 0,
                         canGoToNextChapter = uiState.currentChapterIndex < uiState.chapterCount - 1,
                         onCatalogClick = {
@@ -4364,6 +4621,7 @@ fun ReaderScreen(
                         onCatalogProgressDragCancel = {
                             catalogDragReturnLocation = null
                         },
+                        sideRailItemSize = sideRailItemSize,
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
@@ -4384,6 +4642,7 @@ fun ReaderScreen(
                         chapterTitle = chapterTitle,
                         bookProgressPercent = bookProgressPercent,
                         globalPageLabel = globalPageLabel,
+                        scrollPageLabel = scrollPageLabel,
                         reserveTopCornerSpace = cornerButtonVisible,
                         currentPage = displayCurrentPage,
                         chapterPageCount = displayPageCount,
@@ -4406,6 +4665,7 @@ fun ReaderScreen(
                         bottomRight = uiState.readerBottomRightContent,
                         contentColor = Color(readerTextColorInt).copy(alpha = 0.45f),
                         selectionHintText = selectionHintText,
+                        onFooterTopChanged = { ttsFooterTop = it },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -4425,24 +4685,66 @@ fun ReaderScreen(
                 )
             }
 
-            val ttsBottomPadding by animateDpAsState(
-                targetValue = if (uiState.isMenuVisible) 204.dp else 44.dp,
-                animationSpec = if (eInkMode || !motionEnabled) snap() else spring(dampingRatio = 0.82f, stiffness = 360f),
-                label = "ttsBottomPadding"
-            )
-            AnimatedVisibility(
+            if (autoReadingActive && !isAnySheetOpen) {
+                AutoReadingControl(
+                    speed = uiState.autoReadingSpeed,
+                    paused = autoReadingPaused,
+                    backgroundColor = menuBgColor,
+                    contentColor = menuContentColor,
+                    forceSolid = forceNativeGlassFallback,
+                    onSpeedChanged = viewModel::saveAutoReadingSpeed,
+                    onPauseToggle = { autoReadingPaused = !autoReadingPaused },
+                    onClose = ::stopAutoReading,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .navigationBarsPadding()
+                        .padding(start = 20.dp, bottom = if (effectiveLineGuide) 72.dp else 18.dp)
+                )
+            }
+
+            if (autoReadingAtChapterEnd && isBookLayout && !isAnySheetOpen &&
+                uiState.currentChapterIndex < uiState.chapterCount - 1
+            ) {
+                LiquidGlassSurface(
+                    role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
+                    controlEdge = true,
+                    shape = AppRoundedCornerShape(24.dp),
+                    fallbackColor = menuBgColor,
+                    onClick = {
+                        autoReadingAtChapterEnd = false
+                        autoReadingPaused = false
+                        viewModel.nextChapter()
+                    },
+                    forceFallback = forceNativeGlassFallback,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 20.dp, bottom = 18.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.auto_reading_next_chapter),
+                        color = menuContentColor,
+                        fontSize = AppType.BodySmall,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
+                    )
+                }
+            }
+
+            ReaderTtsFloatingHost(
                 visible = ttsState.activeBookId == uiState.book?.id &&
                     ttsState.playbackState != TtsPlaybackState.IDLE &&
                     !isAnySheetOpen,
-                enter = if (eInkMode || !motionEnabled) fadeIn(tween(LumiMotion.MenuEnterMillis)) else slideInVertically(spring(stiffness = 400f, visibilityThreshold = IntOffset(1, 1)), initialOffsetY = { it }) + fadeIn(spring(stiffness = 400f)),
-                exit = if (eInkMode || !motionEnabled) fadeOut(tween(LumiMotion.MenuExitMillis)) else slideOutVertically(spring(stiffness = 400f, visibilityThreshold = IntOffset(1, 1)), targetOffsetY = { it }) + fadeOut(spring(stiffness = 400f)),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = ttsBottomPadding)
-            ) {
+                readerMenuVisible = uiState.isMenuVisible,
+                position = readerTtsPosition,
+                onPositionChange = viewModel::saveReaderTtsPosition,
+                footerTopInWindow = ttsFooterTop,
+                catalogBoundsInWindow = ttsCatalogBounds,
+                revealKey = ttsRevealKey,
+                horizontalInset = sideRailItemWidth?.plus(32.dp) ?: 24.dp
+            ) { placement ->
                 TtsPlayerPanel(
+                    placement = placement,
                     chapterTitle = ttsCurrentPage?.location?.chapterIndex
                         ?.let { ttsChapter ->
                             uiState.chapterTitles.getOrNull(ttsChapter)
@@ -4462,6 +4764,7 @@ fun ReaderScreen(
                     onPlayPause = viewModel::toggleTtsPlayPause,
                     onOpenFullscreen = { viewModel.openFullscreenListening(context) },
                     onStop = viewModel::stopTts,
+                    onOpenFullscreen = { viewModel.openFullScreenTts(context) },
                     onSkipForward = viewModel::ttsSkipForward,
                     onSkipBackward = viewModel::ttsSkipBackward,
                     onRateChange = viewModel::setTtsSpeechRate,
@@ -4473,14 +4776,23 @@ fun ReaderScreen(
                     onFollowUserPageTurnsChange = viewModel::setTtsFollowUserPageTurns,
                     onReturnToProgress = returnToTtsProgress,
                     onStartFromCurrentPage = { startTtsFromCurrentPage(false) },
-                    canReturnToProgress = !ttsReaderFollowEnabled || ttsCurrentPage?.location?.let { location ->
+                    canReturnToProgress = ttsCurrentPage?.location?.let { location ->
                         location.chapterIndex != uiState.currentChapterIndex ||
                             location.pageIndex != uiState.currentPageIndex
                     } == true,
                     readerMenuVisible = uiState.isMenuVisible,
                     readerBackgroundColor = composeBgColor,
                     readerContentColor = Color(readerTextColorInt),
-                    forceSolidSurface = isBookLayout && !isMarkdownNative
+                    forceSolidSurface = forceNativeGlassFallback
+                )
+            }
+
+            val darkMaskOpacity = uiState.activeThemeDarkMaskOpacity()
+            if (darkMaskOpacity > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = darkMaskOpacity))
                 )
             }
 
@@ -4617,6 +4929,7 @@ fun ReaderScreen(
                 customFonts = uiState.customFonts,
                 currentPreserveEpubBackground = effectivePreserveEpubBackground,
                 currentBrightness = uiState.brightness,
+                currentDarkMaskOpacity = uiState.activeThemeDarkMaskOpacity(),
                 currentOptimizeLayout = uiState.optimizeLayout,
                 currentUseEpubCss = uiState.useEpubCss,
                 supportsBookLayout = supportsBookLayout && !isMarkdownNative,
@@ -4652,10 +4965,12 @@ fun ReaderScreen(
                 onReaderButtonContrastChange = viewModel::saveReaderButtonContrastEnabled,
                 onPreserveEpubBackgroundChange = viewModel::savePreserveEpubBackground,
                 onBrightnessChange = { viewModel.saveBrightness(it) },
+                onDarkMaskOpacityChange = viewModel::saveReaderDarkMaskOpacity,
+                onDarkMaskOpacityPreview = viewModel::previewReaderDarkMaskOpacity,
                 onOptimizeLayoutChange = { viewModel.saveOptimizeLayout(it) },
                 onUseEpubCssChange = { viewModel.saveUseEpubCss(it) },
                 onRenderModeChange = viewModel::saveRenderMode,
-                supportsNativeEpubCss = uiState.book?.format?.name == "EPUB",
+                supportsNativeEpubCss = uiState.book?.format == BookFormat.EPUB,
                 nativeEpubCssEnabled = uiState.nativeEpubCssEnabled,
                 onNativeEpubCssChange = viewModel::saveNativeEpubCssEnabled,
                 onWritingModeChange = viewModel::saveReaderWritingMode,
@@ -4855,7 +5170,7 @@ fun ReaderScreen(
                 showPageImageCrop = supportsBookLayout &&
                     uiState.renderMode == EpubRenderMode.BOOK_LAYOUT,
                 imageAdjustmentsEnabled = uiState.book?.format?.name in setOf("PDF", "CBZ") ||
-                    (isEpub && (uiState.comicModeEnabled ||
+                    (supportsEpubFeatures && (uiState.comicModeEnabled ||
                         epubSession?.isMediaOnlyPage(uiState.currentChapterIndex) == true)),
                 currentImageBrightness = uiState.imageBrightness,
                 currentImageContrast = uiState.imageContrast,
@@ -5030,7 +5345,7 @@ fun ReaderScreen(
         visible = showNotesList,
         requestClose = requestCloseNotesList,
         glassBackdrop = activeReaderGlassBackdrop,
-        forceSolid = isBookLayout,
+        forceSolid = forceNativeGlassFallback,
         notes = viewModel.notes.collectAsState().value.let { all -> remember(all) { all.filterNot { it.isInkStroke } } },
         onNoteClick = noteClick@ { note ->
             if (note.isStale) {
@@ -5085,7 +5400,7 @@ fun ReaderScreen(
     LocalDictionarySheet(
         query = localDictionaryQuery,
         glassBackdrop = activeReaderGlassBackdrop,
-        forceSolid = (isBookLayout && !isMarkdownNative) || eInkMode,
+        forceSolid = forceNativeGlassFallback || eInkMode,
         onDismiss = {
             localDictionaryQuery = null
             dismissSelectionMenu()
@@ -5142,7 +5457,7 @@ fun ReaderScreen(
         state = selectionState.takeIf { localDictionaryQuery == null },
         readerTheme = renderingTheme,
         glassBackdrop = activeReaderGlassBackdrop,
-        forceSolidSurface = isBookLayout && !isMarkdownNative,
+        forceSolidSurface = forceNativeGlassFallback,
         isDragging = isSelectionDragging,
         dismissOnBackgroundTap = !isVerticalWriting,
         reappearKey = menuReappearKey,
@@ -5401,8 +5716,9 @@ fun ReaderScreen(
         paperColor = Color(customBackgroundThemeColorInt), contentColor = Color(readerTextColorInt),
         eInkMode = eInkMode, backdrop = activeReaderGlassBackdrop,
         onDismiss = { showTtsExitDialog = false },
-        onExit = { keep, remember -> viewModel.chooseReaderExit(keep, remember, completeReaderExit) }
+        onExit = { keep, remember -> viewModel.chooseTtsReaderExit(keep, remember, completeReaderExit) }
     )
+
     ReaderTxtConfigurationDialogs(
         uiState = uiState,
         showEncoding = showTxtEncodingDialog,
@@ -5427,17 +5743,23 @@ fun ReaderScreen(
         LiquidGlassAlertDialog(
             onDismissRequest = viewModel::dismissMarkdownUpdate,
             backdrop = activeReaderGlassBackdrop,
-            title = { Text(stringResource(R.string.markdown_source_updated), color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold) },
+            titleText = stringResource(R.string.markdown_source_updated),
             text = { Text(stringResource(R.string.markdown_source_updated_body), color = AppColors.TextSecondary, lineHeight = 22.sp) },
-            confirmButton = {
-                LiquidGlassTextButton(text = stringResource(R.string.markdown_source_update),
-                    onClick = viewModel::updateMarkdownSource, tintedColor = AppColors.Accent, contentColor = AppColors.OnAccent)
-            },
-            dismissButton = {
-                LiquidGlassTextButton(text = stringResource(R.string.markdown_keep_snapshot),
-                    onClick = viewModel::dismissMarkdownUpdate, contentColor = AppColors.TextPrimary)
-            }
-        )
+            actions = listOf(
+                AppDialogAction(
+                    text = stringResource(R.string.markdown_source_update),
+                    onClick = viewModel::updateMarkdownSource,
+                    role = AppDialogActionRole.Primary,
+                    tintedColor = AppColors.Accent,
+                    contentColor = AppColors.OnAccent
+                ),
+                AppDialogAction(
+                    text = stringResource(R.string.markdown_keep_snapshot),
+                    onClick = viewModel::dismissMarkdownUpdate,
+                    role = AppDialogActionRole.Cancel,
+                    contentColor = AppColors.TextPrimary
+                )
+            ))
     }
 
     ReaderSelectionNoteSheet(
@@ -5510,6 +5832,7 @@ fun ReaderScreen(
 }
 }
 }
+}
 
 @Composable
 private fun ReaderExternalLinkDialog(
@@ -5522,19 +5845,25 @@ private fun ReaderExternalLinkDialog(
     LiquidGlassAlertDialog(
         onDismissRequest = onDismiss,
         backdrop = backdrop,
-        title = { Text(stringResource(R.string.reader_external_link_title), color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold) },
+        titleText = stringResource(R.string.reader_external_link_title),
         text = { Text(stringResource(R.string.reader_external_link_message, href),
             color = AppColors.TextSecondary, lineHeight = 22.sp,
             modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) },
-        confirmButton = {
-            LiquidGlassTextButton(text = stringResource(R.string.reader_external_link_open),
-                onClick = { onOpen(href) }, tintedColor = AppColors.Accent, contentColor = AppColors.OnAccent)
-        },
-        dismissButton = {
-            LiquidGlassTextButton(text = stringResource(R.string.cancel), onClick = onDismiss,
-                contentColor = AppColors.TextPrimary)
-        }
-    )
+        actions = listOf(
+            AppDialogAction(
+                text = stringResource(R.string.reader_external_link_open),
+                onClick = { onOpen(href) },
+                role = AppDialogActionRole.Primary,
+                tintedColor = AppColors.Accent,
+                contentColor = AppColors.OnAccent
+            ),
+            AppDialogAction(
+                text = stringResource(R.string.cancel),
+                onClick = onDismiss,
+                role = AppDialogActionRole.Cancel,
+                contentColor = AppColors.TextPrimary
+            )
+        ))
 }
 
 @Composable
@@ -5587,6 +5916,7 @@ private fun ReaderPageCornerOverlay(
     chapterTitle: String,
     bookProgressPercent: Float,
     globalPageLabel: String,
+    scrollPageLabel: String? = null,
     reserveTopCornerSpace: Boolean = false,
     currentPage: Int,
     chapterPageCount: Int,
@@ -5604,8 +5934,17 @@ private fun ReaderPageCornerOverlay(
     contentColor: Color,
     /** 选字引导提示：与底部两个角信息同一水平线居中显示；null 表示不显示。 */
     selectionHintText: String? = null,
+    onFooterTopChanged: (Float?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var cornerFooterTop by remember { mutableStateOf<Float?>(null) }
+    var hintFooterTop by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(bottomLeft, bottomRight, selectionHintText, cornerFooterTop, hintFooterTop) {
+        onFooterTopChanged(listOfNotNull(
+            cornerFooterTop.takeIf { bottomLeft != ReaderCornerContent.NONE || bottomRight != ReaderCornerContent.NONE },
+            hintFooterTop.takeIf { selectionHintText != null }
+        ).minOrNull())
+    }
     Box(modifier = modifier) {
         if (topLeft != ReaderCornerContent.NONE || topRight != ReaderCornerContent.NONE) {
             ReaderCornerStatusRow(
@@ -5614,6 +5953,7 @@ private fun ReaderPageCornerOverlay(
                 chapterTitle = chapterTitle,
                 bookProgressPercent = bookProgressPercent,
                 globalPageLabel = globalPageLabel,
+                scrollPageLabel = scrollPageLabel,
                 reserveCornerSpace = reserveTopCornerSpace,
                 currentPage = currentPage,
                 chapterPageCount = chapterPageCount,
@@ -5637,6 +5977,7 @@ private fun ReaderPageCornerOverlay(
                 chapterTitle = chapterTitle,
                 bookProgressPercent = bookProgressPercent,
                 globalPageLabel = globalPageLabel,
+                scrollPageLabel = scrollPageLabel,
                 currentPage = currentPage,
                 chapterPageCount = chapterPageCount,
                 rightPageIndex = rightPageIndex,
@@ -5651,6 +5992,7 @@ private fun ReaderPageCornerOverlay(
                         end = rightMarginDp.coerceAtLeast(0f).dp,
                         bottom = bottomMarginDp.coerceAtLeast(0f).dp
                     )
+                    .onGloballyPositioned { cornerFooterTop = it.boundsInWindow().top }
             )
         }
         if (selectionHintText != null) {
@@ -5670,6 +6012,7 @@ private fun ReaderPageCornerOverlay(
                         end = rightMarginDp.coerceAtLeast(0f).dp,
                         bottom = bottomMarginDp.coerceAtLeast(0f).dp
                     )
+                    .onGloballyPositioned { hintFooterTop = it.boundsInWindow().top }
             )
         }
         }
@@ -5682,6 +6025,7 @@ private fun ReaderCornerStatusRow(
     chapterTitle: String,
     bookProgressPercent: Float,
     globalPageLabel: String,
+    scrollPageLabel: String? = null,
     reserveCornerSpace: Boolean = false,
     currentPage: Int,
     chapterPageCount: Int,
@@ -5707,6 +6051,7 @@ private fun ReaderCornerStatusRow(
                 chapterTitle = chapterTitle,
                 bookProgressPercent = bookProgressPercent,
                 globalPageLabel = globalPageLabel,
+                scrollPageLabel = scrollPageLabel,
                 currentPage = currentPage,
                 chapterPageCount = chapterPageCount,
                 rightPageIndex = rightPageIndex,
@@ -5726,6 +6071,7 @@ private fun ReaderCornerStatusRow(
                     chapterTitle = chapterTitle,
                     bookProgressPercent = bookProgressPercent,
                     globalPageLabel = globalPageLabel,
+                    scrollPageLabel = scrollPageLabel,
                     currentPage = currentPage,
                     chapterPageCount = chapterPageCount,
                     rightPageIndex = rightPageIndex,
@@ -5745,6 +6091,7 @@ private fun ReaderCornerContentValue(
     chapterTitle: String,
     bookProgressPercent: Float,
     globalPageLabel: String,
+    scrollPageLabel: String? = null,
     currentPage: Int,
     chapterPageCount: Int,
     rightPageIndex: Int? = null,
@@ -5761,8 +6108,9 @@ private fun ReaderCornerContentValue(
             text = when (content) {
                 ReaderCornerContent.CHAPTER_INFO -> chapterTitle
                 ReaderCornerContent.BOOK_PROGRESS -> formatReadingProgressPercent(bookProgressPercent)
+                ReaderCornerContent.CHAPTER_PROGRESS -> scrollPageLabel.orEmpty()
                 ReaderCornerContent.GLOBAL_PAGE_NUMBER -> globalPageLabel
-                ReaderCornerContent.PAGE_NUMBER -> formatReaderPageLabel(
+                ReaderCornerContent.PAGE_NUMBER -> if (chapterPageCount <= 0) "… / …" else formatReaderPageLabel(
                     currentPage,
                     rightPageIndex,
                     chapterPageCount,
@@ -6081,15 +6429,9 @@ private fun ReaderFirstOpenHintDialog(
         backdrop = backdrop,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.78f),
         backgroundScrimColor = Color.Black.copy(alpha = 0.10f),
-        backgroundBlurRadius = 0.dp,
+        fallbackBlurRadius = 0.dp,
         transparencyOverride = 0.28f,
-        title = {
-            Text(
-                text = title,
-                color = AppColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-        },
+        titleText = title,
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -6115,15 +6457,15 @@ private fun ReaderFirstOpenHintDialog(
                 }
             }
         },
-        confirmButton = {
-            LiquidGlassTextButton(
+        actions = listOf(
+            AppDialogAction(
                 text = confirmText,
                 onClick = { onConfirm(doNotShowAgain) },
+                role = AppDialogActionRole.Primary,
                 tintedColor = AppColors.Accent,
                 contentColor = AppColors.OnAccent
             )
-        }
-    )
+        ))
 }
 
 @Composable
@@ -6145,15 +6487,9 @@ private fun TxtEncodingDialog(
         backdrop = backdrop,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
         backgroundScrimColor = Color.Black.copy(alpha = 0.10f),
-        backgroundBlurRadius = 0.dp,
+        fallbackBlurRadius = 0.dp,
         transparencyOverride = 0.24f,
-        title = {
-            Text(
-                text = stringResource(R.string.txt_encoding_dialog_title),
-                color = AppColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-        },
+        titleText = stringResource(R.string.txt_encoding_dialog_title),
         text = {
             Column(
                 modifier = Modifier
@@ -6169,7 +6505,7 @@ private fun TxtEncodingDialog(
                     Text(
                         text = stringResource(R.string.txt_encoding_dialog_message, activeCharsetName),
                         color = AppColors.TextSecondary,
-                        fontSize = 13.sp
+                        fontSize = AppType.Footnote
                     )
                     if (isEncodingChanging) {
                         CircularProgressIndicator(
@@ -6204,15 +6540,15 @@ private fun TxtEncodingDialog(
                 }
             }
         },
-        confirmButton = {
-            LiquidGlassTextButton(
+        actions = listOf(
+            AppDialogAction(
                 text = stringResource(R.string.confirm),
                 onClick = onDismiss,
+                role = AppDialogActionRole.Primary,
                 tintedColor = AppColors.Accent,
                 contentColor = AppColors.OnAccent
             )
-        }
-    )
+        ))
 }
 
 @Composable
@@ -6239,6 +6575,7 @@ private fun TxtEncodingCapsule(
     }
 
     LiquidGlassSurface(
+        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
         controlEdge = true,
         shape = AppRoundedCornerShape(50),
         fallbackColor = backgroundColor,
@@ -6255,7 +6592,7 @@ private fun TxtEncodingCapsule(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (selected) {
-                Icon(
+                ControlIcon(
                     imageVector = AppIcons.Check,
                     contentDescription = null,
                     tint = contentColor,
@@ -6266,7 +6603,7 @@ private fun TxtEncodingCapsule(
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 12.sp,
+                fontSize = AppType.Caption,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 2,
                 textAlign = TextAlign.Center
@@ -6276,9 +6613,11 @@ private fun TxtEncodingCapsule(
 }
 
 @Composable
-private fun ReaderTopBar(
+internal fun ReaderTopBar(
     title: String,
     onBack: () -> Unit,
+    sideRailItemSize: DpSize? = null,
+    horizontalActions: Boolean = false,
     bgColor: Color = Color.White,
     contentColor: Color = AppColors.TextPrimary,
     glassContentScrimColor: Color = Color.Transparent,
@@ -6294,6 +6633,9 @@ private fun ReaderTopBar(
     lineGuideAvailable: Boolean = false,
     lineGuideEnabled: Boolean = false,
     onLineGuideToggle: () -> Unit = {},
+    autoReadingAvailable: Boolean = false,
+    autoReadingEnabled: Boolean = false,
+    onAutoReadingToggle: () -> Unit = {},
     bionicReadingEnabled: Boolean = false,
     onBionicReadingToggle: () -> Unit = {},
     comicModeEnabled: Boolean = false,
@@ -6315,9 +6657,11 @@ private fun ReaderTopBar(
     val moreMenuId = remember { Any() }
     val isMoreMenuExpanded = menuHost?.activeMenu?.sourceId == moreMenuId
     val currentLineGuideEnabled by rememberUpdatedState(lineGuideEnabled)
+    val currentAutoReadingEnabled by rememberUpdatedState(autoReadingEnabled)
     val currentBionicReadingEnabled by rememberUpdatedState(bionicReadingEnabled)
     val currentComicModeEnabled by rememberUpdatedState(comicModeEnabled)
     val currentOnLineGuideToggle by rememberUpdatedState(onLineGuideToggle)
+    val currentOnAutoReadingToggle by rememberUpdatedState(onAutoReadingToggle)
     val currentOnBionicReadingToggle by rememberUpdatedState(onBionicReadingToggle)
     val currentOnComicModeToggle by rememberUpdatedState(onComicModeToggle)
     var moreAnchorBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
@@ -6325,11 +6669,13 @@ private fun ReaderTopBar(
         if (supportsHighlightRules) add(LiquidGlassMenuItem(stringResource(R.string.highlight_rules_title), AppIcons.Code) { onHighlightRulesClick() })
         if (lineGuideAvailable) add(LiquidGlassMenuItem(stringResource(R.string.line_guide), AppIcons.Rows,
             selectedState = { currentLineGuideEnabled }) { currentOnLineGuideToggle() })
+        if (autoReadingAvailable) add(LiquidGlassMenuItem(stringResource(R.string.auto_reading), AppIcons.Speedometer,
+            selectedState = { currentAutoReadingEnabled }) { currentOnAutoReadingToggle() })
         if (readerFormatSupportsBookLayout(bookFormat)) {
             add(LiquidGlassMenuItem(stringResource(R.string.comic_mode), AppIcons.Image,
                 selectedState = { currentComicModeEnabled }) { currentOnComicModeToggle() })
         }
-        if (bookFormat == "EPUB") {
+        if (readerFormatSupportsEpubFeatures(bookFormat)) {
             add(LiquidGlassMenuItem(stringResource(R.string.epub_comic_switch), AppIcons.Image) { onSwitchComicReader() })
         }
         if (readerFormatSupportsText(bookFormat)) {
@@ -6345,7 +6691,11 @@ private fun ReaderTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height((82 + 3 * 46).dp)
+            .height(when {
+                horizontalActions -> 112.dp
+                sideRailItemSize != null -> 82.dp + sideRailItemSize.height * 3 + 20.dp
+                else -> (82 + 3 * 46).dp
+            })
     ) {
         if (!isLiquidGlass) {
             Box(
@@ -6368,7 +6718,9 @@ private fun ReaderTopBar(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(start = 28.dp, top = 42.dp, end = 28.dp, bottom = 0.dp),
+                .padding(start = 28.dp, top = if (horizontalActions) 12.dp else READER_MENU_TOP_PADDING,
+                    end = if (sideRailItemSize != null) READER_SIDE_RAIL_EDGE_PADDING else 28.dp,
+                    bottom = 0.dp),
             verticalAlignment = Alignment.Top
         ) {
             ReaderTopBarButton(
@@ -6392,15 +6744,12 @@ private fun ReaderTopBar(
                     .align(Alignment.Top)
                     .padding(horizontal = 8.dp)
             )
-            // 右侧按钮竖向排列
+            // Short landscape windows keep the header actions in one row.
             Box(
-                modifier = Modifier.width(36.dp),
+                modifier = Modifier.width(if (horizontalActions) 128.dp else sideRailItemSize?.width ?: 36.dp),
                 contentAlignment = Alignment.TopCenter
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                val actions: @Composable () -> Unit = {
                     ReaderTopBarButton(
                         icon = AppIcons.Headphones,
                         contentDescription = stringResource(R.string.tts_listen),
@@ -6408,6 +6757,7 @@ private fun ReaderTopBar(
                         backgroundColor = controlBackground,
                         contentScrimColor = glassContentScrimColor,
                         forceSolid = forceSolidButtons,
+                        sideRailItemSize = sideRailItemSize,
                         onClick = onTtsClick
                     )
                     ReaderTopBarButton(
@@ -6416,7 +6766,8 @@ private fun ReaderTopBar(
                         tint = if (isBookmarked) AppColors.Accent else contentColor,
                         backgroundColor = controlBackground,
                         contentScrimColor = glassContentScrimColor,
-                    forceSolid = forceSolidButtons,
+                        forceSolid = forceSolidButtons,
+                        sideRailItemSize = sideRailItemSize,
                         onClick = onBookmarkToggle
                     )
                     if (readerFormatSupportsText(bookFormat)) {
@@ -6427,6 +6778,7 @@ private fun ReaderTopBar(
                             backgroundColor = controlBackground,
                             contentScrimColor = glassContentScrimColor,
                             forceSolid = forceSolidButtons,
+                            sideRailItemSize = sideRailItemSize,
                             onClick = {
                                 if (menuHost != null && moreAnchorBounds != androidx.compose.ui.geometry.Rect.Zero) {
                                     menuHost.toggle(
@@ -6449,6 +6801,14 @@ private fun ReaderTopBar(
                         )
                     }
                 }
+                if (horizontalActions) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(READER_MENU_ITEM_GAP)) { actions() }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(READER_MENU_ITEM_GAP)
+                    ) { actions() }
+                }
                 // TXT overflow is rendered by the shared LiquidGlassMenuHost.
             }
         }
@@ -6465,6 +6825,7 @@ private fun ReaderMoreMenu(
     onSelect: ((() -> Unit)) -> Unit
 ) {
     LiquidGlassSurface(
+        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
         controlEdge = true,
         shape = AppRoundedCornerShape(16.dp),
         fallbackColor = backgroundColor,
@@ -6489,7 +6850,7 @@ private fun ReaderMoreMenu(
                     Text(
                         text = label,
                         color = contentColor,
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -6508,20 +6869,22 @@ private fun ReaderTopBarButton(
     contentScrimColor: Color,
     forceSolid: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sideRailItemSize: DpSize? = null
 ) {
     LiquidGlassSurface(
+        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
         controlEdge = true,
-        shape = CircleShape,
+        shape = if (sideRailItemSize != null) RoundedCornerShape(percent = 50) else CircleShape,
         fallbackColor = backgroundColor,
         contentScrimColor = contentScrimColor,
         forceFallback = forceSolid,
         modifier = modifier
-            .requiredSize(36.dp),
+            .requiredSize(sideRailItemSize ?: DpSize(36.dp, 36.dp)),
         onClick = onClick,
         contentAlignment = Alignment.Center
     ) {
-        Icon(
+        ControlIcon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
@@ -6553,6 +6916,7 @@ private fun ReaderLineGuideControl(
     val closeLabel = stringResource(R.string.line_guide_close)
     Box(modifier = modifier) {
         LiquidGlassSurface(
+            role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
             controlEdge = true,
             shape = CircleShape,
             fallbackColor = backgroundColor,
@@ -6582,7 +6946,100 @@ private fun ReaderLineGuideControl(
             },
             contentAlignment = Alignment.Center
         ) {
-            Icon(AppIcons.Rows, contentDescription = stringResource(R.string.line_guide),
+            ControlIcon(AppIcons.Rows, contentDescription = stringResource(R.string.line_guide),
+                tint = contentColor, modifier = Modifier.size(21.dp))
+        }
+    }
+}
+
+@Composable
+private fun AutoReadingControl(
+    speed: Float,
+    paused: Boolean,
+    backgroundColor: Color,
+    contentColor: Color,
+    onSpeedChanged: (Float) -> Unit,
+    onPauseToggle: () -> Unit,
+    onClose: () -> Unit,
+    forceSolid: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val menuHost = LocalLiquidGlassMenuHost.current
+    val menuId = remember { Any() }
+    var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+    var previewSpeed by remember(speed) { mutableFloatStateOf(speed) }
+    val speedLabel = stringResource(R.string.auto_reading_speed)
+    val pauseLabel = stringResource(if (paused) R.string.auto_reading_resume else R.string.auto_reading_pause)
+    val closeLabel = stringResource(R.string.auto_reading_close)
+    Box(modifier = modifier) {
+        LiquidGlassSurface(
+            role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
+            controlEdge = true,
+            shape = CircleShape,
+            fallbackColor = backgroundColor,
+            forceFallback = forceSolid,
+            modifier = Modifier.size(44.dp)
+                .liquidGlassMenuAnchor(menuId)
+                .onGloballyPositioned { anchorBounds = it.boundsInWindow() },
+            onClick = {
+                if (anchorBounds != Rect.Zero) {
+                    val menuItems = listOf(
+                        LiquidGlassMenuItem(pauseLabel, if (paused) AppIcons.Play else AppIcons.Pause,
+                            onClick = onPauseToggle),
+                        LiquidGlassMenuItem(closeLabel, AppIcons.X, dividerBefore = true, onClick = onClose)
+                    )
+                    menuHost?.toggle(LiquidGlassMenuSpec(
+                        anchorBounds = anchorBounds,
+                        sourceId = menuId,
+                        width = 220.dp,
+                        alignEnd = false,
+                        preferAbove = true,
+                        anchorCornerRadius = 22.dp,
+                        items = menuItems,
+                        surfaceColor = backgroundColor,
+                        contentColor = contentColor,
+                        forceSolid = forceSolid,
+                        content = { enabled, select ->
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(speedLabel, color = contentColor, fontSize = AppType.Footnote,
+                                        modifier = Modifier.weight(1f))
+                                    Text("${"%.2f".format(java.util.Locale.ROOT, previewSpeed)}x",
+                                        color = contentColor.copy(alpha = 0.72f), fontSize = AppType.Caption)
+                                }
+                                com.huangder.lumibooks.ui.components.PillSlider(
+                                    value = previewSpeed,
+                                    onValueChange = { value ->
+                                        previewSpeed = value
+                                        onSpeedChanged(value)
+                                    },
+                                    onDragValueChange = { previewSpeed = it },
+                                    valueRange = 0.25f..12f,
+                                    step = 0f,
+                                    trackHeight = 22.dp,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                )
+                                menuItems.forEach { item ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                                            .clip(AppRoundedCornerShape(10.dp))
+                                            .clickable(enabled = enabled) { select(item.onClick) }
+                                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        ControlIcon(item.icon!!, null, tint = contentColor, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(item.label, color = contentColor, fontSize = AppType.Footnote)
+                                    }
+                                }
+                            }
+                        }
+                    ))
+                }
+            },
+            contentAlignment = Alignment.Center
+        ) {
+            ControlIcon(AppIcons.Speedometer, contentDescription = stringResource(R.string.auto_reading),
                 tint = contentColor, modifier = Modifier.size(21.dp))
         }
     }
@@ -6593,6 +7050,26 @@ private const val READER_MENU_CAPSULE_ENTER_MILLIS = 250
 
 /** 底部三个功能胶囊之间的入场错位（毫秒），只做轻微错开，不串行等待 */
 private const val READER_MENU_CAPSULE_STAGGER_MILLIS = 45L
+
+/** 右侧所有按钮共用竖胶囊尺寸；按标签测量，为不同语言和字号保留空间。 */
+@Composable
+private fun rememberReaderSideRailItemSize(): DpSize {
+    val labels = listOf(
+        stringResource(R.string.reader_notes),
+        stringResource(R.string.reader_search),
+        stringResource(R.string.reader_theme)
+    )
+    val textMeasurer = rememberTextMeasurer()
+    val style = LocalTextStyle.current.copy(fontSize = AppType.Footnote)
+    val density = LocalDensity.current
+    val labelSizes = labels.map { label ->
+        textMeasurer.measure(label, style, softWrap = false, maxLines = 1).size
+    }
+    val width = maxOf(48.dp, with(density) { labelSizes.maxOf { it.width }.toDp() } + 16.dp)
+    // 高度始终大于宽度，且容纳图标、单行标签、4dp 间距及上下各 10dp 留白。
+    val height = maxOf(width + 16.dp, with(density) { labelSizes.maxOf { it.height }.toDp() } + 42.dp)
+    return DpSize(width, height)
+}
 
 /**
  * 底部菜单单个胶囊入场：淡入与上移同时进行，整体更利落。
@@ -6617,7 +7094,7 @@ private suspend fun animateReaderMenuCapsuleIn(
 }
 
 @Composable
-private fun FloatingReaderMenu(
+internal fun FloatingReaderMenu(
     visible: Boolean,
     chapterTitle: String,
     chapterTitles: List<String>,
@@ -6645,6 +7122,9 @@ private fun FloatingReaderMenu(
     onBookmarkClick: () -> Unit,
     onSearchClick: () -> Unit,
     onThemeClick: () -> Unit,
+    /** Landscape tablets share one capsule size with the top actions (null keeps the phone layout). */
+    sideRailItemSize: DpSize? = null,
+    onCatalogBoundsChanged: ((Rect) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val eInkMode = LocalEInkMode.current
@@ -6684,11 +7164,109 @@ private fun FloatingReaderMenu(
         }
     }
 
+    val notesLabel = stringResource(R.string.reader_notes)
+    val searchLabel = stringResource(R.string.reader_search)
+    val themeLabel = stringResource(R.string.reader_theme)
+
+    if (sideRailItemSize != null) {
+        val sideRailItemWidth = sideRailItemSize.width
+        // 横屏平板：高度是稀缺轴，三个功能胶囊竖排在末端边缘（拇指位），
+        // 底部只留一行目录进度 + 阅读状态，并给两侧竖栏让出同样的宽度保持居中。
+        val railDirection = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
+        val bottomReserve = sideRailItemWidth + READER_SIDE_RAIL_EDGE_PADDING + READER_SIDE_RAIL_GAP
+        Box(modifier = modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = READER_SIDE_RAIL_EDGE_PADDING,
+                        bottom = READER_SIDE_BOTTOM_PADDING + READER_SIDE_BOTTOM_ROW_HEIGHT + READER_SIDE_RAIL_GAP
+                    ),
+                verticalArrangement = Arrangement.spacedBy(READER_MENU_ITEM_GAP)
+            ) {
+                listOf(
+                    Triple(alpha1, offset1, Triple(AppIcons.Bookmark.filled, notesLabel, onBookmarkClick)),
+                    Triple(alpha2, offset2, Triple(AppIcons.MagnifyingGlass, searchLabel, onSearchClick)),
+                    Triple(alpha3, offset3, Triple(AppIcons.Gear, themeLabel, onThemeClick))
+                ).forEach { (itemAlpha, itemOffset, action) ->
+                    val (icon, label, onClick) = action
+                    Box(modifier = Modifier.graphicsLayer {
+                        alpha = itemAlpha.value
+                        // 竖栏从所在边缘滑入，而不是像底部胶囊那样上移
+                        translationX = itemOffset.value * railDirection
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                    }) {
+                        ActionCapsule(icon, label, capsuleBgColor, capsuleContentColor, glassContentScrimColor, forceSolidCapsules,
+                            Modifier.size(sideRailItemSize), enabled = visible, onClick, stacked = true)
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = bottomReserve)
+                    .padding(bottom = READER_SIDE_BOTTOM_PADDING)
+                    .widthIn(max = READER_SIDE_BOTTOM_ROW_MAX_WIDTH)
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = alpha0.value
+                        translationY = offset0.value
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                    },
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.weight(1f).onGloballyPositioned {
+                    onCatalogBoundsChanged?.invoke(it.boundsInWindow(clipBounds = false).translate(Offset(0f, -offset0.value)))
+                }) {
+                    CatalogCapsule(
+                        title = chapterTitle,
+                        chapterTitles = chapterTitles,
+                        chapterCount = chapterCount,
+                        progress = bookProgressPercent,
+                        bgColor = capsuleBgColor,
+                        contentColor = capsuleContentColor,
+                        progressColor = catalogProgressColor,
+                        glassContentScrimColor = glassContentScrimColor,
+                        forceSolid = forceSolidCapsules,
+                        enabled = visible,
+                        canGoToPreviousChapter = canGoToPreviousChapter,
+                        canGoToNextChapter = canGoToNextChapter,
+                        onClick = onCatalogClick,
+                        onPreviousChapterClick = onPreviousChapterClick,
+                        onNextChapterClick = onNextChapterClick,
+                        onProgressDragStart = onCatalogProgressDragStart,
+                        onProgressDragEnd = onCatalogProgressDragEnd,
+                        onProgressDragCancel = onCatalogProgressDragCancel
+                    )
+                }
+                ReaderMenuStatus(
+                    chapterTitle = chapterTitle,
+                    bookProgressPercent = bookProgressPercent,
+                    globalPageLabel = globalPageLabel,
+                    currentPage = currentPage,
+                    chapterPageCount = chapterPageCount,
+                    rightPageIndex = rightPageIndex,
+                    rightChapterIndex = rightChapterIndex,
+                    currentChapterIndex = currentChapterIndex,
+                    backgroundColor = capsuleBgColor,
+                    contentColor = capsuleContentColor,
+                    glassContentScrimColor = glassContentScrimColor,
+                    forceSolid = forceSolidCapsules,
+                    height = READER_SIDE_BOTTOM_ROW_HEIGHT,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 12.dp)
-            .padding(bottom = 24.dp),
+            .padding(bottom = 24.dp)
+            .onGloballyPositioned { onCatalogBoundsChanged?.invoke(it.boundsInWindow(clipBounds = false)) },
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(modifier = Modifier.graphicsLayer {
@@ -6770,18 +7348,20 @@ private fun ReaderMenuStatus(
     backgroundColor: Color,
     contentColor: Color,
     glassContentScrimColor: Color,
-    forceSolid: Boolean
+    forceSolid: Boolean,
+    height: Dp = 36.dp,
+    modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     LiquidGlassSurface(
+        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
         controlEdge = true,
-        shape = AppRoundedCornerShape(18.dp),
+        shape = AppRoundedCornerShape(height / 2),
         fallbackColor = backgroundColor,
         contentScrimColor = glassContentScrimColor,
         forceFallback = forceSolid,
         interactive = false,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(36.dp),
+        modifier = modifier
+            .height(height),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -6793,7 +7373,7 @@ private fun ReaderMenuStatus(
             Text(
                 text = chapterTitle,
                 color = contentColor.copy(alpha = 0.72f),
-                fontSize = 11.sp,
+                fontSize = AppType.Caption2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -6802,14 +7382,14 @@ private fun ReaderMenuStatus(
             Text(
                 text = formatReadingProgressPercent(bookProgressPercent),
                 color = contentColor.copy(alpha = 0.72f),
-                fontSize = 11.sp,
+                fontSize = AppType.Caption2,
                 maxLines = 1
             )
             Spacer(Modifier.width(10.dp))
             Text(
                 text = globalPageLabel,
                 color = contentColor.copy(alpha = 0.72f),
-                fontSize = 11.sp,
+                fontSize = AppType.Caption2,
                 maxLines = 1
             )
             Spacer(Modifier.width(10.dp))
@@ -6891,6 +7471,7 @@ private fun CatalogCapsule(
                 .widthIn(max = 300.dp)
         ) {
             LiquidGlassSurface(
+                role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
                 controlEdge = true,
                 shape = AppRoundedCornerShape(18.dp),
                 fallbackColor = bgColor,
@@ -6904,7 +7485,7 @@ private fun CatalogCapsule(
                 Text(
                     text = previewChapterTitle,
                     color = contentColor,
-                    fontSize = 13.sp,
+                    fontSize = AppType.Footnote,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -6914,6 +7495,7 @@ private fun CatalogCapsule(
         }
 
         LiquidGlassSurface(
+            role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
             controlEdge = true,
             shape = AppRoundedCornerShape(24.dp),
             fallbackColor = bgColor,
@@ -6982,11 +7564,11 @@ private fun CatalogCapsule(
                     .padding(horizontal = 64.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(AppIcons.List, contentDescription = null, tint = leftColor, modifier = Modifier.size(18.dp))
+                ControlIcon(AppIcons.List, contentDescription = null, tint = leftColor, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.reader_toc), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = leftColor)
+                Text(stringResource(R.string.reader_toc), fontSize = AppType.BodySmall, fontWeight = FontWeight.SemiBold, color = leftColor)
                 Spacer(Modifier.weight(1f))
-                Text(formatReadingProgressPercent(displayProgress), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = rightColor)
+                Text(formatReadingProgressPercent(displayProgress), fontSize = AppType.Footnote, fontWeight = FontWeight.Bold, color = rightColor)
             }
         }
 
@@ -7102,6 +7684,7 @@ private fun CatalogChapterButton(
         contentAlignment = Alignment.Center
     ) {
         LiquidGlassSurface(
+            role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
             controlEdge = true,
             shape = CircleShape,
             fallbackColor = fallbackColor,
@@ -7111,7 +7694,7 @@ private fun CatalogChapterButton(
             enabled = enabled,
             modifier = Modifier.size(36.dp)
         ) {
-            Icon(
+            ControlIcon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = contentColor.copy(alpha = if (enabled) 1f else 0.3f),
@@ -7131,16 +7714,19 @@ internal fun ActionCapsule(
     forceSolid: Boolean,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    /** Icon above label regardless of width, so the side rail's items all read the same way. */
+    stacked: Boolean = false
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val labelWidth = with(density) {
-        textMeasurer.measure(label, LocalTextStyle.current.copy(fontSize = 13.sp), softWrap = false).size.width.toDp()
+        textMeasurer.measure(label, LocalTextStyle.current.copy(fontSize = AppType.Footnote), softWrap = false).size.width.toDp()
     }
     LiquidGlassSurface(
+        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
         controlEdge = true,
-        shape = AppRoundedCornerShape(22.dp),
+        shape = if (stacked) RoundedCornerShape(percent = 50) else AppRoundedCornerShape(22.dp),
         fallbackColor = bgColor,
         contentScrimColor = glassContentScrimColor,
         forceFallback = forceSolid,
@@ -7151,19 +7737,19 @@ internal fun ActionCapsule(
         onClick = if (enabled) onClick else null
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
-            if (labelWidth + 24.dp > maxWidth) {
+            if (stacked || labelWidth + 24.dp > maxWidth) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(18.dp))
-                    Text(label, fontSize = 13.sp, color = contentColor, maxLines = 1,
+                    ControlIcon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(18.dp))
+                    Text(label, fontSize = AppType.Footnote, color = contentColor, maxLines = 1,
                         softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
             } else {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center) {
-                    Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(18.dp))
+                    ControlIcon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(label, fontSize = 13.sp, color = contentColor, maxLines = 1, softWrap = false)
+                    Text(label, fontSize = AppType.Footnote, color = contentColor, maxLines = 1, softWrap = false)
                 }
             }
         }
@@ -7299,8 +7885,12 @@ internal fun ContinuousScrollReader(
     onSelectionCleared: () -> Unit = {},
     onViewportAnchor: (ContinuousViewportAnchor?) -> Unit = {},
     onVisibleCharacters: (List<ReaderVisibleCharacters>) -> Unit = {},
-    bodyFontWeight: Int = 400,
+    bodyFontWeight: Float = 400f,
+    autoScrollRunning: Boolean = false,
+    autoScrollSpeed: Float = 1f,
+    onAutoScrollEnd: () -> Unit = {},
     ttsFollowEnabled: Boolean = true,
+    ttsFollowUserPageTurns: Boolean = false,
     onManualScrollStarted: () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState =
         rememberLazyListState(
@@ -7321,6 +7911,50 @@ internal fun ContinuousScrollReader(
         }
     }
     if (chapterCount <= 0) return
+
+    var autoReadingTouchDown by remember { mutableStateOf(false) }
+    val autoScrollDensity = LocalDensity.current.density
+    val latestAutoScrollEnd by rememberUpdatedState(onAutoScrollEnd)
+    LaunchedEffect(listState, autoScrollRunning, autoScrollSpeed) {
+        if (!autoScrollRunning) return@LaunchedEffect
+        var previousFrameNanos = 0L
+        val gestureGate = AutoReadingGestureGate()
+        while (true) {
+            val frameNanos = withFrameNanos { it }
+            // Touch and fling only suspend motion; explicit pause belongs to the screen.
+            if (!gestureGate.canAdvance(frameNanos / 1_000_000L,
+                    autoReadingTouchDown || listState.isScrollInProgress)) {
+                previousFrameNanos = 0L
+                continue
+            }
+            if (previousFrameNanos != 0L) {
+                val elapsedSeconds = ((frameNanos - previousFrameNanos).coerceAtMost(100_000_000L)) /
+                    1_000_000_000f
+                val distance = elapsedSeconds * 32f * autoScrollDensity * autoScrollSpeed
+                if (distance > 0f) {
+                    try {
+                        listState.scrollBy(distance)
+                    } catch (cancelled: CancellationException) {
+                        // A user drag may cancel this individual scroll mutation.
+                        // Preserve the loop, but propagate cancellation of the effect itself.
+                        kotlinx.coroutines.currentCoroutineContext().let { context ->
+                            if (context[kotlinx.coroutines.Job]?.isActive != true) throw cancelled
+                        }
+                        gestureGate.onInteraction(frameNanos / 1_000_000L)
+                        previousFrameNanos = 0L
+                        continue
+                    }
+                }
+                if (!listState.canScrollForward &&
+                    listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index == chapterCount - 1
+                ) {
+                    latestAutoScrollEnd()
+                    return@LaunchedEffect
+                }
+            }
+            previousFrameNanos = frameNanos
+        }
+    }
 
     val searchHighlightAlpha = remember { Animatable(0f) }
     // 漫画开关只允许纯图片章节铺满，不能让同一本书或下一本书的正文也丢失页边距。
@@ -7505,7 +8139,8 @@ internal fun ContinuousScrollReader(
                             val converted = com.huangder.lumibooks.util.ChineseConverter
                                 .convertPreservingSpans(source, chineseMode)
                             wrapReaderImages(continuousSpannableText(converted,
-                                bionicReadingEnabled, lineHeight, comicModeEnabled))!!.also {
+                                bionicReadingEnabled, lineHeight, comicModeEnabled,
+                                2.5f * readerDensity))!!.also {
                                 if (comicModeEnabled) sizeContinuousComicImages(it, contentWidthPx,
                                     (marginLeft * readerDensity).roundToInt(), (marginRight * readerDensity).roundToInt())
                             }
@@ -7567,7 +8202,8 @@ internal fun ContinuousScrollReader(
                         val converted = com.huangder.lumibooks.util.ChineseConverter
                             .convertPreservingSpans(source, chineseMode)
                         wrapReaderImages(continuousSpannableText(converted,
-                            bionicReadingEnabled, lineHeight, comicModeEnabled))!!.also {
+                            bionicReadingEnabled, lineHeight, comicModeEnabled,
+                            2.5f * readerDensity))!!.also {
                             if (comicModeEnabled) sizeContinuousComicImages(it, contentWidthPx,
                                 (marginLeft * readerDensity).roundToInt(), (marginRight * readerDensity).roundToInt())
                         }
@@ -7625,13 +8261,28 @@ internal fun ContinuousScrollReader(
     var userScrollGeneration by remember { mutableIntStateOf(0) }
     var userDragging by remember { mutableStateOf(false) }
     var manualScrollBlocksTts by remember { mutableStateOf(false) }
+    var awaitingManualTtsPosition by remember { mutableStateOf(false) }
+    var manualTtsPositionBeforeCommit by remember { mutableStateOf<TtsSentencePosition?>(null) }
     val latestManualScrollStarted by rememberUpdatedState(onManualScrollStarted)
     val latestTtsFollowEnabled by rememberUpdatedState(ttsFollowEnabled)
-    // Only an explicit return/start changes false back to true. Finger-up does not resume following.
+    val latestTtsFollowUserPageTurns by rememberUpdatedState(ttsFollowUserPageTurns)
+    val latestTtsSentence by rememberUpdatedState(ttsCurrentSentence)
+    // With manual page-follow off, only an explicit return/start resumes visual following.
     LaunchedEffect(ttsFollowEnabled) {
         if (ttsFollowEnabled) manualScrollBlocksTts = false
     }
+    // Wait for audio to adopt the manual destination before following it again; clearing the
+    // block at finger-up would briefly scroll back to the sentence from the previous page.
+    LaunchedEffect(ttsCurrentSentence, ttsFollowUserPageTurns, awaitingManualTtsPosition) {
+        if (latestTtsFollowUserPageTurns && awaitingManualTtsPosition &&
+            ttsCurrentSentence != manualTtsPositionBeforeCommit
+        ) {
+            awaitingManualTtsPosition = false
+            manualScrollBlocksTts = false
+        }
+    }
     fun beginManualScroll() {
+        awaitingManualTtsPosition = false
         if (!manualScrollBlocksTts) {
             manualScrollBlocksTts = true
             latestManualScrollStarted()
@@ -7848,6 +8499,9 @@ internal fun ContinuousScrollReader(
         if (request == null && initialRestoreCompleted) return@LaunchedEffect
         if (request != null) consumedRequestId = request.requestId
         val target = (request?.chapterIndex ?: restoreTarget).coerceIn(0, chapterCount - 1)
+        // Automatic prefetch retries are bounded; an explicit jump may retry a
+        // previously unavailable chapter even if prefetch used that budget.
+        if (request != null) failedChapterLoadCounts.remove(target to chapterLayoutKey)
         val fraction = (request?.chapterFraction ?: restoreFraction).coerceIn(0f, 0.9999f)
         // 初始恢复到进度时，用户已经自己滚过就不再强拉回恢复点（改排版、改字号会重跑本 effect）。
         val canForceScroll = request != null || userScrollGeneration == 0
@@ -7986,10 +8640,17 @@ internal fun ContinuousScrollReader(
 
     LaunchedEffect(chapterLayoutKey) {
         if (contentWidthPx <= 0) return@LaunchedEffect
+        // Decode/format on the existing bounded worker queue while a fling is moving.
+        // Waiting for idle makes every newly reached chapter pay the cold-load cost.
+        var previousIndex = listState.firstVisibleItemIndex
+        var direction = 1
         snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
-            .distinctUntilChanged().collectLatest { (index, scrolling) ->
-            if (scrolling) return@collectLatest
-            listOf(index, index + 1, index - 1)
+            .distinctUntilChanged().collectLatest { (index, _) ->
+            if (index != previousIndex) {
+                direction = if (index < previousIndex) -1 else 1
+                previousIndex = index
+            }
+            listOf(index, index + direction, index - direction, index + 2 * direction)
                 .filter { it in 0 until chapterCount }
                 .forEach { neighbor -> loadChapterOnce(neighbor) }
         }
@@ -8069,6 +8730,10 @@ internal fun ContinuousScrollReader(
             }
             userScrollPending = false
             val fraction = (-stableOffset).toFloat().div(stableSize).coerceIn(0f, 0.9999f)
+            if (latestTtsFollowUserPageTurns) {
+                manualTtsPositionBeforeCommit = latestTtsSentence
+                awaitingManualTtsPosition = true
+            }
             onChapterVisible(stableIndex, fraction, TtsPageChangeOrigin.USER)
         }
     }
@@ -8143,6 +8808,18 @@ internal fun ContinuousScrollReader(
                         bounds.right.roundToInt(), bounds.bottom.roundToInt())
                 }
                 .clipToBounds()
+                .pointerInput(listState) {
+                    try {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                autoReadingTouchDown = event.changes.any { it.pressed }
+                            }
+                        }
+                    } finally {
+                        autoReadingTouchDown = false
+                    }
+                }
                 .pointerInput(lineGuideEnabled) {
                     detectTapGestures(onTap = { tap ->
                         if (!lineGuideEnabled) {
@@ -8360,14 +9037,13 @@ internal fun ContinuousScrollReader(
                             textView.invalidate()
                         }
                         if (textView.lineSpacingMultiplier != 1f || textView.lineSpacingExtra != 0f) {
+                            // ContinuousLineHeight applies reader metrics to text rows while keeping
+                            // image-only and explicit paragraph-gap rows at their exact heights.
                             textView.setLineSpacing(0f, 1f)
                         }
                         if (textView.typeface != readerTypeface.typeface) textView.typeface = readerTypeface.typeface
-                        val fontSizePx = android.util.TypedValue.applyDimension(
-                            android.util.TypedValue.COMPLEX_UNIT_SP,
-                            fontSize,
-                            textView.resources.displayMetrics
-                        )
+                        // Keep continuous TXT at the same reader-size scale as paginated TXT.
+                        val fontSizePx = fontSize * textView.resources.displayMetrics.density
                         if (textView.textSize != fontSizePx) {
                             textView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontSizePx)
                         }
@@ -8506,12 +9182,13 @@ private fun continuousSpannableText(
     text: CharSequence?,
     bionicReadingEnabled: Boolean,
     lineHeight: Float,
-    comicModeEnabled: Boolean = false
+    comicModeEnabled: Boolean = false,
+    lineSpacingExtraPx: Float = 0f
 ): SpannableStringBuilder {
     val content = SpannableStringBuilder(
         BionicReadingFormatter.format(prepareReaderEnglishHyphenation(text ?: ""), bionicReadingEnabled)
     )
-    protectContinuousImageHeights(content, lineHeight, comicModeEnabled)
+    protectContinuousImageHeights(content, lineHeight, comicModeEnabled, lineSpacingExtraPx)
     return content
 }
 
@@ -8732,25 +9409,33 @@ private fun TocSheet(
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { isClosing = true }
         )
 
-        // 底部弹出（70% 屏幕高度）
+        // 底部弹出（70% 屏幕高度）；平板为居中卡片
         LiquidGlassColumnSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(0.7f)
+            modifier = adaptiveSheetFrame(heightFraction = 0.7f)
                 .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress),
             contentModifier = Modifier
                 .fillMaxSize()
                 .navigationBarsPadding()
                 .padding(start = 24.dp, top = 24.dp, end = 24.dp),
             fallbackColor = AppColors.CardBg,
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner)
         ) {
             // 标题栏
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                LiquidGlassIconButton(
+                    imageVector = AppIcons.X,
+                    contentDescription = stringResource(R.string.reader_close),
+                    onClick = { isClosing = true },
+                    size = 44.dp,
+                    iconSize = 20.dp,
+                    contentColor = AppColors.TextPrimary,
+                    normalContainerColor = LightBgGray
+                )
+                Spacer(Modifier.width(AppSpace.sm))
                 Text(
                     text = stringResource(R.string.reader_toc),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = AppType.Section,
+                    fontWeight = FontWeight.Bold,
                     fontFamily = resolveAppFontFamily(KaiTi),
                     color = if (activeSection == "toc") AppColors.TextPrimary else LightTextSecondary,
                     modifier = Modifier
@@ -8761,14 +9446,14 @@ private fun TocSheet(
                 )
                 Text(
                     text = "  ",
-                    fontSize = 20.sp,
+                    fontSize = AppType.Section,
                     fontFamily = resolveAppFontFamily(KaiTi),
                     color = LightTextSecondary
                 )
                 Text(
                     text = stringResource(R.string.tab_bookmark),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = AppType.Section,
+                    fontWeight = FontWeight.Bold,
                     fontFamily = resolveAppFontFamily(KaiTi),
                     color = if (activeSection == "bookmark") AppColors.TextPrimary else LightTextSecondary,
                     modifier = Modifier
@@ -8814,17 +9499,6 @@ private fun TocSheet(
                     contentColor = AppColors.TextPrimary,
                     normalContainerColor = LightBgGray,
                     enabled = if (activeSection == "toc") visibleEntries.isNotEmpty() else sortedBookmarks.isNotEmpty()
-                )
-                Spacer(Modifier.width(8.dp))
-                // 关闭按钮
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.X,
-                    contentDescription = stringResource(R.string.reader_close),
-                    onClick = { isClosing = true },
-                    size = 44.dp,
-                    iconSize = 20.dp,
-                    contentColor = AppColors.TextPrimary,
-                    normalContainerColor = LightBgGray
                 )
             }
 
@@ -8903,11 +9577,11 @@ private fun TocSheet(
                                             onClick = toggleCollapse,
                                             modifier = Modifier.size(40.dp)
                                         ) {
-                                            Icon(
+                                            ControlIcon(
                                                 imageVector = AppIcons.CaretDown,
                                                 contentDescription = if (collapsed) stringResource(R.string.reader_toc_group_expand)
                                                 else stringResource(R.string.reader_toc_group_collapse),
-                                                tint = Color.Gray,
+                                                tint = LightTextSecondary,
                                                 modifier = Modifier.graphicsLayer { rotationZ = arrowRotation }
                                             )
                                         }
@@ -8916,9 +9590,9 @@ private fun TocSheet(
                                     }
                                     Text(
                                         text = entry.title,
-                                        fontSize = 15.sp,
+                                        fontSize = AppType.Subhead,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) AccentColor else Color.Gray,
+                                        color = if (isCurrent) AccentColor else LightTextSecondary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -8949,7 +9623,7 @@ private fun TocSheet(
                                 ) {
                                     Text(
                                         text = entry.title.ifBlank { stringResource(R.string.reader_chapter_fallback, entry.chapterIndex + 1) },
-                                        fontSize = 15.sp,
+                                        fontSize = AppType.Subhead,
                                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isCurrent) AccentColor else AppColors.TextPrimary,
                                         maxLines = 1,
@@ -9020,7 +9694,7 @@ private fun TocSheet(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
                                 text = stringResource(R.string.no_bookmarks_yet),
-                                fontSize = 14.sp,
+                                fontSize = AppType.BodySmall,
                                 color = LightTextSecondary
                             )
                         }
@@ -9160,7 +9834,7 @@ private fun TxtTocRuleDialog(
         backdrop = backdrop,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
         backgroundScrimColor = Color.Black.copy(alpha = 0.10f),
-        backgroundBlurRadius = 0.dp,
+        fallbackBlurRadius = 0.dp,
         transparencyOverride = 0.24f,
         title = {
             Row(
@@ -9196,7 +9870,7 @@ private fun TxtTocRuleDialog(
                 Text(
                     stringResource(R.string.txt_toc_rule_auto_message),
                     color = AppColors.TextSecondary,
-                    fontSize = 13.sp
+                    fontSize = AppType.Footnote
                 )
                 Spacer(Modifier.height(8.dp))
                 TxtTocRuleOption(
@@ -9227,7 +9901,7 @@ private fun TxtTocRuleDialog(
                                 " · ${stringResource(R.string.txt_toc_rule_match_note)}"
                             } ?: ""),
                         color = AppColors.TextSecondary,
-                        fontSize = 12.sp
+                        fontSize = AppType.Caption
                     )
                 }
                 customRules.forEach { rule ->
@@ -9250,7 +9924,7 @@ private fun TxtTocRuleDialog(
                     Text(
                         stringResource(R.string.txt_toc_compat_description),
                         color = AppColors.TextSecondary,
-                        fontSize = 13.sp
+                        fontSize = AppType.Footnote
                     )
                     Spacer(Modifier.height(8.dp))
                     thirdPartyRules.forEach { rule ->
@@ -9273,7 +9947,7 @@ private fun TxtTocRuleDialog(
                 Text(
                     stringResource(R.string.txt_toc_rule_custom_help),
                     color = AppColors.TextSecondary,
-                    fontSize = 13.sp
+                    fontSize = AppType.Footnote
                 )
                 TxtTocRuleExample()
                 Spacer(Modifier.height(6.dp))
@@ -9286,13 +9960,13 @@ private fun TxtTocRuleDialog(
                     Text(
                         it,
                         color = Color(0xFFB3261E),
-                        fontSize = 12.sp
+                        fontSize = AppType.Caption
                     )
                 }
             }
         },
-        confirmButton = {
-            LiquidGlassTextButton(
+        actions = listOf(
+            AppDialogAction(
                 text = stringResource(R.string.txt_toc_rule_save_apply),
                 onClick = {
                     val rule = TxtTocRule(
@@ -9309,19 +9983,18 @@ private fun TxtTocRuleDialog(
                     result.onSuccess { onSaveCustom(rule) }
                         .onFailure { error = it.message ?: invalidRuleMessage }
                 },
+                role = AppDialogActionRole.Primary,
                 tintedColor = AppColors.Accent,
                 contentColor = AppColors.OnAccent
-            )
-        },
-        dismissButton = {
-            LiquidGlassTextButton(
+            ),
+            AppDialogAction(
                 text = stringResource(R.string.cancel),
                 onClick = onDismiss,
+                role = AppDialogActionRole.Cancel,
                 tintedColor = AppColors.BgGray,
                 contentColor = AppColors.TextPrimary
             )
-        }
-    )
+        ))
 }
 
 @Composable
@@ -9402,13 +10075,13 @@ private fun TxtTocRuleOption(
                 Text(
                     text = title,
                     color = titleColor,
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
                 )
                 Text(
                     text = description,
                     color = descriptionColor,
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     lineHeight = 17.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -9438,53 +10111,53 @@ private fun TxtTocRuleExample() {
         Text(
             text = stringResource(R.string.txt_toc_rule_example_title),
             color = AppColors.TextPrimary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             fontWeight = FontWeight.Medium
         )
         Text(
             text = stringResource(R.string.txt_toc_rule_example_lines),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 18.sp,
             modifier = Modifier.padding(top = 3.dp)
         )
         Text(
             text = stringResource(R.string.txt_toc_rule_example_regex),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 18.sp,
             modifier = Modifier.padding(top = 5.dp)
         )
         Text(
             text = stringResource(R.string.txt_toc_rule_example_template),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 18.sp
         )
         Text(
             text = stringResource(R.string.txt_toc_rule_example_blank),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 18.sp
         )
         Spacer(Modifier.height(9.dp))
         Text(
             text = stringResource(R.string.txt_toc_rule_symbol_example_title),
             color = AppColors.TextPrimary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             fontWeight = FontWeight.Medium
         )
         Text(
             text = stringResource(R.string.txt_toc_rule_symbol_example_lines),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 18.sp,
             modifier = Modifier.padding(top = 3.dp)
         )
         Text(
             text = stringResource(R.string.txt_toc_rule_symbol_example_regex),
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
+            fontSize = AppType.Caption,
             lineHeight = 18.sp,
             modifier = Modifier.padding(top = 5.dp)
         )
@@ -9494,12 +10167,12 @@ private fun TxtTocRuleExample() {
 @Composable
 private fun TocRuleInput(label: String, value: String, onValueChange: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(label, color = AppColors.TextSecondary, fontSize = 12.sp)
+        Text(label, color = AppColors.TextSecondary, fontSize = AppType.Caption)
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth().background(LightBgGray, AppRoundedCornerShape(8.dp)).padding(10.dp),
-            textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = 14.sp),
+            textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = AppType.BodySmall),
             singleLine = true
         )
     }
@@ -9542,22 +10215,22 @@ private fun TocBookmarkItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bookmark.title,
-                    fontSize = 14.sp,
+                    fontSize = AppType.BodySmall,
                     color = AppColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (bookmark.isStale) Text(stringResource(R.string.markdown_original_changed), fontSize = 12.sp, color = AccentColor)
+                if (bookmark.isStale) Text(stringResource(R.string.markdown_original_changed), fontSize = AppType.Caption, color = AccentColor)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = if (chapterTitle.isBlank()) chapterNumber else "$chapterNumber · $chapterTitle",
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = LightTextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (bookmark.remark.isNotBlank()) {
-                    Text(bookmark.remark, fontSize = 12.sp, color = LightTextSecondary)
+                    Text(bookmark.remark, fontSize = AppType.Caption, color = LightTextSecondary)
                 }
                 AnnotationTagChips(bookmark.tags, modifier = Modifier.padding(top = 4.dp))
             }
@@ -9705,7 +10378,7 @@ private fun DraggableScrollbar(
             ) {
                 Text(
                     text = hint,
-                    fontSize = 12.sp,
+                    fontSize = AppType.Caption,
                     color = AppColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -9719,7 +10392,7 @@ private fun DraggableScrollbar(
  * 全文搜索弹窗——底部弹出，可伸缩高度。
  */
 @Composable
-private fun SearchSheet(
+internal fun SearchSheet(
     visible: Boolean,
     requestClose: Boolean = false,
     query: String,
@@ -9772,40 +10445,20 @@ private fun SearchSheet(
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { isClosing = true }
         )
 
-        // 底部弹出容器（自适应高度）
+        // 底部弹出容器（自适应高度）；平板为居中卡片
         LiquidGlassSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth()
+            modifier = adaptiveSheetFrame()
                 .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress),
             contentModifier = Modifier
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(24.dp),
             fallbackColor = AppColors.CardBg,
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner)
         ) {
             Column {
                 // 标题栏
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        stringResource(R.string.reader_search),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = resolveAppFontFamily(KaiTi),
-                        color = AppColors.TextPrimary
-                    )
-                    Spacer(Modifier.weight(1f))
-                    // 关闭按钮
-                    LiquidGlassIconButton(
-                        imageVector = AppIcons.X,
-                        contentDescription = stringResource(R.string.reader_close),
-                        onClick = { isClosing = true },
-                        size = 44.dp,
-                        iconSize = 20.dp,
-                        contentColor = AppColors.TextPrimary,
-                        normalContainerColor = LightBgGray
-                    )
-                }
+                AppSheetHeader(title = stringResource(R.string.reader_search), onClose = { isClosing = true })
 
                 Spacer(Modifier.height(16.dp))
 
@@ -9823,8 +10476,8 @@ private fun SearchSheet(
                         androidx.compose.material3.TextField(
                             value = query,
                             onValueChange = onQueryChange,
-                            placeholder = { Text(stringResource(R.string.search_placeholder), fontSize = 14.sp, color = LightTextSecondary) },
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = AppColors.TextPrimary),
+                            placeholder = { Text(stringResource(R.string.search_placeholder), fontSize = AppType.BodySmall, color = LightTextSecondary) },
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = AppType.BodySmall, color = AppColors.TextPrimary),
                             singleLine = true,
                             colors = androidx.compose.material3.TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
@@ -9848,7 +10501,7 @@ private fun SearchSheet(
                         if (isSearching) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = AppColors.OnAccent)
                         } else {
-                            Text(stringResource(R.string.reader_search), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (query.isNotBlank()) AppColors.OnAccent else LightTextSecondary)
+                            Text(stringResource(R.string.reader_search), fontSize = AppType.BodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (query.isNotBlank()) AppColors.OnAccent else LightTextSecondary)
                         }
                     }
                 }
@@ -9858,7 +10511,7 @@ private fun SearchSheet(
                     Spacer(Modifier.height(16.dp))
                     Text(
                         stringResource(R.string.search_results_found, results.size),
-                        fontSize = 12.sp,
+                        fontSize = AppType.Caption,
                         color = LightTextSecondary
                     )
                     Spacer(Modifier.height(8.dp))
@@ -9885,14 +10538,14 @@ private fun SearchSheet(
                                 Column {
                                     Text(
                                         text = r.chapterTitle,
-                                        fontSize = 12.sp,
+                                        fontSize = AppType.Caption,
                                         color = AccentColor,
                                         maxLines = 1
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
                                         text = r.context,
-                                        fontSize = 14.sp,
+                                        fontSize = AppType.BodySmall,
                                         color = AppColors.TextPrimary,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
@@ -9908,7 +10561,7 @@ private fun SearchSheet(
                         Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(stringResource(R.string.search_no_results), fontSize = 14.sp, color = LightTextSecondary)
+                        Text(stringResource(R.string.search_no_results), fontSize = AppType.BodySmall, color = LightTextSecondary)
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -9918,7 +10571,7 @@ private fun SearchSheet(
 }
 
 @Composable
-private fun NetworkSearchSheet(
+internal fun NetworkSearchSheet(
     visible: Boolean,
     initialQuery: String,
     onDismiss: () -> Unit
@@ -10064,7 +10717,9 @@ private fun NetworkSearchSheet(
                     interactionSource = remember { MutableInteractionSource() }
                 ) { },
             contentModifier = Modifier.fillMaxSize().padding(12.dp),
-            forceFallback = true
+            forceFallback = true,
+            // Already a centered panel; keep its own inset on tablets.
+            cardSheet = false
         ) {
                 Column(
                     modifier = Modifier
@@ -10093,7 +10748,7 @@ private fun NetworkSearchSheet(
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
+                            ControlIcon(
                                 imageVector = AppIcons.MagnifyingGlass,
                                 contentDescription = null,
                                 tint = AppColors.TextSecondary,
@@ -10284,7 +10939,7 @@ private fun ReaderSelectionNoteSheet(
     )
 }
 
-private data class SelectionState(
+internal data class SelectionState(
     val chapterIndex: Int,
     val pageInChapter: Int,
     val charStart: Int,
@@ -10410,16 +11065,14 @@ internal fun annotationStyleAfterColorChange(
     style: RuleStyle,
     type: String,
     resolvedColor: Int?
-): RuleStyle = style.copy(
-    textColor = if (type == "underline") null else resolvedColor ?: style.textColor
-)
+): RuleStyle = style.copy(highlightColor = resolvedColor ?: style.highlightColor)
 
-private fun noteUnderlineMode(note: com.huangder.lumibooks.domain.model.Note?): Int =
+internal fun noteUnderlineMode(note: com.huangder.lumibooks.domain.model.Note?): Int =
     RuleStyleJson.decode(note?.styleSnapshotJson)?.underlineMode
         ?.takeIf { it in 1..4 }
         ?: HighlightRule.UNDERLINE_WAVE
 
-private fun updateUnderlineStyle(
+internal fun updateUnderlineStyle(
     viewModel: ReaderViewModel,
     selection: SelectionState,
     mode: Int
@@ -10484,13 +11137,13 @@ private fun findOverlappingNotes(
 
 private const val DICTIONARY_LOOKUP_TAG = "DictionaryLookup"
 
-private data class DictionaryAppOption(
+internal data class DictionaryAppOption(
     val label: String,
     val packageName: String,
     val activityName: String
 )
 
-private data class DictionaryLookupRequest(
+internal data class DictionaryLookupRequest(
     val normalizedText: String,
     val apps: List<DictionaryAppOption>
 )
@@ -10505,7 +11158,7 @@ private fun buildDictionaryLookupIntent(normalizedText: String): Intent =
         putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
     }
 
-private fun prepareDictionaryLookup(context: Context, selectedText: String): DictionaryLookupRequest? {
+internal fun prepareDictionaryLookup(context: Context, selectedText: String): DictionaryLookupRequest? {
     val normalizedText = normalizeDictionaryText(selectedText)
     if (normalizedText.isBlank()) return null
 
@@ -10547,7 +11200,7 @@ private fun prepareDictionaryLookup(context: Context, selectedText: String): Dic
     return DictionaryLookupRequest(normalizedText, apps)
 }
 
-private fun launchDictionaryLookup(
+internal fun launchDictionaryLookup(
     context: Context,
     normalizedText: String,
     appOption: DictionaryAppOption
@@ -10587,7 +11240,7 @@ private enum class SelectionMenuMode {
 private const val SELECTION_PILL_STAGGER_MILLIS = 90L
 
 @Composable
-private fun SelectionMenuOverlay(
+internal fun SelectionMenuOverlay(
     state: SelectionState?,
     readerTheme: String,
     glassBackdrop: Backdrop? = null,
@@ -10601,6 +11254,7 @@ private fun SelectionMenuOverlay(
     dictionaryAppOptions: List<DictionaryAppOption> = emptyList(),
     isTxtBook: Boolean = false,
     selectionMenuItems: SelectionMenuSettings = SelectionMenuSettings(),
+    supportedActions: Set<SelectionMenuAction> = SelectionMenuAction.entries.toSet(),
     onDismiss: () -> Unit,
     onHighlight: () -> Unit,
     onUnderline: () -> Unit = {},
@@ -10656,24 +11310,28 @@ private fun SelectionMenuOverlay(
     // A stale or unresolved annotation must never collapse the overlay to 0 x 0.
     val showAnnotationActionsOnly = state.annotationOnly && annotationRowCount > 0
     // 普通行菜单项：隐藏选区已存在的标注类型；带笔记时"笔记"换成"查看笔记"
-    val actionItems = if (showAnnotationActionsOnly) emptyList() else {
-        selectionMenuItems.visibleActions(isTxtBook, state.hasHighlight, state.hasUnderline).map { action ->
-            val label = stringResource(if (action == SelectionMenuAction.NOTE && state.hasNote)
-                R.string.menu_view_note else action.labelRes())
-            label to when (action) {
-                SelectionMenuAction.HIGHLIGHT -> onHighlight
-                SelectionMenuAction.UNDERLINE -> onUnderline
-                SelectionMenuAction.NOTE -> if (state.hasNote) onViewNote else onNote
-                SelectionMenuAction.DICTIONARY -> onDictionary
-                SelectionMenuAction.EXCERPT -> onExcerpt
-                SelectionMenuAction.SEARCH -> onSearch
-                SelectionMenuAction.WEB_SEARCH -> onWebSearch
-                SelectionMenuAction.COPY -> onCopy
-                SelectionMenuAction.REPLACE -> onReplace
-            }
-        }
+    val visibleMenuActions = if (showAnnotationActionsOnly) emptyList() else {
+        selectionMenuItems.visibleActions(isTxtBook, state.hasHighlight, state.hasUnderline)
+            .filter { it in supportedActions }.ifEmpty { listOf(SelectionMenuAction.COPY) }
     }
-    val actionLabels = actionItems.map { it.first }
+    val opensExistingNote = { action: SelectionMenuAction -> action == SelectionMenuAction.NOTE && state.hasNote }
+    val actionLabels = visibleMenuActions.map { action ->
+        stringResource(if (opensExistingNote(action)) R.string.menu_view_note else action.labelRes())
+    }
+    val actionItems = visibleMenuActions.zip(actionLabels) { action, label ->
+        val onClick: () -> Unit = when (action) {
+            SelectionMenuAction.NOTE -> if (opensExistingNote(action)) onViewNote else onNote
+            SelectionMenuAction.HIGHLIGHT -> onHighlight
+            SelectionMenuAction.UNDERLINE -> onUnderline
+            SelectionMenuAction.EXCERPT -> onExcerpt
+            SelectionMenuAction.DICTIONARY -> onDictionary
+            SelectionMenuAction.SEARCH -> onSearch
+            SelectionMenuAction.WEB_SEARCH -> onWebSearch
+            SelectionMenuAction.REPLACE -> onReplace
+            SelectionMenuAction.COPY -> onCopy
+        }
+        label to onClick
+    }
     val actionChipHorizontalPadding = if (isLiquidGlass) 10.dp else 16.dp
     // chip 实际渲染样式（MenuChip 用 fontSize + 继承的 LocalTextStyle），测量时保持一致
     val menuChipTextStyle = LocalTextStyle.current.merge(
@@ -10711,9 +11369,15 @@ private fun SelectionMenuOverlay(
     val annotationPillWidth = if (annotationRemoveLabels.isEmpty()) 0.dp else {
         val maxRemoveChipWidth = annotationRemoveLabels.maxOf { measuredLabelWidth(it) + actionChipHorizontalPadding * 2 }
         val stylePickerWidth = if (state.hasUnderline) 78.dp else 0.dp
-        val excerptWidth = if (selectionMenuItems.isVisible(SelectionMenuAction.EXCERPT))
-            measuredLabelWidth(stringResource(R.string.excerpt_title)) + actionChipHorizontalPadding * 2 + 0.5.dp else 0.dp
-        (182.dp + stylePickerWidth + 12.5.dp + 20.dp + maxRemoveChipWidth + excerptWidth + measuredLabelWidth(stringResource(R.string.annotation_tags)) + 24.dp).coerceAtMost(maxMenuWidth)
+        val excerptWidth = if (SelectionMenuAction.EXCERPT in supportedActions && selectionMenuItems.isVisible(SelectionMenuAction.EXCERPT))
+            // 摘录 chip 连同它后面的分隔线
+            actionChipHorizontalPadding * 2 + measuredLabelWidth(stringResource(R.string.excerpt_title)) + 0.5.dp
+        else 0.dp
+        val tagsLabelWidth = measuredLabelWidth(stringResource(R.string.annotation_tags))
+        // 色点、分隔线与行内边距等不随文字变化的部分
+        val fixedPartsWidth = 182.dp + 12.5.dp + 20.dp + 24.dp
+        val contentWidth = fixedPartsWidth + stylePickerWidth + excerptWidth + maxRemoveChipWidth + tagsLabelWidth
+        contentWidth.coerceAtMost(maxMenuWidth)
     }
     // 菜单行高跟随系统字体缩放：固定 52dp 会把大字体下的 chip 文字裁掉下半截
     val menuChipLabels = buildList {
@@ -10927,8 +11591,7 @@ private fun SelectionMenuOverlay(
                                         menuText = menuText,
                                         dividerColor = dividerColor,
                                         onColorChange = onChangeHighlightColor,
-                                        showExcerpt = selectionMenuItems.isVisible(SelectionMenuAction.EXCERPT),
-                                        onExcerpt = onExcerpt,
+                                        onExcerpt = onExcerpt.takeIf { SelectionMenuAction.EXCERPT in supportedActions && selectionMenuItems.isVisible(SelectionMenuAction.EXCERPT) },
                                         onRemove = onDeleteHighlight
                                     )
                                     MenuChip(stringResource(R.string.annotation_tags), menuText, onEditHighlightTags)
@@ -10959,9 +11622,8 @@ private fun SelectionMenuOverlay(
                                         menuText = menuText,
                                         dividerColor = dividerColor,
                                         onColorChange = onChangeUnderlineColor,
-                                        showExcerpt = selectionMenuItems.isVisible(SelectionMenuAction.EXCERPT),
                                         onUnderlineStyleChange = onChangeUnderlineStyle,
-                                        onExcerpt = onExcerpt,
+                                        onExcerpt = onExcerpt.takeIf { SelectionMenuAction.EXCERPT in supportedActions && selectionMenuItems.isVisible(SelectionMenuAction.EXCERPT) },
                                         onRemove = onDeleteUnderline
                                     )
                                     MenuChip(stringResource(R.string.annotation_tags), menuText, onEditUnderlineTags)
@@ -11108,41 +11770,22 @@ private fun ReplaceInputSheet(
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { isClosing = true }
         )
 
-        // 底部弹出容器（自适应高度）
+        // 底部弹出容器（自适应高度）；平板为居中卡片
         LiquidGlassSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth()
+            modifier = adaptiveSheetFrame()
                 .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress),
             contentModifier = Modifier
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(24.dp),
             fallbackColor = AppColors.CardBg,
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner),
             backdrop = glassBackdrop
         ) {
             val replaceAccent = Color(0xFFFF6268)
             Column {
                 // 标题栏
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        stringResource(R.string.menu_replace),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = resolveAppFontFamily(KaiTi),
-                        color = AppColors.TextPrimary
-                    )
-                    Spacer(Modifier.weight(1f))
-                    LiquidGlassIconButton(
-                        imageVector = AppIcons.X,
-                        contentDescription = stringResource(R.string.reader_close),
-                        onClick = { isClosing = true },
-                        size = 44.dp,
-                        iconSize = 20.dp,
-                        contentColor = AppColors.TextPrimary,
-                        normalContainerColor = LightBgGray
-                    )
-                }
+                AppSheetHeader(title = stringResource(R.string.menu_replace), onClose = { isClosing = true })
 
                 Spacer(Modifier.height(18.dp))
 
@@ -11154,13 +11797,13 @@ private fun ReplaceInputSheet(
                     Text(
                         text = stringResource(R.string.menu_replace),
                         modifier = Modifier.width(64.dp),
-                        fontSize = 15.sp,
+                        fontSize = AppType.Subhead,
                         color = AppColors.TextSecondary.copy(alpha = 0.72f)
                     )
                     Text(
                         text = selectedText,
                         modifier = Modifier.weight(1f),
-                        fontSize = 16.sp,
+                        fontSize = AppType.Body,
                         color = AppColors.TextSecondary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -11177,7 +11820,7 @@ private fun ReplaceInputSheet(
                     Text(
                         text = stringResource(R.string.replace_with_label),
                         modifier = Modifier.width(64.dp),
-                        fontSize = 16.sp,
+                        fontSize = AppType.Body,
                         fontWeight = FontWeight.Medium,
                         color = replaceAccent
                     )
@@ -11202,7 +11845,7 @@ private fun ReplaceInputSheet(
                             singleLine = true,
                             textStyle = TextStyle(
                                 color = AppColors.TextPrimary,
-                                fontSize = 16.sp
+                                fontSize = AppType.Body
                             ),
                             cursorBrush = SolidColor(replaceAccent),
                             decorationBox = { innerTextField ->
@@ -11213,7 +11856,7 @@ private fun ReplaceInputSheet(
                                     if (replacement.isEmpty()) {
                                         Text(
                                             text = stringResource(R.string.replace_input_hint),
-                                            fontSize = 15.sp,
+                                            fontSize = AppType.Subhead,
                                             color = AppColors.TextSecondary.copy(alpha = 0.55f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -11246,7 +11889,7 @@ private fun ReplaceInputSheet(
                     ) {
                         Text(
                             text = stringResource(R.string.replace_all),
-                            fontSize = 16.sp,
+                            fontSize = AppType.Body,
                             fontWeight = FontWeight.SemiBold,
                             color = replaceAllTextColor,
                             maxLines = 1,
@@ -11271,7 +11914,7 @@ private fun ReplaceInputSheet(
                     ) {
                         Text(
                             text = stringResource(R.string.replace_this),
-                            fontSize = 16.sp,
+                            fontSize = AppType.Body,
                             fontWeight = FontWeight.SemiBold,
                             color = AppColors.OnAccent,
                             maxLines = 1,
@@ -11369,8 +12012,8 @@ internal fun SelectionAnnotationRow(
     dividerColor: Color,
     onColorChange: (Int) -> Unit,
     onUnderlineStyleChange: (Int) -> Unit = {},
-    showExcerpt: Boolean = true,
-    onExcerpt: () -> Unit,
+    /** Null leaves the excerpt chip out of the row. */
+    onExcerpt: (() -> Unit)?,
     onRemove: () -> Unit
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -11389,9 +12032,11 @@ internal fun SelectionAnnotationRow(
         ReaderHighlightPalette.forEachIndexed { index, (_, color) ->
             if (index > 0) Spacer(Modifier.width(10.dp))
             val isCurrentColor = readerHighlightSlotForColor(currentColor) == index
+            val colorLabel = stringResource(R.string.annotation_tag_color_number, index + 1)
             Box(
                 modifier = Modifier
                     .size(22.dp)
+                    .semantics { contentDescription = colorLabel; selected = isCurrentColor }
                     .then(if (isCurrentColor) Modifier.border(2.dp, menuText, CircleShape) else Modifier)
                     .clip(CircleShape)
                     .background(color)
@@ -11401,8 +12046,8 @@ internal fun SelectionAnnotationRow(
         Spacer(Modifier.width(6.dp))
         MenuDivider(dividerColor)
         Spacer(Modifier.width(6.dp))
-        if (showExcerpt) {
-            MenuChip(stringResource(R.string.excerpt_title), menuText, onExcerpt)
+        onExcerpt?.let { excerpt ->
+            MenuChip(stringResource(R.string.excerpt_title), menuText, excerpt)
             MenuDivider(dividerColor)
         }
         MenuChip(removeLabel, menuText, onRemove)
@@ -11476,7 +12121,7 @@ private fun SelectionMenuSettingsButton(
             ) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
+        ControlIcon(
             AppIcons.Gear,
             contentDescription = stringResource(R.string.menu_settings),
             tint = menuText.copy(alpha = 0.5f),
@@ -11578,7 +12223,7 @@ internal fun NoteInputSheet(
         NoteInputSheetContent(
             requestClose = requestClose || windowCloseRequested,
             glassBackdrop = glassBackdrop,
-            forceSolid = keepReaderViewport,
+            forceSolid = keepReaderViewport && glassBackdrop == null,
             initialText = initialText,
             onTextChange = onTextChange,
             tags = tags,
@@ -11618,6 +12263,7 @@ private fun NoteInputSheetContent(
     footer: String?,
     onCreateTag: (suspend (String) -> Unit)?
 ) {
+    com.huangder.lumibooks.ui.components.ReconcileAnnotationTagDraft(tags, onTagsChange)
     val sheetOffset = remember { Animatable(1f) }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -11656,11 +12302,7 @@ private fun NoteInputSheetContent(
         )
 
         LiquidGlassSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .widthIn(max = 600.dp)
-                .fillMaxWidth()
-                .heightIn(max = 420.dp)
-                .fillMaxHeight(0.9f)
+            modifier = adaptiveSheetFrame(heightFraction = 0.9f, maxHeight = 420.dp, maxWidth = 600.dp)
                 .materialBottomSheetMotion(
                     entryOffset = sheetOffset.value,
                     predictiveBackProgress = predictiveBackProgress
@@ -11669,7 +12311,7 @@ private fun NoteInputSheetContent(
                 .navigationBarsPadding()
                 .padding(AppSpace.lg),
             fallbackColor = AppColors.CardBg,
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner),
             backdrop = glassBackdrop,
             forceFallback = forceSolid
         ) {
@@ -11707,10 +12349,10 @@ private fun NoteInputSheetContent(
                     androidx.compose.foundation.text.BasicTextField(
                         value = initialText,
                         onValueChange = onTextChange,
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = AppColors.TextPrimary),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = AppType.BodySmall, color = AppColors.TextPrimary),
                         cursorBrush = SolidColor(AppColors.Accent),
                         decorationBox = { inner -> Box {
-                            if (initialText.isEmpty()) Text(placeholder ?: stringResource(R.string.note_input_placeholder), fontSize = 14.sp, color = AppColors.TextSecondary)
+                            if (initialText.isEmpty()) Text(placeholder ?: stringResource(R.string.note_input_placeholder), fontSize = AppType.BodySmall, color = AppColors.TextSecondary)
                             inner()
                         } },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 200.dp)
@@ -11721,7 +12363,7 @@ private fun NoteInputSheetContent(
                     AnnotationTagChips(tags, onEdit = { keyboard?.hide(); showTagSheet = true }, modifier = Modifier.padding(top = 8.dp))
                     if (footer != null) {
                         Spacer(Modifier.height(12.dp))
-                        Text(footer, fontSize = 12.sp, color = AppColors.TextSecondary)
+                        Text(footer, fontSize = AppType.Caption, color = AppColors.TextSecondary)
                     }
                 }
             }
@@ -11760,7 +12402,8 @@ internal fun NotesListSheet(
     onShareNote: (com.huangder.lumibooks.domain.model.Note) -> Unit,
     onEditTags: (com.huangder.lumibooks.domain.model.Note) -> Unit,
     onDeleteNote: (com.huangder.lumibooks.domain.model.Note) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    usePageLabels: Boolean = false
 ) {
     if (!visible) return
 
@@ -11823,42 +12466,19 @@ internal fun NotesListSheet(
 
         // Leave space for tags and filters; use almost all available height in landscape.
         LiquidGlassColumnSheetContainer(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(if (compactHeight) 0.94f else 0.82f)
+            modifier = adaptiveSheetFrame(heightFraction = if (compactHeight) 0.94f else 0.82f)
                 .materialBottomSheetMotion(sheetOffset.value, predictiveBackProgress),
             contentModifier = Modifier
                 .fillMaxSize()
                 .navigationBarsPadding()
                 .padding(start = 20.dp, top = if (compactHeight) 12.dp else 20.dp, end = 20.dp),
             fallbackColor = LightCardBg,
-            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = AppRoundedCornerShape(topStart = AppPresentation.SheetCorner, topEnd = AppPresentation.SheetCorner),
             backdrop = glassBackdrop,
             forceFallback = forceSolid
         ) {
             // 标题栏
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    stringResource(R.string.highlights_notes_title),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = resolveAppFontFamily(KaiTi),
-                    color = AppColors.TextPrimary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // 关闭按钮
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.X,
-                    contentDescription = stringResource(R.string.reader_close),
-                    onClick = { isClosing = true },
-                    size = 44.dp,
-                    iconSize = 20.dp,
-                    contentColor = AppColors.TextPrimary,
-                    normalContainerColor = LightBgGray
-                )
-            }
+            AppSheetHeader(title = stringResource(R.string.highlights_notes_title), onClose = { isClosing = true })
 
             Spacer(Modifier.height(if (compactHeight) 8.dp else 12.dp))
 
@@ -11894,7 +12514,7 @@ internal fun NotesListSheet(
                                 else -> R.string.no_notes
                             }
                         ),
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         color = LightTextSecondary
                     )
                 }
@@ -11907,6 +12527,7 @@ internal fun NotesListSheet(
                         val item = items[idx]
                         HighlightNoteItem(
                             item = item,
+                            usePageLabels = usePageLabels,
                             onClick = {
                                 pendingJumpNote = item
                                 isClosing = true
@@ -11955,7 +12576,7 @@ private fun HighlightNoteTabSwitcher(
         ) { index, isSelected ->
             Text(
                 text = stringResource(tabs[index].second),
-                fontSize = 14.sp,
+                fontSize = AppType.BodySmall,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (isSelected) AppColors.TextPrimary.copy(alpha = 0.86f) else LightTextSecondary
             )
@@ -12009,7 +12630,7 @@ private fun HighlightNoteTabSwitcher(
                 ) {
                     Text(
                         stringResource(labelRes),
-                        fontSize = 14.sp,
+                        fontSize = AppType.BodySmall,
                         fontWeight = if (activeTag == tag) FontWeight.SemiBold else FontWeight.Normal,
                         color = if (activeTag == tag) AppColors.TextPrimary else LightTextSecondary
                     )
@@ -12028,8 +12649,12 @@ internal fun HighlightNoteItem(
     onEditTags: () -> Unit,
     resetRevealedKey: Int = 0,
     onRevealedChanged: (Boolean) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    usePageLabels: Boolean = false
 ) {
+    var expanded by rememberSaveable(item.id) { mutableStateOf(false) }
+    var revealed by remember(item.id) { mutableStateOf(false) }
+    val motionEnabled = LocalMotionEnabled.current
     // 从 note.color 解析高亮颜色，生成浅色背景版本
     val activePalette = ReaderHighlightPalette
     val highlightColor = remember(item.color, activePalette) {
@@ -12043,13 +12668,21 @@ internal fun HighlightNoteItem(
         onShare = onShare,
         onEditTags = onEditTags,
         onDelete = onDelete,
-        onClick = onClick,
+        onClick = { expanded = !expanded },
         resetRevealedKey = resetRevealedKey,
-        onRevealedChanged = onRevealedChanged,
+        onRevealedChanged = {
+            revealed = it
+            onRevealedChanged(it)
+        },
         modifier = modifier
     ) {
         Row(
             modifier = Modifier.fillMaxWidth()
+                .then(
+                    if (motionEnabled) Modifier.animateContentSize(
+                        animationSpec = spring(stiffness = 400f, visibilityThreshold = IntSize(1, 1))
+                    ) else Modifier
+                )
                 .clip(AppRoundedCornerShape(12.dp))
                 .lumiCardSurface(shape = AppRoundedCornerShape(12.dp))
                 .border(1.dp, AppColors.TextSecondary.copy(alpha = 0.24f), AppRoundedCornerShape(12.dp))
@@ -12069,28 +12702,39 @@ internal fun HighlightNoteItem(
             // 内容
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    item.selectedText.replace('\n', ' '),
-                    fontSize = 14.sp,
+                    if (expanded) item.selectedText else item.selectedText.replace('\n', ' '),
+                    fontSize = AppType.BodySmall,
                     color = AppColors.TextPrimary,
-                    maxLines = 2
+                    maxLines = if (expanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (item.note.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
                         item.note,
-                        fontSize = 13.sp,
+                        fontSize = AppType.Footnote,
                         color = LightTextSecondary,
-                        maxLines = 1
+                        maxLines = if (expanded) Int.MAX_VALUE else 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (item.isStale) Text(stringResource(R.string.markdown_original_changed), fontSize = 12.sp, color = AccentColor)
+                if (item.isStale) Text(stringResource(R.string.markdown_original_changed), fontSize = AppType.Caption, color = AccentColor)
                 AnnotationTagChips(item.tags, modifier = Modifier.padding(top = 6.dp))
                 Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(stringResource(R.string.reader_chapter_fallback, item.chapterIndex + 1), fontSize = 12.sp, color = AccentColor)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    // Keep navigation available while the card itself expands in place.
+                    Text(
+                        stringResource(if (usePageLabels) R.string.pdf_page_number else R.string.reader_chapter_fallback,
+                            item.chapterIndex + 1),
+                        fontSize = AppType.Caption,
+                        color = AccentColor,
+                        modifier = Modifier.clickable(enabled = !revealed, onClick = onClick)
+                            .padding(vertical = 6.dp)
+                    )
                     Text(
                         java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault()).format(java.util.Date(item.createdAt)),
-                        fontSize = 12.sp,
+                        fontSize = AppType.Caption,
                         color = AccentColor
                     )
                 }
@@ -12415,12 +13059,16 @@ private fun rememberReaderWindowLifecycle(
         window?.let { w ->
             val targetBrightness = uiState.brightness
             val attrs = w.attributes
-            attrs.screenBrightness = if (targetBrightness < 0f) {
+            val brightness = if (targetBrightness < 0f) {
                 savedBrightness.floatValue  // 跟随系统
             } else {
                 targetBrightness.coerceIn(0.01f, 1f)  // 自定义亮度，最低 1% 防全黑
             }
-            w.attributes = attrs
+            // setAttributes 每次都会让窗口重新 relayout（跨进程）；亮度没变时不要提交。
+            if (attrs.screenBrightness != brightness) {
+                attrs.screenBrightness = brightness
+                w.attributes = attrs
+            }
         }
     }
 

@@ -2,6 +2,8 @@ package com.huangder.lumibooks.ui.reader
 
 import android.app.Activity
 import android.app.Application
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -10,6 +12,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.view.View
+import com.huangder.lumibooks.domain.model.LiquidGlassSamplingQuality
 import com.huangder.lumibooks.util.epub.EpubPageSide
 import org.junit.Assert.*
 import org.junit.Test
@@ -26,7 +29,7 @@ import org.robolectric.annotation.GraphicsMode
 class EpubSpreadSnapshotTest {
     @Test fun leavesKeepSquareLandmarksAndTheirOwnBackgroundAtNativeDensity() {
         withSpread(false, false) { host, views ->
-            val bitmap = snapshot(host)
+            val bitmap = snapshot(host, LiquidGlassSamplingQuality.ORIGINAL)
             try {
                 assertEquals(1000, bitmap.width)
                 assertEquals(700, bitmap.height)
@@ -41,14 +44,16 @@ class EpubSpreadSnapshotTest {
         }
     }
 
-    @Test fun reverseReadingKeepsTheSameLeafCoordinates() {
+    @Test fun reverseReadingAndSampledBackdropKeepTheSameLeafCoordinates() {
         withSpread(true, false) { host, views ->
-            val bitmap = snapshot(host)
+            val bitmap = snapshot(host, LiquidGlassSamplingQuality.BALANCED)
             try {
+                assertEquals(500, bitmap.width)
+                assertEquals(350, bitmap.height)
                 assertTrue(views[0].left > views[1].left)
                 for ((index, color) in listOf(Color.RED, Color.BLUE).withIndex()) {
-                    assertEquals(color, bitmap.getPixel(views[index].left + 50, 130))
-                    assertEquals(color, bitmap.getPixel(views[index].left + 50, 179))
+                    assertEquals(color, bitmap.getPixel((views[index].left + 50) / 2, 65))
+                    assertEquals(color, bitmap.getPixel((views[index].left + 50) / 2, 89))
                 }
             } finally { bitmap.recycle() }
         }
@@ -56,7 +61,7 @@ class EpubSpreadSnapshotTest {
 
     @Test fun fullWidthPublisherPageCapturesOnlyItsVisibleLeaf() {
         withSpread(false, true) { host, _ ->
-            val bitmap = snapshot(host)
+            val bitmap = snapshot(host, LiquidGlassSamplingQuality.ORIGINAL)
             try {
                 assertEquals(Color.YELLOW, bitmap.getPixel(900, 300))
                 assertEquals(Color.RED, bitmap.getPixel(50, 130))
@@ -64,11 +69,12 @@ class EpubSpreadSnapshotTest {
         }
     }
 
-    private fun snapshot(host: EpubSpreadTurnHost): Bitmap {
-        val slot = host.javaClass.getDeclaredField("current").apply { isAccessible = true }.get(host)
-        val capture = host.javaClass.getDeclaredMethod("captureSpread", slot.javaClass, Bitmap::class.java)
-        capture.isAccessible = true
-        return capture.invoke(host, slot, null) as Bitmap
+    private fun snapshot(host: EpubSpreadTurnHost, quality: LiquidGlassSamplingQuality): Bitmap {
+        val backdrop = host.captureGlassBackdrop(quality)!!
+        val image = backdrop.javaClass.getDeclaredField("pixels").apply { isAccessible = true }.get(backdrop) as ImageBitmap
+        val bitmap = image.asAndroidBitmap()
+        backdrop.close()
+        return bitmap
     }
 
     private fun withSpread(reverse: Boolean, full: Boolean, check: (EpubSpreadTurnHost, List<EpubContentWebView>) -> Unit) {

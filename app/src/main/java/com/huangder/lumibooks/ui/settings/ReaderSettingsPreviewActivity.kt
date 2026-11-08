@@ -1,5 +1,10 @@
 package com.huangder.lumibooks.ui.settings
-import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.CollapsingPageScaffold
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.icons.IconPair
@@ -25,6 +30,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,23 +39,21 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -68,7 +72,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +83,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -90,6 +94,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -98,6 +103,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -120,7 +126,10 @@ import com.huangder.lumibooks.ui.reader.engine.ReadView
 import com.huangder.lumibooks.ui.reader.engine.ReadViewCallbacks
 import com.huangder.lumibooks.ui.reader.engine.ReaderParagraphFormatter
 import com.huangder.lumibooks.ui.reader.ReaderSettingsSegmentedTag
+import com.huangder.lumibooks.ui.reader.TextColorSetting
+import com.huangder.lumibooks.ui.reader.TextColorSwatch
 import com.huangder.lumibooks.ui.reader.darkenReaderSolidColor
+import com.huangder.lumibooks.ui.reader.readerPresetBackgroundSelections
 import com.huangder.lumibooks.ui.reader.readerPresetBackgroundColor
 import com.huangder.lumibooks.ui.reader.readerPresetTextColor
 import com.huangder.lumibooks.ui.animation.AppEasing
@@ -136,12 +145,6 @@ import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.LiquidGlassTextButton
 import com.huangder.lumibooks.ui.components.PillSlider
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
-import com.huangder.lumibooks.ui.components.ProgressiveTopBlur
-import com.huangder.lumibooks.ui.components.ProgressiveTopScrim
-import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA
-import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA_DARK
-import com.huangder.lumibooks.ui.components.progressiveBlurEnabled
-import com.huangder.lumibooks.ui.components.progressiveTopScrimEnabled
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
@@ -150,7 +153,6 @@ import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
-import com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
@@ -200,9 +202,10 @@ class ReaderSettingsPreviewActivity : ComponentActivity() {
             val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
             val darkMode by dataStoreManager.darkMode.collectAsState(initial = launchTheme.darkMode)
             val motionPreferenceValue by dataStoreManager.motionPreference.collectAsState(initial = launchTheme.motionPreference)
-            val liquidGlassCapability = rememberLiquidGlassCapability(view = LocalView.current)
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val liquidGlassCapability = rememberLiquidGlassCapability(eInkMode, LocalView.current)
             val resolvedAppTheme = effectiveAppTheme(appTheme, liquidGlassCapability)
-            val isDark = when (darkMode) {
+            val isDark = if (eInkMode) false else when (darkMode) {
                 "dark" -> true
                 "light" -> false
                 else -> systemDarkMode
@@ -211,10 +214,14 @@ class ReaderSettingsPreviewActivity : ComponentActivity() {
             val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
             val liquidGlassStyle by dataStoreManager.liquidGlassStyle
                 .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val liquidGlassSamplingQuality by dataStoreManager.liquidGlassSamplingQuality
+                .collectAsState(initial = launchTheme.liquidGlassSamplingQuality)
             val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
                 .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                eInkMode = eInkMode,
                 liquidGlassStyle = liquidGlassStyle,
+                liquidGlassSamplingQuality = liquidGlassSamplingQuality,
                 reduceTransparencyEnabled = reduceTransparencyEnabled,
                 menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 darkTheme = isDark,
@@ -483,133 +490,77 @@ private fun ThemeSuiteListScreen(
     var deleteSuite by remember { mutableStateOf<ReaderThemeSuite?>(null) }
     var exportSuite by remember { mutableStateOf<ReaderThemeSuite?>(null) }
     val motionEnabled = LocalMotionEnabled.current
-    val capability = LocalLiquidGlassCapability.current
-    val eInkMode = LocalEInkMode.current
-    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val topBandHeight = statusBarHeight + 112.dp
     val listBackdrop = com.huangder.lumibooks.ui.components.LocalLiquidGlassBackdrop.current
-    val blurEnabled = progressiveBlurEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
-    val scrimEnabled = progressiveTopScrimEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
     val listState = rememberLazyListState()
-    val blurStrength by remember(listState) {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) 1f
-            else (listState.firstVisibleItemScrollOffset / 96f).coerceIn(0f, 1f)
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize().background(AppColors.WindowBg)) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .widthIn(max = 840.dp)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(
-                    start = AppSpace.md,
-                    top = statusBarHeight + 56.dp + AppSpace.sm,
-                    end = AppSpace.md,
-                    bottom = 112.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
-            ) {
-                items(state.suites, key = ReaderThemeSuite::id) { suite ->
-                    ThemeSuiteRow(
-                        suite = suite,
-                        backgrounds = state.backgrounds,
-                        active = suite.id == state.activeSuiteId,
-                        modifier = Modifier.then(
-                            if (motionEnabled) {
-                                Modifier.animateItem(
-                                    fadeInSpec = null,
-                                    fadeOutSpec = null,
-                                    placementSpec = tween(LumiMotion.MenuEnterMillis, easing = AppEasing.Smooth)
-                                )
-                            } else Modifier
-                        ),
-                        onEdit = { onEdit(suite.id) },
-                        onActivate = { onActivate(suite.id) },
-                        onRename = { renameSuite = suite },
-                        onDelete = { deleteSuite = suite },
-                        onMove = { delta -> onMove(suite.id, delta) }
+    CollapsingPageScaffold(
+        title = stringResource(R.string.reader_theme_suites),
+        onBack = onClose,
+        actions = {
+            LiquidGlassIconButton(AppIcons.Plus, stringResource(R.string.add_theme_suite), { createDialog = true })
+        },
+        bottomBar = {
+            ProvideLiquidGlassBackdrop(listBackdrop) {
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 840.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = AppSpace.md, vertical = AppSpace.sm)
+                        .navigationBarsPadding()
+                        .background(Color.Transparent),
+                    horizontalArrangement = Arrangement.spacedBy(AppSpace.sm)
+                ) {
+                    CapsuleButton(
+                        text = stringResource(R.string.theme_bundle_import),
+                        icon = IconPair(AppIcons.UploadSimple, AppIcons.UploadSimple),
+                        selected = false,
+                        modifier = Modifier.weight(1f),
+                        onClick = onImportBundle
+                    )
+                    CapsuleButton(
+                        text = stringResource(R.string.theme_bundle_export),
+                        icon = IconPair(AppIcons.DownloadSimple, AppIcons.DownloadSimple),
+                        selected = false,
+                        modifier = Modifier.weight(1f),
+                        onClick = { exportSuite = state.suites.firstOrNull { it.id == state.activeSuiteId } }
                     )
                 }
             }
         }
-        if (blurEnabled && listBackdrop != null) {
-            ProgressiveTopBlur(
-                backdrop = listBackdrop,
-                strength = blurStrength,
-                modifier = Modifier.align(Alignment.TopCenter),
-                bandHeight = topBandHeight,
-                tint = AppColors.WindowBg.copy(
-                    alpha = if (LocalIsDarkTheme.current) PROGRESSIVE_BLUR_TINT_ALPHA_DARK
-                    else PROGRESSIVE_BLUR_TINT_ALPHA
-                )
-            )
-        } else if (scrimEnabled) {
-            ProgressiveTopScrim(
-                strength = blurStrength,
-                modifier = Modifier.align(Alignment.TopCenter),
-                bandHeight = topBandHeight,
-                tint = AppColors.WindowBg
-            )
-        }
-        ProvideLiquidGlassBackdrop(listBackdrop) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .widthIn(max = 840.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = AppSpace.md, vertical = AppSpace.sm)
-                    .navigationBarsPadding()
-                    .background(Color.Transparent),
-                horizontalArrangement = Arrangement.spacedBy(AppSpace.sm)
-            ) {
-                CapsuleButton(
-                    text = stringResource(R.string.theme_bundle_import),
-                    icon = IconPair(AppIcons.UploadSimple, AppIcons.UploadSimple),
-                    selected = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = onImportBundle
-                )
-                CapsuleButton(
-                    text = stringResource(R.string.theme_bundle_export),
-                    icon = IconPair(AppIcons.DownloadSimple, AppIcons.DownloadSimple),
-                    selected = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = { exportSuite = state.suites.firstOrNull { it.id == state.activeSuiteId } }
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .widthIn(max = 840.dp)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(
+                start = AppSpace.md,
+                top = AppSpace.sm,
+                end = AppSpace.md,
+                bottom = AppSpace.lg
+            ),
+            verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
+        ) {
+            items(state.suites, key = ReaderThemeSuite::id) { suite ->
+                ThemeSuiteRow(
+                    suite = suite,
+                    backgrounds = state.backgrounds,
+                    active = suite.id == state.activeSuiteId,
+                    modifier = Modifier.then(
+                        if (motionEnabled) {
+                            Modifier.animateItem(
+                                fadeInSpec = null,
+                                fadeOutSpec = null,
+                                placementSpec = tween(LumiMotion.MenuEnterMillis, easing = AppEasing.Smooth)
+                            )
+                        } else Modifier
+                    ),
+                    onEdit = { onEdit(suite.id) },
+                    onActivate = { onActivate(suite.id) },
+                    onRename = { renameSuite = suite },
+                    onDelete = { deleteSuite = suite },
+                    onMove = { delta -> onMove(suite.id, delta) }
                 )
             }
-        }
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .height(56.dp)
-                .padding(horizontal = AppSpace.sm),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            LiquidGlassIconButton(
-                imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-                contentDescription = stringResource(R.string.reader_back),
-                onClick = onClose,
-                settingsBackButton = true
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = stringResource(R.string.reader_theme_suites),
-                fontSize = AppType.Section,
-                fontWeight = FontWeight.Bold,
-                color = AppColors.TextPrimary
-            )
-            Spacer(Modifier.weight(1f))
-            LiquidGlassIconButton(
-                imageVector = AppIcons.Plus,
-                contentDescription = stringResource(R.string.add_theme_suite),
-                onClick = { createDialog = true }
-            )
         }
     }
     if (createDialog) {
@@ -635,67 +586,51 @@ private fun ThemeSuiteListScreen(
     deleteSuite?.let { suite ->
         LiquidGlassAlertDialog(
             onDismissRequest = { deleteSuite = null },
-            title = {
-                Text(
-                    stringResource(R.string.delete_theme_suite_title),
-                    fontSize = AppType.Section,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-            },
+            titleText = stringResource(R.string.delete_theme_suite_title),
             text = {
                 Text(
                     stringResource(R.string.delete_theme_suite_message, suite.customName.orEmpty()),
                     color = AppColors.TextSecondary
                 )
             },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.delete),
                     onClick = { deleteSuite = null; onDelete(suite.id) },
+                    role = AppDialogActionRole.Destructive,
                     tintedColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError
-                )
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { deleteSuite = null }
+                    onClick = { deleteSuite = null },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
     exportSuite?.let { suite ->
         LiquidGlassAlertDialog(
             onDismissRequest = { exportSuite = null },
-            title = {
-                Text(
-                    stringResource(R.string.theme_bundle_export_confirm_title),
-                    fontSize = AppType.Section,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-            },
+            titleText = stringResource(R.string.theme_bundle_export_confirm_title),
             text = {
                 Text(
                     stringResource(R.string.theme_bundle_export_confirm_message, themeName(suite)),
                     color = AppColors.TextSecondary
                 )
             },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.theme_bundle_export),
                     onClick = { exportSuite = null; onExportBundle(suite.id) },
+                    role = AppDialogActionRole.Primary,
                     tintedColor = AppColors.Accent
-                )
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { exportSuite = null }
+                    onClick = { exportSuite = null },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 }
 
@@ -789,7 +724,7 @@ private fun ThemeSuiteRow(
                         }
                     )
                 })
-                .shadow(8.dp, shape, ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+                .shadow(8.dp, shape, ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
                 .cardOutline(shape)
                 .clip(shape)
                 .lumiCardSurface(shape = shape)
@@ -980,7 +915,7 @@ private fun NameDialog(
         onDismissRequest = onDismiss,
         shape = AppRoundedCornerShape(24.dp),
         transparencyOverride = (LocalLiquidGlassTransparency.current - 0.10f).coerceIn(0f, 0.90f),
-        backgroundBlurRadius = 12.dp
+        fallbackBlurRadius = 12.dp
     ) {
         Column(Modifier.padding(horizontal = 28.dp, vertical = 22.dp)) {
             Text(
@@ -1089,7 +1024,7 @@ private fun ThemeEditorScreen(
     val imagePreset = backgrounds.firstOrNull {
         it.selectionKey == settings.backgroundSelection && it.type == ReaderBackgroundType.IMAGE
     }
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -1106,42 +1041,13 @@ private fun ThemeEditorScreen(
             )
         }
         ProvideLiquidGlassBackdrop(previewBackdrop) {
-            ExitButton(
-                onExit,
-                Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(AppSpace.sm)
+
+            ThemeEditorTopBar(
+                layout = layout,
+                onLayoutChange = onLayoutChange,
+                onExit = onExit,
+                modifier = Modifier.align(Alignment.TopCenter)
             )
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = AppSpace.sm),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OptionCapsule(
-                        label = stringResource(R.string.reader_layout_editor_reader),
-                        selected = layout == ReaderLayoutTarget.READER_LAYOUT,
-                        onClick = { onLayoutChange(ReaderLayoutTarget.READER_LAYOUT) }
-                    )
-                    OptionCapsule(
-                        label = stringResource(R.string.reader_layout_editor_book),
-                        selected = layout == ReaderLayoutTarget.BOOK_LAYOUT,
-                        onClick = { onLayoutChange(ReaderLayoutTarget.BOOK_LAYOUT) }
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = stringResource(
-                        if (preservePublisherLayout) R.string.reader_layout_editor_book_hint
-                        else R.string.reader_layout_editor_reader_hint
-                    ),
-                    fontSize = AppType.Caption,
-                    color = AppColors.TextSecondary
-                )
-            }
             AnimatedContent(
                 targetState = panel,
                 modifier = Modifier
@@ -1150,7 +1056,7 @@ private fun ThemeEditorScreen(
                     .padding(start = 12.dp, end = 12.dp, bottom = 76.dp)
                     .widthIn(max = 720.dp)
                     .fillMaxWidth()
-                    .heightIn(max = LocalConfiguration.current.screenHeightDp.dp / 2),
+                    .heightIn(max = maxHeight / 2),
                 transitionSpec = {
                     when {
                         !motionEnabled -> EnterTransition.None togetherWith ExitTransition.None
@@ -1195,6 +1101,7 @@ private fun ThemeEditorScreen(
                             )
                             ThemePanel.TEXT -> TextPanel(
                                 settings = settings,
+                                backgrounds = backgrounds,
                                 customFonts = customFonts,
                                 preservePublisherLayout = preservePublisherLayout,
                                 editingDark = editingDark,
@@ -1241,6 +1148,40 @@ private fun ThemeEditorScreen(
 }
 
 @Composable
+internal fun ThemeEditorTopBar(
+    layout: ReaderLayoutTarget,
+    onLayoutChange: (ReaderLayoutTarget) -> Unit,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().statusBarsPadding()
+            .padding(horizontal = 8.dp, vertical = 8.dp).testTag("theme_editor_topbar"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LiquidGlassIconButton(
+            imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
+            contentDescription = stringResource(R.string.reader_back),
+            onClick = onExit,
+            modifier = Modifier.testTag("theme_editor_back")
+        )
+        OptionCapsule(
+            label = stringResource(R.string.reader_layout_editor_reader),
+            selected = layout == ReaderLayoutTarget.READER_LAYOUT,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("theme_editor_reader_layout"),
+            onClick = { onLayoutChange(ReaderLayoutTarget.READER_LAYOUT) }
+        )
+        OptionCapsule(
+            label = stringResource(R.string.reader_layout_editor_book),
+            selected = layout == ReaderLayoutTarget.BOOK_LAYOUT,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("theme_editor_book_layout"),
+            onClick = { onLayoutChange(ReaderLayoutTarget.BOOK_LAYOUT) }
+        )
+    }
+}
+
+@Composable
 private fun ReaderFloatingPanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -1257,7 +1198,7 @@ private fun ReaderFloatingPanel(
 }
 
 @Composable
-private fun BackgroundPanel(
+internal fun BackgroundPanel(
     settings: ReaderThemeSettings,
     backgrounds: List<ReaderBackgroundPreset>,
     hasImage: Boolean,
@@ -1292,28 +1233,37 @@ private fun BackgroundPanel(
             )
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(listOf("day", "sepia", "green", "night")) { selection ->
-                ColorSwatch(
+            items(readerPresetBackgroundSelections) { selection ->
+                TextColorSwatch(
                     color = Color(backgroundColor(selection, null, editingDark)),
-                    selected = settings.backgroundColorSelection == selection,
+                    isSelected = settings.backgroundColorSelection == selection,
+                    contentDescription = stringResource(when (selection) {
+                        "night" -> R.string.theme_night
+                        "sepia" -> R.string.theme_sepia
+                        "green" -> R.string.theme_green
+                        else -> R.string.theme_day
+                    }),
                     onClick = { onSelectColor(selection) }
                 )
             }
             items(backgrounds.filter { it.type == ReaderBackgroundType.COLOR }) { preset ->
-                ColorSwatch(
+                TextColorSwatch(
                     color = Color(backgroundColor(preset.selectionKey, preset, editingDark)),
-                    selected = settings.backgroundColorSelection == preset.selectionKey,
+                    isSelected = settings.backgroundColorSelection == preset.selectionKey,
+                    contentDescription = preset.displayName(preset.value),
                     onClick = { onSelectColor(preset.selectionKey) }
                 )
             }
             item {
-                LiquidGlassIconButton(
-                    imageVector = AppIcons.Plus,
+                TextColorSwatch(
+                    color = AppColors.BgGray,
+                    isSelected = false,
                     contentDescription = stringResource(R.string.background_custom_color),
-                    onClick = { colorDialog = true },
-                    size = 36.dp,
-                    iconSize = 18.dp
-                )
+                    onClick = { colorDialog = true }
+                ) {
+                    Icon(AppIcons.Plus, contentDescription = null,
+                        tint = AppColors.TextSecondary, modifier = Modifier.size(19.dp))
+                }
             }
         }
         if (hasImage) {
@@ -1384,8 +1334,9 @@ private fun BackgroundPanel(
 }
 
 @Composable
-private fun TextPanel(
+internal fun TextPanel(
     settings: ReaderThemeSettings,
+    backgrounds: List<ReaderBackgroundPreset>,
     customFonts: List<CustomFontPreset>,
     preservePublisherLayout: Boolean,
     editingDark: Boolean,
@@ -1418,23 +1369,11 @@ private fun TextPanel(
                 color = AppColors.TextSecondary
             )
         } else {
-            Text(
-                stringResource(R.string.label_text_color),
-                fontSize = AppType.BodySmall,
-                color = AppColors.TextSecondary
+            TextColorSetting(
+                currentOverride = settings.textColor,
+                effectiveTextColor = Color(themeTextColor(settings, backgrounds, editingDark)),
+                onColorChange = { onUpdate(settings.copy(textColor = it)) }
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                listOf(0xFF222222, 0xFF5A4636, 0xFF1E5E36, 0xFFE7E7E7).forEach { argb ->
-                    ColorSwatch(Color(argb), settings.textColor == argb.toInt()) {
-                        onUpdate(settings.copy(textColor = argb.toInt()))
-                    }
-                }
-                OptionCapsule(
-                    label = stringResource(R.string.text_color_auto),
-                    selected = settings.textColor == null,
-                    onClick = { onUpdate(settings.copy(textColor = null)) }
-                )
-            }
         }
         SettingSlider(
             stringResource(R.string.label_font_size),
@@ -1465,22 +1404,22 @@ private fun TextPanel(
         ) { onUpdate(settings.copy(fontType = it)) }
         SettingSlider(
             stringResource(R.string.body_font_weight),
-            settings.bodyFontWeight.toFloat(),
+            settings.bodyFontWeight,
             100f..900f,
-            7,
+            7999,
             "",
             onPreview = {
-                onPreviewUpdate(settings.copy(bodyFontWeight = (it / 100).roundToInt() * 100))
+                onPreviewUpdate(settings.copy(bodyFontWeight = (it * 10f).roundToInt() / 10f))
             },
             onChange = {
-                onUpdate(settings.copy(bodyFontWeight = (it / 100).roundToInt() * 100))
+                onUpdate(settings.copy(bodyFontWeight = (it * 10f).roundToInt() / 10f))
             }
         )
         SettingSlider(
             stringResource(R.string.label_line_height),
             settings.lineHeight,
-            1f..2.5f,
-            14,
+            ReaderThemeSettings.LINE_HEIGHT_RANGE,
+            19,
             "×",
             onPreview = { onPreviewUpdate(settings.copy(lineHeight = it)) },
             onChange = { onUpdate(settings.copy(lineHeight = it)) }
@@ -1488,8 +1427,8 @@ private fun TextPanel(
         SettingSlider(
             stringResource(R.string.label_letter_spacing),
             settings.letterSpacing,
-            0f..10f,
-            19,
+            ReaderThemeSettings.LETTER_SPACING_RANGE,
+            29,
             "dp",
             onPreview = { onPreviewUpdate(settings.copy(letterSpacing = it)) },
             onChange = { onUpdate(settings.copy(letterSpacing = it)) }
@@ -1552,7 +1491,9 @@ private fun AnimationPreviewScreen(
     onDurationPreview: (String, Int) -> Unit,
     onDurationChange: (String, Int) -> Unit
 ) {
-    val mode = state.animationMode
+    val mode = if (state.eInkMode &&
+        !com.huangder.lumibooks.domain.model.ReaderPageTransition.isAvailableInEInk(state.animationMode)
+    ) "fade" else state.animationMode
     val previewTheme = if (LocalIsDarkTheme.current) {
         ReaderThemeSuites.NIGHT_ID
     } else {
@@ -1569,90 +1510,97 @@ private fun AnimationPreviewScreen(
     LaunchedEffect(duration, mode) {
         if (!durationIsDragging) displayedDuration = duration.toFloat()
     }
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .layerBackdrop(previewBackdrop)
-        ) {
-            PreviewReadView(
-                ReaderThemeSettings(
-                    backgroundSelection = previewTheme,
-                    backgroundColorSelection = previewTheme
-                ),
-                emptyList(),
-                emptyList(),
-                mode,
-                displayedDuration.roundToInt(),
-                sample,
-                readerTheme = previewTheme
-            )
-        }
-        ProvideLiquidGlassBackdrop(previewBackdrop) {
-            ExitButton(
-                onClose,
-                Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(AppSpace.sm)
-            )
+    CollapsingPageScaffold(
+        title = stringResource(R.string.reader_page_animation_settings_title), onBack = onClose, contentScrollEnabled = false
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 18.dp, end = 18.dp, bottom = 76.dp)
-                    .fillMaxWidth()
+                    .matchParentSize()
+                    .layerBackdrop(previewBackdrop)
             ) {
-                ReaderFloatingPanel(modifier = Modifier.widthIn(max = 640.dp)) {
-                    Column(Modifier.padding(AppSpace.md)) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                stringResource(R.string.page_turn_speed),
-                                fontSize = AppType.Body,
-                                fontWeight = FontWeight.SemiBold,
-                                color = AppColors.TextPrimary
-                            )
-                            ClickableSliderValue(
-                                text = "${displayedDuration.roundToInt()} ms",
-                                onClick = { showDurationInput = true }
+                PreviewReadView(
+                    ReaderThemeSettings(
+                        backgroundSelection = previewTheme,
+                        backgroundColorSelection = previewTheme
+                    ),
+                    emptyList(),
+                    emptyList(),
+                    mode,
+                    displayedDuration.roundToInt(),
+                    sample,
+                    readerTheme = previewTheme
+                )
+            }
+            ProvideLiquidGlassBackdrop(previewBackdrop) {
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(start = 18.dp, end = 18.dp, bottom = 76.dp)
+                        .fillMaxWidth()
+                        .heightIn(max = (maxHeight - 88.dp).coerceAtLeast(0.dp))
+                ) {
+                    ReaderFloatingPanel(modifier = Modifier.widthIn(max = 640.dp)) {
+                        Column(Modifier.padding(AppSpace.md)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    stringResource(R.string.page_turn_speed),
+                                    fontSize = AppType.Body,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppColors.TextPrimary
+                                )
+                                ClickableSliderValue(
+                                    text = "${displayedDuration.roundToInt()} ms",
+                                    onClick = { showDurationInput = true }
+                                )
+                            }
+                            Spacer(Modifier.height(AppSpace.sm))
+                            PillSlider(
+                                value = displayedDuration,
+                                onValueChange = {
+                                    durationIsDragging = false
+                                    val snapped = snapAnimationDuration(it, range, step)
+                                    displayedDuration = snapped.toFloat()
+                                    onDurationChange(mode, snapped)
+                                },
+                                onDragValueChange = {
+                                    durationIsDragging = true
+                                    val snapped = snapAnimationDuration(it, range, step)
+                                    displayedDuration = snapped.toFloat()
+                                    onDurationPreview(mode, snapped)
+                                },
+                                valueRange = range.first.toFloat()..range.last.toFloat(),
+                                step = step.toFloat()
                             )
                         }
-                        Spacer(Modifier.height(AppSpace.sm))
-                        PillSlider(
-                            value = displayedDuration,
-                            onValueChange = {
-                                durationIsDragging = false
-                                val snapped = snapAnimationDuration(it, range, step)
-                                displayedDuration = snapped.toFloat()
-                                onDurationChange(mode, snapped)
-                            },
-                            onDragValueChange = {
-                                durationIsDragging = true
-                                val snapped = snapAnimationDuration(it, range, step)
-                                displayedDuration = snapped.toFloat()
-                                onDurationPreview(mode, snapped)
-                            },
-                            valueRange = range.first.toFloat()..range.last.toFloat(),
-                            step = step.toFloat()
-                        )
                     }
                 }
-            }
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AnimationCapsule(stringResource(R.string.page_animation_slide_short), "slide", mode, onModeChange)
-                AnimationCapsule(stringResource(R.string.page_animation_scroll_short), "scroll", mode, onModeChange)
-                AnimationCapsule(stringResource(R.string.page_animation_fade_short), "fade", mode, onModeChange)
-                AnimationCapsule(stringResource(R.string.page_animation_curl_short), "curl", mode, onModeChange)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .widthIn(max = 840.dp)
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(horizontal = AppSpace.md, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!state.eInkMode) {
+                        AnimationCapsule(stringResource(R.string.page_animation_slide_short), "slide", mode, onModeChange)
+                        AnimationCapsule(stringResource(R.string.page_animation_scroll_short), "scroll", mode, onModeChange)
+                    }
+                    AnimationCapsule(stringResource(R.string.page_animation_fade_short), "fade", mode, onModeChange)
+                    if (!state.eInkMode) {
+                        AnimationCapsule(stringResource(R.string.page_animation_curl_short), "curl", mode, onModeChange)
+                    }
+                    AnimationCapsule(stringResource(R.string.page_animation_wave_short), "wave", mode, onModeChange)
+                }
             }
         }
     }
@@ -1733,11 +1681,7 @@ private fun PreviewReadView(
     val imageSource = imagePreset?.resolveImageSource(effectiveSettings.backgroundImageBlurDp)
     val imagePath = imageSource?.path
     val imageBlurDp = imageSource?.runtimeBlurDp ?: 0f
-    val textColor = effectiveSettings.textColor ?: if (background != null) {
-        automaticTextColor(background.dominantColor ?: color)
-    } else {
-        readerPresetTextColor(effectiveSettings.backgroundSelection, dark)
-    }
+    val textColor = themeTextColor(effectiveSettings, backgrounds, dark)
     val customFontPath = effectiveSettings.fontType.takeIf { it.startsWith("custom:") }
         ?.removePrefix("custom:")
         ?.let { id -> customFonts.firstOrNull { it.id == id }?.path }
@@ -1806,17 +1750,6 @@ private fun rememberSampleText(): String {
 }
 
 @Composable
-private fun ExitButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    LiquidGlassIconButton(
-        imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-        contentDescription = stringResource(R.string.exit_preview),
-        onClick = onClick,
-        modifier = modifier,
-        settingsBackButton = true
-    )
-}
-
-@Composable
 private fun CapsuleButton(
     text: String,
     icon: com.huangder.lumibooks.ui.icons.IconPair?,
@@ -1836,7 +1769,7 @@ private fun CapsuleButton(
             verticalAlignment = Alignment.CenterVertically
         ) {
             icon?.let {
-                Icon(it.resolve(selected), contentDescription = null, modifier = Modifier.size(17.dp))
+                ControlIcon(it.resolve(selected), contentDescription = null, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(5.dp))
             }
             Text(text, fontSize = AppType.Caption, fontWeight = FontWeight.SemiBold)
@@ -1908,24 +1841,11 @@ private fun CommandCapsuleButton(
             modifier = Modifier.padding(horizontal = AppSpace.md, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            ControlIcon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(AppSpace.sm))
             Text(text, fontSize = AppType.BodySmall, fontWeight = FontWeight.SemiBold)
         }
     }
-}
-
-@Composable
-private fun ColorSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
-    val shape = AppRoundedCornerShape(AppRadius.md)
-    Box(
-        Modifier.size(40.dp).background(color, shape)
-            .border(
-                if (selected) 3.dp else 1.dp,
-                if (selected) AppColors.Accent else AppColors.Divider,
-                shape
-            ).clickable(onClick = onClick)
-    )
 }
 
 @Composable
@@ -2015,7 +1935,7 @@ private fun SliderValueInputDialog(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
-    step: Float,
+    @Suppress("UNUSED_PARAMETER") step: Float,
     format: (Float) -> String,
     onConfirm: (Float) -> Unit,
     onDismiss: () -> Unit
@@ -2030,7 +1950,7 @@ private fun SliderValueInputDialog(
     val canConfirm = parsedValue != null
     val confirm = {
         parsedValue?.let { input ->
-            onConfirm(snapSliderValue(input, range, step))
+            onConfirm(input)
             onDismiss()
         }
         Unit
@@ -2078,7 +1998,7 @@ private fun SliderValueInputDialog(
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Decimal,
+                        keyboardType = if (range.start < 0f) KeyboardType.Text else KeyboardType.Decimal,
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(onDone = { confirm() }),
@@ -2186,19 +2106,22 @@ private fun OptionRow(
 }
 
 @Composable
-private fun OptionCapsule(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun OptionCapsule(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     ReaderControlCapsule(
         onClick = onClick,
+        modifier = modifier,
         containerColor = if (selected) AppColors.Accent else AppColors.BgGray,
         contentColor = if (selected) AppColors.OnAccent else AppColors.TextPrimary,
         tintColor = AppColors.Accent.takeIf { selected }
     ) {
         Text(
             label,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 9.dp),
             fontSize = AppType.Caption,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -2225,4 +2148,18 @@ private fun automaticTextColor(backgroundColor: Int): Int {
     } else {
         0xFF333333.toInt()
     }
+}
+
+private fun themeTextColor(
+    settings: ReaderThemeSettings,
+    backgrounds: List<ReaderBackgroundPreset>,
+    dark: Boolean
+): Int {
+    settings.textColor?.let { return it }
+    val background = backgrounds.firstOrNull { it.selectionKey == settings.backgroundSelection }
+        ?: return readerPresetTextColor(settings.backgroundSelection, dark)
+    val baseBackground = backgrounds.firstOrNull { it.selectionKey == settings.backgroundColorSelection }
+    val color = backgroundColor(settings.backgroundColorSelection, baseBackground,
+        dark && background.type != ReaderBackgroundType.IMAGE)
+    return automaticTextColor(background.dominantColor ?: color)
 }

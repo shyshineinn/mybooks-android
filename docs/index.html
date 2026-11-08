@@ -1,480 +1,198 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="icon.png">
-    <title>Lumi — 为阅读而生</title>
-    <script>document.documentElement.classList.add('js');</script>
-    <style>
-        /* ═══ 首页专属布局（设计系统见 lumi-immersive.css） ═══ */
-
-        /* ── Hero ── */
-        .hero {
-            width: min(calc(100% - 48px), var(--max-w));
-            margin: 0 auto;
-            padding: clamp(56px, 8vw, 104px) 0 clamp(48px, 6vw, 80px);
-            text-align: center;
-        }
-        .hero .in { opacity: 0; animation: heroIn 0.9s var(--ease) forwards; }
-        .hero .in-1 { animation-delay: 0.05s; }
-        .hero .in-2 { animation-delay: 0.16s; }
-        .hero .in-3 { animation-delay: 0.28s; }
-        .hero .in-4 { animation-delay: 0.40s; }
-        .hero .in-5 { animation-delay: 0.52s; }
-
-        .hero-kicker {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            padding: 9px 18px;
-            border: 1px solid var(--stroke-2);
-            border-radius: 999px;
-            background: var(--glass);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 0.08em;
-            color: var(--body-c);
-        }
-        .hero-kicker::before {
-            content: "";
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: var(--accent);
-            box-shadow: 0 0 0 6px rgba(255, 56, 92, 0.14), 0 0 18px rgba(255, 56, 92, 0.9);
-        }
-
-        .hero h1 {
-            margin: 26px auto 0;
-            max-width: 860px;
-            font-size: clamp(44px, 7.6vw, 96px);
-            font-weight: 700;
-            line-height: 1.1;
-            letter-spacing: 0.005em;
-        }
-        .hero h1 .hero-gradient-text {
-            color: transparent;
-            background: linear-gradient(105deg, #ffb3c2 0%, var(--accent) 48%, #ff8a54 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-        }
-        .hero-desc {
-            max-width: 620px;
-            margin: 24px auto 0;
-            font-size: clamp(16px, 1.7vw, 19px);
-            line-height: 1.85;
-            color: var(--body-c);
-        }
-        .hero-actions {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 14px;
-            margin-top: 36px;
-        }
-        .hero-backup-dl {
-            display: inline-block;
-            margin-top: 22px;
-            font-size: 13.5px;
-            color: var(--muted);
-            text-decoration: underline;
-            text-underline-offset: 4px;
-            text-decoration-color: rgba(235, 235, 245, 0.22);
-            transition: color 0.15s ease;
-        }
-        .hero-backup-dl:hover { color: var(--ink); }
-        .hero-backup-links {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            align-items: center;
-            gap: 6px 26px;
-            margin-top: 22px;
-        }
-        .hero-backup-links .hero-backup-dl { margin-top: 0; }
-        .hero .pill-strip { justify-content: center; margin-top: 26px; }
-
-        .hero-visual {
-            position: relative;
-            display: flex;
-            justify-content: center;
-            margin-top: clamp(52px, 7vw, 88px);
-        }
-        .hero-visual::before {
-            content: "";
-            position: absolute;
-            top: 6%;
-            width: min(620px, 86vw);
-            height: 68%;
-            border-radius: 50%;
-            background: radial-gradient(closest-side, rgba(255, 56, 92, 0.22), rgba(255, 56, 92, 0.05) 58%, transparent 74%);
-            filter: blur(30px);
-            animation: glowPulse 7s ease-in-out infinite;
-            pointer-events: none;
-        }
-        .hero-shot {
-            position: relative;
-            width: min(430px, 80vw);
-            height: auto;
-            border-radius: 28px;
-            border: 1px solid var(--stroke-2);
-            box-shadow: 0 60px 160px rgba(0, 0, 0, 0.6), 0 0 120px rgba(255, 56, 92, 0.12);
-            animation: floatY 7s ease-in-out infinite;
-        }
-
-        /* ── 亮点三卡 ── */
-        .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-        .trio .glass-card { padding: 30px 28px; }
-        .trio strong {
-            display: block;
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--ink);
-            line-height: 1.2;
-        }
-        .trio span { display: block; margin-top: 8px; font-size: 14px; color: var(--muted); }
-
-        /* ── 探索卡 ── */
-        .explore-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-        .explore-card {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            padding: 30px 28px;
-            text-decoration: none;
-        }
-        .explore-card .ec-icon {
-            width: 50px;
-            height: 50px;
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            background: var(--glass-2);
-            border: 1px solid var(--stroke);
-        }
-        .explore-card h3 { font-size: 17px; font-weight: 600; color: var(--ink); }
-        .explore-card p { font-size: 14px; line-height: 1.7; color: var(--body-c); }
-        .explore-card .ec-arrow {
-            margin-top: auto;
-            font-size: 18px;
-            color: var(--muted);
-            transition: transform 0.25s var(--ease), color 0.25s ease;
-        }
-        .explore-card:hover .ec-arrow { transform: translateX(5px); color: var(--accent); }
-
-        /* ── 下载横幅 ── */
-        .dl-band {
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 28px;
-            padding: clamp(36px, 5vw, 56px) clamp(28px, 4.5vw, 56px);
-            border-radius: var(--radius-xl);
-        }
-        .dl-band::before {
-            content: "";
-            position: absolute;
-            inset: -45% auto auto -10%;
-            width: 460px;
-            height: 460px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(255, 56, 92, 0.26), transparent 68%);
-            pointer-events: none;
-        }
-        .dl-band::after {
-            content: "";
-            position: absolute;
-            inset: auto -12% -55% auto;
-            width: 380px;
-            height: 380px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(86, 112, 255, 0.16), transparent 70%);
-            pointer-events: none;
-        }
-        .dl-band > * { position: relative; z-index: 1; }
-        .dl-info h3 { font-size: clamp(24px, 2.8vw, 32px); font-weight: 700; }
-        .dl-info p { margin-top: 8px; font-size: 16px; color: var(--body-c); }
-        .dl-info .version-tag { margin-top: 6px; font-size: 13.5px; color: var(--muted); }
-        .dl-info .backup-dl {
-            display: inline-block;
-            margin-top: 14px;
-            font-size: 13.5px;
-            color: var(--accent-strong);
-            text-decoration: underline;
-            text-underline-offset: 4px;
-            text-decoration-color: rgba(255, 56, 92, 0.35);
-        }
-        .dl-info .backup-dl:hover { color: #fff; }
-        .backup-links {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 6px 20px;
-            margin-top: 14px;
-        }
-        .backup-links .backup-dl { margin-top: 0; }
-
-        /* ── 响应式 ── */
-        @media (max-width: 960px) {
-            .trio, .explore-grid { grid-template-columns: 1fr; }
-            .dl-band { flex-direction: column; text-align: center; }
-            .backup-links { justify-content: center; }
-        }
-        @media (max-width: 640px) {
-            .hero { width: min(calc(100% - 40px), var(--max-w)); }
-            .hero-actions .btn-primary,
-            .hero-actions .btn-secondary { width: min(280px, 100%); }
-            .hero-shot { width: min(330px, 82vw); }
-        }
-    </style>
-    <link rel="stylesheet" href="lumi-immersive.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Lumi，一款本地优先、无广告的 Android 阅读器。让书架、批注与每一次阅读，都回到你手中。">
+<link rel="icon" type="image/png" href="icon.png">
+<title>Lumi — 把阅读，留给自己</title>
+<link rel="stylesheet" href="lumi-editorial.css">
+<link rel="stylesheet" href="lumi-home.css">
+<script defer src="lumi-editorial.js"></script>
+<script defer src="lumi-home.js"></script>
 </head>
-<body>
+<body class="home">
+<a class="skip" href="#main">跳到主要内容</a>
+<nav class="top-nav nav-dark"><a href="index.html" class="nav-logo"><img src="media/lumi2.webp" alt=""><span>Lumi</span></a><ul class="nav-links"><li><a href="features.html">阅读体验</a></li><li><a href="premium.html">Premium</a></li><li><a href="tech.html">技术</a></li><li><a href="privacy-section.html">隐私</a></li><li><a href="changelog.html">更新</a></li></ul><div class="nav-cta"><a class="btn-nav-download" href="https://github.com/huangder/Lumi_Books/releases">获取 Lumi</a></div><button class="nav-more-btn" aria-controls="lumi-nav-menu" aria-expanded="false">菜单</button><div class="nav-menu" id="lumi-nav-menu"><a href="features.html">阅读体验</a><a href="premium.html">Premium</a><a href="tech.html">技术</a><a href="privacy-section.html">隐私</a><a href="changelog.html">更新</a><a href="sponsor.html">支持 Lumi</a><a href="feedback.html">反馈</a></div></nav>
+<main id="main">
 
-<!-- ═══ Top Navigation ═══ -->
-<nav class="top-nav">
-    <a href="#" class="nav-logo" aria-label="Lumi 首页">
-        <img src="icon.png" class="logo-icon-img" alt="Lumi">
-        <span class="logo-text">Lumi</span>
-    </a>
-    <ul class="nav-links" aria-label="主导航">
-        <li><a href="features.html">功能</a></li>
-        <li><a href="privacy-section.html">隐私</a></li>
-        <li><a href="tech.html">技术</a></li>
-        <li><a href="sponsor.html">赞助</a></li>
-        <li><a href="feedback.html">反馈</a></li>
-    </ul>
-    <div class="nav-cta">
-        <a href="https://github.com/huangder/Lumi_Books/releases" class="btn-nav-download">获取 Lumi</a>
+<!-- 1. Hero: the phone rises and straightens as you scroll -->
+<section class="scene hero-scene" data-scene="hero" data-theme="dark" style="--h:300">
+  <div class="sticky">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="hero-title">
+      <p class="hero-kicker">Lumi Books</p>
+      <h1 class="hero-word">Lumi</h1>
+      <p class="hero-tag">把阅读，留给自己。</p>
     </div>
-    <button class="nav-more-btn" type="button" aria-label="打开导航菜单" aria-controls="lumi-nav-menu">菜单</button>
-    <div class="nav-more-dropdown" id="lumi-nav-menu">
-        <a href="features.html">功能</a>
-        <a href="privacy-section.html">隐私</a>
-        <a href="tech.html">技术</a>
-        <a href="sponsor.html">赞助</a>
-        <a href="feedback.html">反馈</a>
+    <div class="stage hero-stage">
+      <div class="tilt" data-tilt>
+        <div class="phone hero-phone">
+          <div class="phone__screen">
+            <img src="media/screen/shelf-dark.webp" alt="Lumi 深色书架" fetchpriority="high">
+            <img src="media/screen/reader-text.webp" alt="Lumi 电子书正文阅读页面" decoding="async">
+          </div>
+        </div>
+      </div>
     </div>
-</nav>
-
-<!-- ═══ Hero ═══ -->
-<header class="hero">
-    <div class="hero-kicker in in-1">Lumi Books &middot; Local-first reader</div>
-    <h1 class="in in-2">把整个书架，<br><span class="hero-gradient-text">沉进一束光里</span></h1>
-    <p class="hero-desc in in-3">
-        为 Android 打造的本地电子书阅读器。没有广告、无需网络、无需账号；从打开一本书开始，只留下文字、进度和安静的阅读现场。
-    </p>
-    <div class="hero-actions in in-4">
-        <a href="https://github.com/huangder/Lumi_Books/releases" class="btn-primary">获取 Lumi</a>
-        <a href="https://github.com/huangder/Lumi_Books" class="btn-secondary">GitHub 开源</a>
+    <div class="hero-end">
+      <h2>一个安静、自由、<br>为长久阅读而打磨的阅读器。</h2>
+      <p>书在身边，数据也在身边。免费、开源、无广告，适用于 Android 8.0+。</p>
+      <div class="hero-actions"><a class="btn btn-primary" href="https://github.com/huangder/Lumi_Books/releases">下载 Lumi</a><a class="btn-link" href="https://github.com/huangder/Lumi_Books">探索开源 ›</a></div>
+      <p class="hero-meta">EPUB · PDF · TXT · Kindle · Markdown</p>
     </div>
-    <div class="hero-backup-links in in-5">
-        <a href="https://pan.baidu.com/s/1vDdFsoqQuuZlntUTUjssZw?pwd=lumi" class="hero-backup-dl" target="_blank" rel="noopener">备用下载（百度网盘，密码 lumi）</a>
-        <a href="https://wwaug.lanzoub.com/b0xxfmxvi" class="hero-backup-dl" target="_blank" rel="noopener">备用下载（蓝奏云，密码 lumi）</a>
-        <a href="https://gitee.com/huangder/lumi_-books_-gitee" class="hero-backup-dl" target="_blank" rel="noopener">备用下载（Gitee）</a>
-    </div>
-    <div class="pill-strip in in-5">
-        <span class="pill-badge"><span class="accent-dot"></span>EPUB · PDF · TXT · CBZ</span>
-        <span class="pill-badge"><span class="accent-dot"></span>Android 8.0+</span>
-        <span class="pill-badge"><span class="accent-dot"></span>本地优先</span>
-    </div>
-    <div class="hero-visual in in-4">
-        <img src="reading-dark.png" class="hero-shot" alt="Lumi 阅读界面·夜间主题">
-    </div>
-</header>
-
-<!-- ═══ 亮点 ═══ -->
-<section class="section" style="padding-top: 0;">
-    <div class="trio">
-        <div class="glass-card hoverable reveal d1"><strong>0 广告</strong><span>打开即读</span></div>
-        <div class="glass-card hoverable reveal d2"><strong>本地优先</strong><span>数据留在设备</span></div>
-        <div class="glass-card hoverable reveal d3"><strong>多格式</strong><span>EPUB / PDF / TXT / CBZ</span></div>
-    </div>
+    <div class="scroll-hint" aria-hidden="true"><span></span>向下滚动</div>
+  </div>
 </section>
 
-<!-- ═══ 应用预览 · 海报卡 ═══ -->
-<section class="section" style="padding-top: 0;">
-    <div class="section-head center reveal">
-        <div class="eyebrow">应用预览</div>
-        <h2>简洁优雅的阅读体验</h2>
-    </div>
-
-    <!-- 两张大卡 -->
-    <div class="poster-grid cols-2">
-        <article class="glass-card hoverable poster-card reveal d1">
-            <div class="poster-stage">
-                <img src="hero.png" alt="Lumi 应用主页" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>多格式支持</h3>
-                <p>原生解析 EPUB、PDF、TXT、MOBI 电子书与 CBZ 漫画压缩包，自研解析引擎，无需依赖第三方阅读组件。</p>
-            </div>
-        </article>
-        <article class="glass-card hoverable poster-card reveal d2">
-            <div class="poster-stage" style="--stage-glow: rgba(86, 112, 255, 0.22);">
-                <img src="pdf.png" alt="Lumi PDF 批注" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>PDF 智能解析</h3>
-                <p>将 PDF 文档智能解析为可重排的电子书格式，享受与 EPUB 一致的流畅阅读体验；PDF 自由批注，支持画笔、荧光笔和橡皮擦。</p>
-            </div>
-        </article>
-    </div>
-
-    <!-- 四张小卡 -->
-    <div class="poster-grid cols-4">
-        <article class="glass-card hoverable poster-card reveal d1">
-            <div class="poster-stage" style="--stage-glow: rgba(86, 112, 255, 0.18);">
-                <img src="shelf-dark.png" alt="Lumi 深色书库" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>书架管理</h3>
-                <p>自定义标签分类，按书名或作者快速搜索，多书场景下瞬间定位。</p>
-            </div>
-        </article>
-        <article class="glass-card hoverable poster-card reveal d2">
-            <div class="poster-stage" style="--stage-glow: rgba(255, 138, 84, 0.18);">
-                <img src="themes.png" alt="Lumi 主题套装面板" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>四套阅读主题</h3>
-                <p>纯白、暖光、浅灰、暗夜四套精心调校的阅读配色，一键切换。</p>
-            </div>
-        </article>
-        <article class="glass-card hoverable poster-card reveal d3">
-            <div class="poster-stage" style="--stage-glow: rgba(102, 187, 106, 0.16);">
-                <img src="highlight.png" alt="Lumi 划词高亮标注" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>笔记与高亮</h3>
-                <p>选中文字即可添加高亮或撰写笔记，支持导出与集中管理。</p>
-            </div>
-        </article>
-        <article class="glass-card hoverable poster-card reveal d4">
-            <div class="poster-stage">
-                <img src="tts-subtitle.png" alt="Lumi 听书悬浮字幕设置" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>TTS 听书</h3>
-                <p>听书悬浮字幕，可自定义位置、背景、透明度和尺寸。</p>
-            </div>
-        </article>
-    </div>
-
-    <!-- 横向卡：图左文右 -->
-    <div class="poster-grid">
-        <article class="glass-card hoverable poster-card horizontal reveal">
-            <div class="poster-stage" style="--stage-glow: rgba(255, 138, 84, 0.20);">
-                <img src="stats-year.png" alt="Lumi 年度阅读热力图" loading="lazy">
-            </div>
-            <div class="poster-body">
-                <h3>阅读统计</h3>
-                <p>热力图展示阅读频率，连续阅读天数和连胜记录，周/月/年多维度统计，可视化你的阅读成就。</p>
-            </div>
-        </article>
-    </div>
-
-    <!-- 全宽横幅：平板 -->
-    <div class="poster-grid">
-        <article class="glass-card hoverable poster-card wide reveal">
-            <div class="poster-stage">
-                <img src="tablet.png" alt="Lumi 平板横屏双页对开阅读" loading="lazy">
-            </div>
-            <div class="poster-body center">
-                <h3>双页对开</h3>
-                <p>平板横屏双页对开阅读与宽屏布局适配。</p>
-            </div>
-        </article>
-    </div>
+<!-- 2. Manifesto: words light up as you scroll -->
+<section class="scene words-scene" data-scene="words" data-theme="dark" style="--h:220">
+  <div class="sticky">
+    <p class="words" data-words>读书这件小事，不必交给云端。Lumi <em>不需要账号</em>，<em>不追踪</em>你的阅读，也不会把书架变成广告位。书籍、进度、笔记默认<em>留在本机</em>；需要同步时，连接<em>你自己的 WebDAV</em>。</p>
+  </div>
 </section>
 
-<!-- ═══ 探索 Lumi ═══ -->
-<section class="section" style="padding-top: 0;">
-    <div class="section-head center reveal">
-        <div class="eyebrow">探索 Lumi</div>
-        <h2>了解更多</h2>
-    </div>
-    <div class="explore-grid">
-        <a href="features.html" class="glass-card hoverable explore-card reveal d1">
-            <div class="ec-icon">✨</div>
-            <h3>功能介绍</h3>
-            <p>多格式支持、视差翻页、笔记高亮、阅读统计——你所需要的一切阅读功能。</p>
-            <span class="ec-arrow">→</span>
-        </a>
-        <a href="privacy.html" class="glass-card hoverable explore-card reveal d2">
-            <div class="ec-icon">🛡️</div>
-            <h3>隐私保护</h3>
-            <p>本地优先，可选云同步和 AI 朗读。开源透明，代码可审查，你的数据你做主。</p>
-            <span class="ec-arrow">→</span>
-        </a>
-        <a href="tech.html" class="glass-card hoverable explore-card reveal d3">
-            <div class="ec-icon">⚙️</div>
-            <h3>技术架构</h3>
-            <p>Kotlin + Jetpack Compose + MVVM，自实现解析引擎，现代 Android 技术栈。</p>
-            <span class="ec-arrow">→</span>
-        </a>
-    </div>
-</section>
-
-<!-- ═══ Download CTA ═══ -->
-<section class="section" style="padding-top: 0;">
-    <div class="dl-band glass-card reveal">
-        <div class="dl-info">
-            <h3>准备好开始阅读了？</h3>
-            <p>最新版本 Dream · Android 8.0 及以上</p>
-            <div class="version-tag">开源免费 · 持续更新</div>
-            <div class="backup-links">
-                <a href="https://pan.baidu.com/s/1vDdFsoqQuuZlntUTUjssZw?pwd=lumi" class="backup-dl" target="_blank" rel="noopener">备用下载（百度网盘，密码 lumi）</a>
-                <a href="https://wwaug.lanzoub.com/b0xxfmxvi" class="backup-dl" target="_blank" rel="noopener">备用下载（蓝奏云，密码 lumi）</a>
-                <a href="https://gitee.com/huangder/lumi_-books_-gitee" class="backup-dl" target="_blank" rel="noopener">备用下载（Gitee）</a>
+<!-- 3. Carousel: one pinned phone, four reading moments -->
+<section class="scene carousel-scene" data-scene="carousel" data-theme="dark" style="--h:460">
+  <div class="sticky">
+    <div class="carousel-grid">
+      <div class="carousel-copy">
+        <p class="eyebrow">在 Lumi 里，阅读有很多种样子</p>
+        <ol class="steps">
+          <li class="step"><span class="step-n">01 沉浸阅读</span><h2>安静翻页，<br>读到忘记时间。</h2><p>主题、字体、字号、行距、页边距和翻页方式，都可以慢慢调成喜欢的样子。</p><a class="btn-link" href="features.html#read">了解阅读设置 ›</a><img class="step-shot" src="media/screen/reader-text.webp" alt="" loading="lazy"></li>
+          <li class="step"><span class="step-n">02 标注与批注</span><h2>轻轻一划，<br>想法就有了位置。</h2><p>高亮、笔记、书签与标签，陪你重新找到那些打动过你的文字。</p><a class="btn-link" href="features.html#keep">了解标注 ›</a><img class="step-shot" src="media/screen/annotations.webp" alt="" loading="lazy"></li>
+          <li class="step"><span class="step-n">03 摘录卡片</span><h2>喜欢的句子，<br>值得好好收藏。</h2><p>把摘录做成卡片分享，或将整本书的笔记导出，带回自己的工作流。</p><a class="btn-link" href="features.html#keep">看看如何保存与导出 ›</a><img class="step-shot" src="media/screen/excerpts.webp" alt="" loading="lazy"></li>
+          <li class="step"><span class="step-n">04 听书时刻</span><h2>合上屏幕，<br>故事还在继续。</h2><p>全屏听书让章节、封面与字幕留在眼前；离开阅读页面后，悬浮字幕仍可陪你继续听。</p><a class="btn-link" href="features.html#listen">进入听书场景 ›</a><img class="step-shot" src="media/screen/audiobook.webp" alt="" loading="lazy"></li>
+        </ol>
+      </div>
+      <div class="stage carousel-stage">
+        <div class="tilt" data-tilt>
+          <div class="phone carousel-phone">
+            <div class="phone__screen">
+              <img src="media/screen/reader-text.webp" alt="Lumi 电子书正文阅读页面" loading="lazy" decoding="async">
+              <img src="media/screen/annotations.webp" alt="Lumi 正文中的文字选择与批注工具" loading="lazy" decoding="async">
+              <img src="media/screen/excerpts.webp" alt="Lumi 摘录卡片与阅读句子预览" loading="lazy" decoding="async">
+              <img src="media/screen/audiobook.webp" alt="Lumi 全屏听书页面" loading="lazy" decoding="async">
             </div>
+          </div>
         </div>
-        <a href="https://github.com/huangder/Lumi_Books/releases" class="btn-primary">获取 Lumi</a>
+      </div>
+      <div class="progress" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     </div>
+  </div>
 </section>
 
-<!-- ═══ Footer ═══ -->
-<footer>
-    <div class="footer-grid">
-        <div class="footer-col">
-            <h4>Lumi</h4>
-            <ul>
-                <li><a href="features.html">功能介绍</a></li>
-                <li><a href="tech.html">技术架构</a></li>
-                <li><a href="changelog.html">更新日志</a></li>
-            </ul>
-        </div>
-        <div class="footer-col">
-            <h4>法律</h4>
-            <ul>
-                <li><a href="privacy.html">隐私政策</a></li>
-                <li><a href="terms.html">用户协议</a></li>
-            </ul>
-        </div>
-        <div class="footer-col">
-            <h4>联系方式</h4>
-            <ul>
-                <li><a href="https://github.com/huangder/Lumi_Books">GitHub</a></li>
-                <li><a href="mailto:huangder0104@126.com">邮件联系</a></li>
-            </ul>
-        </div>
+<!-- 4. Fan: zoom out from one screen into a whole shelf of looks -->
+<section class="scene fan-scene" data-scene="fan" data-theme="dark" style="--h:280">
+  <div class="sticky">
+    <div class="fan-bg" aria-hidden="true"></div>
+    <div class="fan-copy">
+      <p class="eyebrow">一间自己的书房</p>
+      <h2>一本书的<br>许多种读法。</h2>
+      <p>浅色、深色与多种阅读主题，书架、桌面小组件与 Markdown 原生阅读。</p>
     </div>
-    <div class="legal-band">
-        <span>© 2026 Huangder</span>
-        <span>
-            <a href="privacy.html">隐私</a>
-            <a href="terms.html">条款</a>
-        </span>
+    <div class="fan-stage">
+      <div class="phone fan-phone" data-fan="-2"><div class="phone__screen"><img src="media/screen/widgets.webp" alt="Lumi 桌面阅读小组件" loading="lazy" decoding="async"></div></div>
+      <div class="phone fan-phone" data-fan="-1"><div class="phone__screen"><img src="media/screen/shelf-light.webp" alt="Lumi 浅色书架" loading="lazy" decoding="async"></div></div>
+      <div class="phone fan-phone" data-fan="2"><div class="phone__screen"><img src="media/screen/markdown.webp" alt="Lumi Markdown 阅读" loading="lazy" decoding="async"></div></div>
+      <div class="phone fan-phone" data-fan="1"><div class="phone__screen"><img src="media/screen/shelf-dark.webp" alt="Lumi 深色书架" loading="lazy" decoding="async"></div></div>
+      <div class="phone fan-phone" data-fan="0"><div class="phone__screen"><img src="media/screen/reading-themes.webp" alt="Lumi 阅读主题设置" loading="lazy" decoding="async"></div></div>
     </div>
-</footer>
+  </div>
+</section>
 
-<script src="lumi-nav.js"></script>
+<!-- 5. Bento grid -->
+<section class="bento-sec" data-theme="light">
+  <div class="wrap">
+    <header class="section-head center reveal"><p class="eyebrow">从一本书开始</p><h2>好用的功能，<br>不必大声说话。</h2><p>需要时就在手边，不需要时不打扰。Lumi 把细节放进阅读的每个步骤。</p></header>
+    <div class="bento">
+      <a class="card card-formats s8 reveal" href="features.html#open">
+        <p class="card-k">打开各种书</p>
+        <h3><span class="grad-text">8 种格式</span>，<br>一个书架装下。</h3>
+        <ul class="chips"><li>EPUB</li><li>PDF</li><li>TXT</li><li>MOBI</li><li>AZW</li><li>AZW3</li><li>CBZ</li><li>Markdown</li></ul>
+      </a>
+      <a class="card card-shot s4 r2 reveal" href="features.html#read">
+        <p class="card-k">主题与排版</p><h3>调成你喜欢的样子。</h3>
+        <div class="shot"><img src="media/screen/reading-themes.webp" alt="Lumi 阅读主题与排版设置" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s4 reveal" href="features.html#keep">
+        <p class="card-k">笔记导出</p><h3>TXT / Markdown，带走。</h3>
+        <div class="shot"><img src="media/screen/notes-export.webp" alt="Lumi 笔记导出" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s4 dark reveal" href="features.html#sync">
+        <p class="card-k">云书架</p><h3>连接你自己的 WebDAV。</h3>
+        <div class="shot"><img src="media/screen/remote-library.webp" alt="Lumi 远程书库与 WebDAV 云端书籍" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s4 reveal" href="features.html#listen">
+        <p class="card-k">悬浮字幕</p><h3>离开书页，继续听。</h3>
+        <div class="shot"><img src="media/screen/floating-subtitles.webp" alt="Lumi 听书悬浮字幕" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s4 reveal" href="features.html#organize">
+        <p class="card-k">阅读小组件</p><h3>把书放在桌面上。</h3>
+        <div class="shot"><img src="media/screen/widgets.webp" alt="Lumi 阅读小组件" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s4 dark reveal" href="features.html#organize">
+        <p class="card-k">阅读统计</p><h3>读过的日子，都算数。</h3>
+        <div class="shot"><img src="media/screen/reading-report.webp" alt="Lumi 阅读统计与报告" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s6 reveal" href="features.html#open">
+        <p class="card-k">Markdown 原生阅读</p><h3>代码、表格、公式，都好好排版。</h3>
+        <div class="shot"><img src="media/screen/markdown.webp" alt="Lumi Markdown 阅读" loading="lazy"></div>
+      </a>
+      <a class="card card-shot s6 reveal" href="features.html#read">
+        <p class="card-k">目录与跳转</p><h3>长书也不迷路。</h3>
+        <div class="shot"><img src="media/screen/table-of-contents.webp" alt="Lumi 书籍目录" loading="lazy"></div>
+      </a>
+    </div>
+    <div class="center-link"><a class="btn-link" href="features.html">完整浏览 Lumi 的阅读体验 ›</a></div>
+  </div>
+</section>
+
+<!-- 6. Privacy -->
+<section class="privacy-sec" data-theme="light">
+  <div class="wrap privacy-grid">
+    <div class="privacy-copy reveal">
+      <p class="eyebrow">你的书，你的设备，你的选择</p>
+      <h2>本地优先，<br>从第一页开始。</h2>
+      <p>不需要账号，不追踪阅读，不展示广告。只有在你主动使用联网功能时，Lumi 才会发起相应请求。</p>
+      <a class="btn-link" href="privacy-section.html">了解 Lumi 的隐私原则 ›</a>
+    </div>
+    <div class="stats reveal">
+      <div class="stat"><b data-from="100">0</b><span>需要的账号</span></div>
+      <div class="stat"><b data-from="100">0</b><span>阅读追踪</span></div>
+      <div class="stat"><b data-from="100">0</b><span>广告位</span></div>
+      <img class="privacy-mascot" src="media/mascot-privacy.webp" alt="Lumi 吉祥物守护本地书籍和隐私" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<!-- 7. Free & Premium -->
+<section class="editions-sec" data-theme="light">
+  <div class="wrap">
+    <header class="section-head center reveal"><p class="eyebrow">属于所有读者的 Lumi</p><h2>免费基础版，<br>可选的官方 Premium。</h2><p>基础阅读免费、开源、无广告；官方版提供可选的阅读报告、高级摘录与更多整理工具。不开通也能安心读完一本书。</p></header>
+    <div class="privacy-points">
+      <article class="privacy-point reveal"><span class="n">A / BASE</span><h3>基础阅读一直免费</h3><p>阅读、书架、主题、书签、笔记和多格式支持不设会员门槛。</p></article>
+      <article class="privacy-point reveal"><span class="n">B / PREMIUM</span><h3>高级能力按需选择</h3><p>官方版的报告、标签管理和高级摘录，解锁前保留功能预览。</p></article>
+      <article class="privacy-point reveal"><span class="n">C / OPEN SOURCE</span><h3>基础代码公开</h3><p>自行编译和审查公共版本，Premium 与基础版数据保持兼容。</p></article>
+    </div>
+    <div class="center-link"><a class="btn-link" href="premium.html">了解 Lumi Premium ›</a></div>
+  </div>
+</section>
+
+<!-- 8. Download -->
+<section class="download-sec" data-theme="dark">
+  <div class="wrap download-inner reveal">
+    <img src="media/lumi2.webp" alt="" class="download-icon">
+    <p class="eyebrow">YOUR NEXT CHAPTER</p>
+    <h2>下一页，<br><span class="grad-text">从这里开始。</span></h2>
+    <p class="download-sub">适用于 Android 8.0 及以上 · 最新版本 v2.3.11-O</p>
+    <a class="btn btn-primary" href="https://github.com/huangder/Lumi_Books/releases">获取 Lumi ↗</a>
+    <div class="backup-links"><a href="https://pan.baidu.com/s/1vDdFsoqQuuZlntUTUjssZw?pwd=lumi" target="_blank" rel="noopener">百度网盘（密码 lumi）</a><a href="https://wwaug.lanzoub.com/b0xxfmxvi" target="_blank" rel="noopener">蓝奏云（密码 lumi）</a><a href="https://gitee.com/huangder/lumi_-books_-gitee" target="_blank" rel="noopener">Gitee</a></div>
+  </div>
+</section>
+
+</main>
+<footer class="footer" data-theme="light"><div class="wrap"><div class="footer-grid"><div class="footer-brand"><img src="media/lumi2.webp" alt="Lumi 图标"><p>把阅读，留给自己。<br>一款本地优先的 Android 阅读器。</p></div><div class="footer-col"><strong>阅读 Lumi</strong><ul><li><a href="features.html">阅读体验</a></li><li><a href="premium.html">Lumi Premium</a></li><li><a href="tech.html">技术设计</a></li><li><a href="changelog.html">更新日志</a></li></ul></div><div class="footer-col"><strong>了解 Lumi</strong><ul><li><a href="privacy-section.html">隐私说明</a></li><li><a href="privacy.html">隐私政策全文</a></li><li><a href="terms.html">用户协议</a></li></ul></div><div class="footer-col"><strong>联系与支持</strong><ul><li><a href="sponsor.html">支持开发</a></li><li><a href="feedback.html">问题反馈</a></li><li><a href="https://github.com/huangder/Lumi_Books">GitHub</a></li><li><a href="mailto:huangder0104@126.com">邮件联系</a></li></ul></div></div><div class="footer-legal"><span>© 2026 Huangder · Lumi Books</span><span><a href="privacy.html">隐私政策</a><a href="terms.html">用户协议</a></span></div></div></footer>
 </body>
 </html>

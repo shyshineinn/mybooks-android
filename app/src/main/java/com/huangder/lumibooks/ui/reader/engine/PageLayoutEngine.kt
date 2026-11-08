@@ -21,6 +21,7 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.huangder.lumibooks.ui.reader.ReaderBookPages
+import kotlin.math.roundToInt
 
 /**
  * StaticLayout 分页引擎。
@@ -152,7 +153,7 @@ class PageLayoutEngine {
         fontType: String = "system",
         customTypeface: android.graphics.Typeface? = null,
         typeface: android.graphics.Typeface? = null,
-        fontWeight: Int = 400,
+        fontWeight: Float = 400f,
         marginLeftPx: Float = 48f,
         marginRightPx: Float = 48f,
         marginTopPx: Float = 32f,
@@ -175,9 +176,9 @@ class PageLayoutEngine {
         val tf = if (typeface != null) {
             typeface
         } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            Typeface.create(baseTypeface, fontWeight.coerceIn(100, 900), false)
+            Typeface.create(baseTypeface, fontWeight.roundToInt().coerceIn(100, 900), false)
         } else {
-            Typeface.create(baseTypeface, if (fontWeight >= 600) Typeface.BOLD else Typeface.NORMAL)
+            Typeface.create(baseTypeface, if (fontWeight >= 600f) Typeface.BOLD else Typeface.NORMAL)
         }
         synchronized(cacheLock) {
         val changed = textWidth != width || textHeight != height ||
@@ -240,11 +241,11 @@ class PageLayoutEngine {
                 generation = layoutGeneration,
                 visibleWidth = visibleWidth,
                 visibleHeight = visibleHeight,
-                textPaint = TextPaint(activeTextPaint).apply {
-                    if (useDisplayDensityForSpans) {
-                        density = activeTextPaint.density
-                    }
-                },
+                // TextPaint(Paint) copies only Paint fields. TextPaint.set also
+                // preserves density, which dp title spans need in every format.
+                // Losing it makes pagination measure a smaller title than the
+                // page TextView renders, pushing the body into the bottom margin.
+                textPaint = TextPaint().apply { set(activeTextPaint) },
                 textAlignment = textAlignment,
                 writingMode = writingMode,
                 lineSpacingExtra = lineSpacingExtra,
