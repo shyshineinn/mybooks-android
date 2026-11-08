@@ -2,8 +2,6 @@ package com.huangder.lumibooks.ui.bookshelf
 
 import com.huangder.lumibooks.ui.icons.ControlIcon
 
-import com.huangder.lumibooks.ui.components.LocalCollapsingPageTopInset
-import com.huangder.lumibooks.ui.components.CollapsingPageScaffold
 
 import com.huangder.lumibooks.ui.components.AppDialogAction
 import com.huangder.lumibooks.ui.components.AppDialogActionRole
@@ -42,13 +40,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -491,59 +486,325 @@ fun BookDetailsScreen(
         }
     }
 
-    CollapsingPageScaffold(
-        title = stringResource(R.string.book_details),
-        drawContentBehindHeader = true,
-        bottomBarOverlay = true,
-        bottomBarOverlayBackground = false,
-        onBack = onBack,
-        modifier = Modifier.fillMaxSize().background(AppColors.PageBg),
-        bottomBar = {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                FloatingDetailTag(
-                    modifier = Modifier.navigationBarsPadding().padding(bottom = 12.dp),
-                    onDelete = { deleteOpen = true }, onEdit = { editing = true }, onMove = { moveOpen = true },
-                    onNotes = { context.startActivity(Intent(context, BookNotesActivity::class.java).putExtra(BookNotesActivity.EXTRA_BOOK_ID, book.id)) },
-                    onRead = { onOpenReader(book.id) }
-                )
-            }
-        }
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = AppSpace.md, end = AppSpace.md, top = LocalCollapsingPageTopInset.current + 10.dp,
-                bottom = com.huangder.lumibooks.ui.components.LocalCollapsingPageBottomInset.current + AppSpace.lg),
-            verticalArrangement = Arrangement.spacedBy(AppSpace.md)
-        ) {
-            item { BookHero(book, folderName, heroFormatLabel, compact = false, onCover = { coverOpen = true }) }
-            item {
-                MetricGrid(book, details.totalReadingTime, details.activeDays, details.bookmarkCount, details.noteCount)
-                Text(stringResource(R.string.activity_duration_breakdown,
-                    com.huangder.lumibooks.ui.components.activityDurationText(details.activityDuration.readingDuration),
-                    com.huangder.lumibooks.ui.components.activityDurationText(details.activityDuration.listeningDuration)),
-                    fontSize = AppType.Caption, color = AppColors.TextSecondary,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.sm, vertical = AppSpace.sm), textAlign = TextAlign.Center)
-            }
-            item {
-                ReviewEntryCard(details.review, details.reviewRating) {
-                    BookReviewActivity.start(context, book.id, book.title, book.author, book.coverPath)
+    val timelineEvents = remember(metaState.meta) { metaState.meta?.let(::readingTimelineEvents).orEmpty() }
+    val openReadingTimeline = { ReadingTimelineActivity.start(context, book.id, book.title) }
+    LiquidGlassMorphPopupHost(
+        active = statusSelectorOpen,
+        content = {
+            BookDetailsLayout(
+                modifier = Modifier.fillMaxSize().background(AppColors.PageBg),
+                topBar = { showHero ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = AppSpace.md, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LiquidGlassIconButton(directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight), stringResource(R.string.back), onBack)
+                        Spacer(Modifier.width(AppSpace.sm))
+                        if (!showHero) {
+                            BookDetailsCover(book, Modifier.size(30.dp, 42.dp), onCover = { coverOpen = true })
+                            Spacer(Modifier.width(AppSpace.sm))
+                        }
+                        Text(
+                            if (showHero) stringResource(R.string.book_details) else book.title,
+                            fontSize = AppType.Title,
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (showMoreMenu) {
+                            LiquidGlassIconButton(
+                                imageVector = AppIcons.DotsThreeVertical,
+                                contentDescription = stringResource(R.string.more_options),
+                                onClick = {
+                                    val host = menuHost
+                                    if (notesMenuExpanded) {
+                                        host?.dismiss()
+                                    } else if (host != null && notesMenuBounds != Rect.Zero) {
+                                        notesMenuExpanded = true
+                                        host.show(
+                                            LiquidGlassMenuSpec(
+                                                anchorBounds = notesMenuBounds,
+                                                width = 220.dp,
+                                                onDismiss = { notesMenuExpanded = false },
+                                                items = buildList {
+                                                    if (canDownload) {
+                                                        add(
+                                                            LiquidGlassMenuItem(
+                                                                label = downloadLabel,
+                                                                icon = AppIcons.CloudArrowDown,
+                                                                subtitle = downloadProgressLabel
+                                                            ) {
+                                                                notesMenuExpanded = false
+                                                                if (!downloadInProgress) {
+                                                                    homeViewModel.downloadCloudBook(book)
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                                    if (canReadLocal) {
+                                                        add(
+                                                            LiquidGlassMenuItem(
+                                                                label = notesReadLabel,
+                                                                icon = AppIcons.BookOpenText,
+                                                                dividerBefore = canDownload
+                                                            ) {
+                                                                notesMenuExpanded = false
+                                                                notesViewModel.readLocal(book.id) {
+                                                                    MyBooksNotesActivity.start(context, book.id, book.title)
+                                                                }
+                                                            }
+                                                        )
+                                                    } else if (notesState.serverHas) {
+                                                        add(
+                                                            LiquidGlassMenuItem(
+                                                                label = notesSyncReadLabel,
+                                                                icon = AppIcons.DownloadSimple,
+                                                                dividerBefore = canDownload
+                                                            ) {
+                                                                notesMenuExpanded = false
+                                                                notesViewModel.syncAndRead(book.id) { fallback ->
+                                                                    if (fallback) {
+                                                                        toast.show(
+                                                                            context.getString(
+                                                                                R.string.mybooks_notes_synced_fallback
+                                                                            )
+                                                                        )
+                                                                    }
+                                                                    MyBooksNotesActivity.start(context, book.id, book.title)
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                                    if (MyBooksConfig.hasWriteToken()) {
+                                                        add(
+                                                            LiquidGlassMenuItem(
+                                                                label = notesUploadLabel,
+                                                                icon = AppIcons.UploadSimple,
+                                                                dividerBefore = canDownload || canReadLocal || notesState.serverHas
+                                                            ) {
+                                                                notesMenuExpanded = false
+                                                                notePicker.launch(
+                                                                    arrayOf(
+                                                                        "text/markdown",
+                                                                        "text/plain",
+                                                                        "application/octet-stream"
+                                                                    )
+                                                                )
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        )
+                                    }
+                                },
+                                modifier = Modifier
+                                    .liquidGlassMenuAnchor()
+                                    .onGloballyPositioned { notesMenuBounds = it.boundsInRoot() },
+                                size = 44.dp,
+                                iconSize = 20.dp
+                            )
+                        }
+                    }
+                },
+                hero = { twoPane, compact ->
+                    BookHero(
+                        book, folderName, heroFormatLabel,
+                        compact = compact, twoPane = twoPane,
+                        onCover = { coverOpen = true }
+                    )
+                },
+                actions = {
+                    FloatingDetailTag(
+                        modifier = Modifier.widthIn(max = 480.dp),
+                        onDelete = { deleteOpen = true },
+                        onEdit = { if (MyBooksConfig.isMyBooks(book)) editingMyBooks = true else editing = true },
+                        onMove = { moveOpen = true },
+                        onNotes = { context.startActivity(Intent(context, BookNotesActivity::class.java).putExtra(BookNotesActivity.EXTRA_BOOK_ID, book.id)) },
+                        onRead = {
+                            if (book.isArchived) {
+                                Toast.makeText(context, R.string.archive_reader_message, Toast.LENGTH_SHORT).show()
+                            } else onOpenReader(book.id)
+                        }
+                    )
+                }
+            ) { bottomOverlayHeight ->
+                BookDetailsPager(
+                    book.id, Modifier.fillMaxSize(),
+                    bottomContentPadding = bottomOverlayHeight + AppSpace.md
+                ) { page ->
+                    when (page) {
+                        BookDetailsPage.Information -> {
+                            item {
+                                ContentInfoCards(
+                                    book = book,
+                                    folder = folderName,
+                                    tags = tags.joinToString { it.name },
+                                    metaState = metaState,
+                                    notesState = if (MyBooksConfig.isMyBooks(book)) notesState else null,
+                                    syncBadge = if (MyBooksConfig.isMyBooks(book)) syncBadge else null,
+                                    summaryExpanded = summaryExpanded,
+                                    onSummaryExpandedChange = { summaryExpanded = it },
+                                    onEdit = { if (MyBooksConfig.isMyBooks(book)) editingMyBooks = true else editing = true },
+                                    onTags = { tagsOpen = true },
+                                    onMove = { moveOpen = true },
+                                    onReview = { BookReviewActivity.start(context, book.id, book.title, book.author, book.coverPath) },
+                                    readingStatus = effectiveReadingStatus,
+                                    statusMorphActive = statusSelectorOpen,
+                                    onReadingStatusClick = { anchor -> openReadingStatusSelector(anchor) }
+                                )
+                            }
+                            if (details.review.isNotBlank() || details.reviewRating > 0f) {
+                                item {
+                                    ReviewEntryCard(details.review, details.reviewRating) {
+                                        BookReviewActivity.start(context, book.id, book.title, book.author, book.coverPath)
+                                    }
+                                }
+                            }
+                        }
+                        BookDetailsPage.Reading -> {
+                            item {
+                                MetricGrid(book, details.totalReadingTime, details.activeDays, details.bookmarkCount, details.noteCount)
+                                Text(
+                                    stringResource(
+                                        R.string.activity_duration_breakdown,
+                                        com.huangder.lumibooks.ui.components.activityDurationText(details.activityDuration.readingDuration),
+                                        com.huangder.lumibooks.ui.components.activityDurationText(details.activityDuration.listeningDuration)
+                                    ),
+                                    fontSize = AppType.Caption, color = AppColors.TextSecondary,
+                                    modifier = Modifier.fillMaxWidth().padding(AppSpace.sm),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            metaState.meta?.let { meta ->
+                                if (timelineEvents.isNotEmpty() || meta.readCount > 0) {
+                                    item { ReadingRecordBlock(meta, timelineEvents, openReadingTimeline) }
+                                }
+                            }
+                            item { com.huangder.lumibooks.ui.statistics.BookReadingArchive(book.id) }
+                            item {
+                                InformationCard(
+                                    contentPadding = PaddingValues(0.dp),
+                                    verticalArrangement = Arrangement.Top
+                                ) {
+                                    if (!book.isCloudOnly) {
+                                        DetailRow(stringResource(R.string.book_detail_last_read), dateText(book.lastReadTime), false)
+                                    }
+                                    DetailRow(
+                                        stringResource(R.string.bookmarks_notes),
+                                        stringResource(R.string.book_detail_open_annotations),
+                                        clickable = true,
+                                        onClick = {
+                                            context.startActivity(Intent(context, BookNotesActivity::class.java)
+                                                .putExtra(BookNotesActivity.EXTRA_BOOK_ID, book.id))
+                                        },
+                                        showChevron = true
+                                    )
+                                }
+                            }
+                        }
+                        BookDetailsPage.Files -> item {
+                            FileInfoCard(book = book, metaState = metaState, downloadState = downloadState)
+                        }
+                    }
                 }
             }
-            item { com.huangder.lumibooks.ui.statistics.BookReadingArchive(book.id) }
-            item {
-                InfoCard(
-                    book,
-                    folderName,
-                    tags.joinToString { it.name },
-                    onEdit = { editing = true },
-                    onTags = { tagsOpen = true },
-                    onMove = { moveOpen = true }
+        },
+        popup = {
+            statusMorphAnchor?.let { anchor ->
+                ReadingStatusMorphOverlay(
+                    anchor = anchor,
+                    selected = selectorStatus.value ?: anchor.status,
+                    saving = selectorSaving,
+                    closeRequested = statusMorphCloseRequested,
+                    nextRound = remember(anchor) { if (anchor.status == ReadingStatus.DONE) nextReadingRound(metaState.meta) else null },
+                    activeRound = remember(anchor) { pendingReadingRound(metaState.meta) },
+                    onStartNextReading = { selectReadingStatus(anchor, ReadingStatus.READING, startNewReading = true) },
+                    onAbandonReading = { selectReadingStatus(anchor, readingStatusAfterAbandon(metaState.meta), abandonCurrentReading = true) },
+                    onSelect = { target -> selectReadingStatus(anchor, target) },
+                    onDismiss = {
+                        if (!statusMorphCloseRequested) statusMorphCloseRequested = true
+                    },
+                    onFinished = {
+                        statusMorphAnchor = null
+                        statusMorphCloseRequested = false
+                        selectorSaving = false
+                    }
                 )
             }
         }
-    }
+    )
 
     if (editing) EditBookDialog(book, homeViewModel) { editing = false }
+    if (editingMyBooks) {
+        MyBooksEditSheet(
+            book = book,
+            meta = metaState.meta,
+            onDismiss = { editingMyBooks = false }
+        )
+    }
+    pendingNoteUpload?.let { note ->
+        val replacing = notesState.serverHas
+        LiquidGlassAlertDialog(
+            onDismissRequest = { if (!notesState.uploading) pendingNoteUpload = null },
+            title = {
+                Text(
+                    stringResource(
+                        if (replacing) R.string.mybooks_notes_replace_title
+                        else R.string.mybooks_notes_upload_confirm_title
+                    )
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        stringResource(
+                            R.string.mybooks_notes_new_file,
+                            note.displayName,
+                            formatNoteFileSize(note.size)
+                        )
+                    )
+                    val existing = notesState.serverUpdatedAt
+                    if (replacing && !existing.isNullOrBlank()) {
+                        Text(
+                            stringResource(R.string.mybooks_notes_existing_hint, formatNoteDate(existing)),
+                            color = AppColors.TextSecondary,
+                            fontSize = AppType.Caption
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                LiquidGlassTextButton(
+                    text = if (replacing) {
+                        stringResource(R.string.mybooks_notes_replace_confirm)
+                    } else {
+                        stringResource(R.string.mybooks_notes_upload_confirm)
+                    },
+                    enabled = !notesState.uploading,
+                    tintedColor = AppColors.Accent,
+                    onClick = {
+                        notesViewModel.upload(
+                            bookId = book.id,
+                            note = note,
+                            expectedUpdatedAt = notesState.serverUpdatedAt
+                        ) { success, message ->
+                            toast.show(message)
+                            if (success) pendingNoteUpload = null
+                        }
+                    }
+                )
+            },
+            dismissButton = {
+                LiquidGlassTextButton(
+                    text = stringResource(R.string.cancel),
+                    enabled = !notesState.uploading,
+                    onClick = { pendingNoteUpload = null }
+                )
+            }
+        )
+    }
     if (tagsOpen) BookTagBottomSheet(library.tags, library.bookTagLinks.filter { it.bookId == book.id }.map { it.tagId }.toSet(), { tagsOpen = false }, { tag, checked -> homeViewModel.setBookTag(book.id, tag.id, checked) }, { name, parent -> homeViewModel.createAndAssignTag(book.id, name, parent) }, { tag, children -> homeViewModel.deleteTag(tag.id, children) }, bookId = book.id)
     if (moveOpen) FolderMoveSheet(library.folders, 1, currentFolderId, { moveOpen = false }, { name, parent -> homeViewModel.createFolder(name, parent) }) { target -> requestBookMove(target) }
     pendingCrossStorageMove?.let { request ->
@@ -655,21 +916,6 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
             Box(Modifier.fillMaxSize().background(AppColors.BgGray), Alignment.Center) {
                 Text(book.title.take(6), color = AppColors.TextSecondary, modifier = Modifier.padding(8.dp))
             }
-        }
-    }
-}
-
-@Composable private fun InfoCard(book: Book, folder: String, tags: String, onEdit: () -> Unit, onTags: () -> Unit, onMove: () -> Unit) {
-    val context = LocalContext.current
-    LiquidGlassSurface(AppRoundedCornerShape(AppRadius.lg), AppColors.CardBg, Modifier.fillMaxWidth(), contentScrimColor = Color.Transparent) {
-        Column {
-            DetailRow(
-                stringResource(R.string.book_detail_file_name),
-                remember(book.filePath, book.remoteFileName, book.sourceDisplayName) {
-                    fileName(context, book)
-                },
-                false
-            )
         }
     }
 }
@@ -847,7 +1093,6 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
             verticalArrangement = Arrangement.Top
         ) {
             DetailRow(stringResource(R.string.book_detail_folder), folder, true, onMove)
-            DetailRow(stringResource(R.string.add_tag), tags.ifBlank { stringResource(R.string.book_detail_none) }, true, onTags)
             DetailRow(
                 stringResource(R.string.tag_sheet_title),
                 tags.ifBlank { stringResource(R.string.book_detail_none) },
@@ -1079,7 +1324,7 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
     }
 }
 
-@Composable internal fun DetailRow(label: String, value: String, clickable: Boolean, onClick: () -> Unit = {}) {
+@Composable internal fun DetailRow(label: String, value: String, clickable: Boolean, onClick: () -> Unit = {}, showChevron: Boolean = false) {
     val textMeasurer = rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val labelStyle = TextStyle(fontSize = AppType.Body)
@@ -1095,12 +1340,13 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
         val labelWidthPx = remember(label, labelStyle) {
             textMeasurer.measure(label, style = labelStyle, maxLines = 1).size.width.toFloat()
         }
-        val valueWidthPx = remember(value, valueStyle) {
+        val valueWidthPx = remember(value, valueStyle, showChevron) {
             textMeasurer.measure(value, style = valueStyle, maxLines = 1).size.width.toFloat()
         }
+        val chevronWidthPx = if (showChevron) with(density) { 20.dp.toPx() } else 0f
         val stack = shouldStackDetailRow(
             labelWidthPx = labelWidthPx,
-            valueWidthPx = valueWidthPx,
+            valueWidthPx = valueWidthPx + chevronWidthPx,
             availableWidthPx = availableWidthPx,
             gapWidthPx = with(density) { gap.toPx() }
         )
@@ -1108,23 +1354,33 @@ internal fun BookDetailsCover(book: Book, modifier: Modifier, onCover: () -> Uni
             Column(Modifier.fillMaxWidth()) {
                 Text(label, style = labelStyle, color = AppColors.TextPrimary)
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    value,
-                    style = valueStyle,
-                    color = AppColors.TextSecondary,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(value, style = valueStyle, color = AppColors.TextSecondary, modifier = Modifier.weight(1f))
+                    if (showChevron) {
+                        ControlIcon(
+                            AppIcons.CaretRight,
+                            contentDescription = null,
+                            tint = AppColors.TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(label, style = labelStyle, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(gap))
-                Text(
-                    value,
-                    style = valueStyle,
-                    color = AppColors.TextSecondary,
-                    maxLines = 1
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(value, style = valueStyle, color = AppColors.TextSecondary, maxLines = 1)
+                    if (showChevron) {
+                        ControlIcon(
+                            AppIcons.CaretRight,
+                            contentDescription = null,
+                            tint = AppColors.TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
     }
