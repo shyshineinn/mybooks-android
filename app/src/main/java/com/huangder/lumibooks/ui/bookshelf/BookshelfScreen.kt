@@ -75,9 +75,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -189,7 +189,7 @@ fun BookshelfScreen(
     onNavigateToReaderCoverFlow: ((Book, Rect?) -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val effectiveLayoutMode = if (uiState.bookshelfLayoutModeLoaded) {
         uiState.bookshelfLayoutMode
     } else {
@@ -215,7 +215,7 @@ fun BookshelfScreen(
     val folderTransitionOffset = remember { Animatable(0f) }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val syncBackends by viewModel.availableLibrarySyncBackends.collectAsState(initial = emptyList())
+    val syncBackends by viewModel.availableLibrarySyncBackends.collectAsStateWithLifecycle(initialValue = emptyList())
     var chooseSyncBackend by remember { mutableStateOf(false) }
     val requestLibrarySync: () -> Unit = {
         when (syncBackends.size) {

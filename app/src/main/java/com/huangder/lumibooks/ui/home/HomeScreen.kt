@@ -2,6 +2,7 @@
 
 package com.huangder.lumibooks.ui.home
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
@@ -49,7 +50,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -135,7 +135,7 @@ fun HomeScreen(
     renderReadingGoalSheet: Boolean = true,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val isMaterial3 = LocalUseMaterial3Theme.current
     val useWideLayout = currentAdaptiveWindowInfo().isMediumWidthOrLarger

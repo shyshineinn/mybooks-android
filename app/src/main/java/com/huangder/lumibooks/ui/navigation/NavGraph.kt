@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -144,7 +145,9 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 /**
@@ -458,7 +461,12 @@ fun MainNavGraph(
             isPreparingImport = false
         }
     }
-    val homeUiState by homeViewModel.uiState.collectAsState()
+    val navigationState = remember(homeViewModel) {
+        homeViewModel.uiState.map { it.forNavigation() }.distinctUntilChanged().flowOn(Dispatchers.Default)
+    }
+    val homeUiState by navigationState.collectAsStateWithLifecycle(
+        initialValue = remember(homeViewModel) { homeViewModel.uiState.value.forNavigation() }
+    )
     val folderBooksLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -580,9 +588,10 @@ fun MainNavGraph(
 
     fun requestOpenBook(book: Book, sourceBounds: Rect? = null,
         sourcePresentation: com.huangder.lumibooks.ui.animation.BookReaderPresentation? = null) {
+        val downloadState = homeViewModel.uiState.value.downloadStates[book.id]
         if (book.isCloudOnly) {
             cloudOpenSource = Triple(book.id, sourceBounds, sourcePresentation)
-            if (homeUiState.downloadStates[book.id] is com.huangder.lumibooks.data.sync.BookDownloadState.Downloading) {
+            if (downloadState is com.huangder.lumibooks.data.sync.BookDownloadState.Downloading) {
                 autoOpenDownloadedBookId = book.id
             } else {
                 pendingCloudBook = book
@@ -592,7 +601,7 @@ fun MainNavGraph(
                 book = book,
                 animated = true,
                 sourceBounds = sourceBounds,
-                downloadState = homeUiState.downloadStates[book.id],
+                downloadState = downloadState,
                 sourcePresentation = sourcePresentation
             )
         }
@@ -605,7 +614,9 @@ fun MainNavGraph(
         sourceBounds: Rect? = null,
         animated: Boolean = true
     ) {
-        val book = homeUiState.books.firstOrNull { it.id == bookId }
+        val current = homeViewModel.uiState.value
+        val existingBook = current.books.firstOrNull { it.id == bookId }
+        val book = existingBook
             ?: Book(
                 id = bookId,
                 title = title,
@@ -618,18 +629,18 @@ fun MainNavGraph(
                 createdAt = 0L
             )
         if (book.isCloudOnly) {
-            if (homeUiState.downloadStates[book.id] is com.huangder.lumibooks.data.sync.BookDownloadState.Downloading) {
+            if (current.downloadStates[book.id] is com.huangder.lumibooks.data.sync.BookDownloadState.Downloading) {
                 autoOpenDownloadedBookId = book.id
             } else {
                 pendingCloudBook = book
             }
         } else {
-            if (homeUiState.books.any { it.id == bookId }) {
+            if (existingBook != null) {
                 openLocalBook(
                     book = book,
                     animated = animated,
                     sourceBounds = sourceBounds,
-                    downloadState = homeUiState.downloadStates[book.id]
+                    downloadState = current.downloadStates[book.id]
                 )
             } else if (!animated) {
                 // External open intents can arrive before HomeViewModel emits its first list.
@@ -642,9 +653,7 @@ fun MainNavGraph(
         ?: homeUiState.importMessage
         ?: homeUiState.tagMessage
         ?: homeUiState.error
-    val homeLastReadBook = remember(homeUiState.books) {
-        homeUiState.books.sortedByDescending { it.lastReadTime }.firstOrNull()
-    }
+    val homeLastReadBook = homeUiState.lastReadBook
 
     LaunchedEffect(snackbarMessage) {
         val message = snackbarMessage ?: return@LaunchedEffect
@@ -677,7 +686,7 @@ fun MainNavGraph(
             ?.getString("bookId")
         if (currentReaderBookId != requestedId) {
             onBeforeOpenDifferentBook()
-            val requestedBook = homeUiState.books.firstOrNull { it.id == requestedId }
+            val requestedBook = homeViewModel.uiState.value.books.firstOrNull { it.id == requestedId }
             requestOpenBook(
                 requestedId,
                 requestedBook?.coverPath,
@@ -1113,7 +1122,7 @@ fun MainNavGraph(
                     } else !showTransition,
                     onOpenBook = { targetBookId ->
                         onBeforeOpenDifferentBook()
-                        val target = homeUiState.books.firstOrNull { it.id == targetBookId }
+                        val target = homeViewModel.uiState.value.books.firstOrNull { it.id == targetBookId }
                         requestOpenBook(
                             targetBookId,
                             target?.coverPath,
@@ -1357,7 +1366,7 @@ fun MainNavGraph(
                 .filter { it.uri.toString() in selectedImportBookUris }
             val sourceNames = selected.mapNotNull { it.sourceDirectoryName }.distinct()
             val currentFolderName = importRequestFolderId
-                ?.let { id -> homeUiState.folders.firstOrNull { it.id == id }?.name }
+                ?.let { id -> homeUiState.folderNames[id] }
             val primaryLabel = if (importCopiesIntoApp) {
                 context.getString(
                     R.string.import_to_current_folder,

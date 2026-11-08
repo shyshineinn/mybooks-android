@@ -9,17 +9,20 @@ import com.huangder.lumibooks.domain.repository.ReadingRepository
 import com.huangder.lumibooks.ui.home.ReadingStreakCalculator
 import com.huangder.lumibooks.util.TimeUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
@@ -28,6 +31,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -74,10 +78,19 @@ class StatisticsViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StatisticsUiState())
-    val uiState: StateFlow<StatisticsUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<StatisticsUiState> = channelFlow {
+        observeDailyGoal()
+        observeToday()
+        observeStreaks()
+        observeWeek()
+        observeMonth()
+        observeYear()
+        observeSelectedPeriod()
+        _uiState.collect { send(it) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), _uiState.value)
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    private val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
+    private val dayFormat = DateTimeFormatter.ofPattern("EEE", Locale.getDefault())
 
     private val selectedPeriods = _uiState.map { it.selectedTab to it.selectedPeriod() }.distinctUntilChanged()
     internal val insights = selectedPeriods.flatMapLatest { (tab, period) ->
@@ -91,7 +104,7 @@ class StatisticsViewModel @Inject constructor(
                     .copy(listeningDuration = listening)
             }.reportErrors()
             .onStart { emit(null) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
 
     private val selectedDay = MutableStateFlow<LocalDate?>(null)
     internal val readingDay = selectedDay.flatMapLatest { day ->
@@ -106,41 +119,29 @@ class StatisticsViewModel @Inject constructor(
         ) { records, books, notes, bookmarks ->
             ReadingDay(day, readingDayBooks(records, books, notes, bookmarks))
         }.catch { emit(ReadingDay(day, loadFailed = true)) }.onStart { emit(ReadingDay(day)) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
 
     internal fun selectReadingDay(day: LocalDate?) {
         if (day == null || day <= LocalDate.now()) selectedDay.value = day
     }
 
-    // Each section follows its own period with flatMapLatest, so paging replaces
-    // the previous Room subscription instead of stacking another collector.
-    init {
-        observeDailyGoal()
-        observeToday()
-        observeStreaks()
-        observeWeek()
-        observeMonth()
-        observeYear()
-        observeSelectedPeriod()
-    }
-
-    private fun observeDailyGoal() {
-        viewModelScope.launch {
+    private fun CoroutineScope.observeDailyGoal() {
+        launch {
             dataStoreManager.dailyGoal.reportErrors().collect { goal ->
                 _uiState.update { it.copy(dailyGoal = goal) }
             }
         }
     }
 
-    private fun observeToday() {
-        viewModelScope.launch {
+    private fun CoroutineScope.observeToday() {
+        launch {
             readingRepository.getTotalDurationByDate(TimeUtils.getCurrentDate()).reportErrors().collect { duration ->
                 _uiState.update { it.copy(todayReadingTime = duration ?: 0L) }
             }
         }
     }
-    private fun observeStreaks() {
-        viewModelScope.launch {
+    private fun CoroutineScope.observeStreaks() {
+        launch {
             combine(
                 dataStoreManager.dailyGoal,
                 readingRepository.getDailyTotalsBetween(READING_HISTORY_START_DATE, TimeUtils.getCurrentDate())
@@ -149,14 +150,14 @@ class StatisticsViewModel @Inject constructor(
                 val goalMs = goal * 60 * 1000L
                 ReadingStreakCalculator.calculate(durations, LocalDate.now(), goalMs) to
                     ReadingStreakCalculator.longest(durations, goalMs)
-            }.reportErrors().collect { (current, longest) ->
+            }.flowOn(Dispatchers.Default).reportErrors().collect { (current, longest) ->
                 _uiState.update { it.copy(currentStreak = current, longestStreak = longest) }
             }
         }
     }
 
-    private fun observeWeek() {
-        viewModelScope.launch {
+    private fun CoroutineScope.observeWeek() {
+        launch {
             _uiState.map { it.displayWeekOffset }
                 .distinctUntilChanged()
                 .flatMapLatest { offset ->
@@ -168,18 +169,19 @@ class StatisticsViewModel @Inject constructor(
                             DailyReading(
                                 date = date,
                                 duration = durations[date] ?: 0L,
-                                dayOfWeek = dayFormat.format(day.toDate())
+                                dayOfWeek = day.format(dayFormat)
                             )
                         }
                     }
                 }
+                .flowOn(Dispatchers.Default)
                 .reportErrors()
                 .collect { weeklyData -> _uiState.update { it.copy(weeklyData = weeklyData) } }
         }
     }
 
-    private fun observeMonth() {
-        viewModelScope.launch {
+    private fun CoroutineScope.observeMonth() {
+        launch {
             _uiState.map { it.displayYear to it.displayMonth }
                 .distinctUntilChanged()
                 .flatMapLatest { (year, month) ->
@@ -197,8 +199,8 @@ class StatisticsViewModel @Inject constructor(
                 }
         }
     }
-    private fun observeYear() {
-        viewModelScope.launch {
+    private fun CoroutineScope.observeYear() {
+        launch {
             _uiState.map { it.displayYear }
                 .distinctUntilChanged()
                 .flatMapLatest { year ->
@@ -215,9 +217,9 @@ class StatisticsViewModel @Inject constructor(
     }
 
     /** Most-read books and the annotation card follow the selected week/month/year tab. */
-    private fun observeSelectedPeriod() {
+    private fun CoroutineScope.observeSelectedPeriod() {
         val periods = _uiState.map { it.selectedPeriod() }.distinctUntilChanged()
-        viewModelScope.launch {
+        launch {
             periods.flatMapLatest { period ->
                 readingRepository.getMostReadBooksBetween(period.startDate, period.endDate, MOST_READ_LIMIT)
                     .map { durations ->
@@ -234,7 +236,7 @@ class StatisticsViewModel @Inject constructor(
                     }
             }.reportErrors().collect { books -> _uiState.update { it.copy(mostReadBooks = books) } }
         }
-        viewModelScope.launch {
+        launch {
             periods.flatMapLatest { period ->
                 val zone = ZoneId.systemDefault()
                 val startMs = period.startMillis(zone)
@@ -243,7 +245,7 @@ class StatisticsViewModel @Inject constructor(
                     readingRepository.observeTextNotesCreatedBetween(startMs, endMs),
                     readingRepository.observeBookmarksCreatedBetween(startMs, endMs)
                 ) { notes, bookmarks -> summarizeAnnotations(notes, bookmarks) }
-            }.reportErrors().collect { summary -> _uiState.update { it.copy(annotationSummary = summary) } }
+            }.flowOn(Dispatchers.Default).reportErrors().collect { summary -> _uiState.update { it.copy(annotationSummary = summary) } }
         }
     }
 
@@ -311,7 +313,7 @@ class StatisticsViewModel @Inject constructor(
 
     // Match ReaderViewModel's record keys, which are written with TimeUtils' default-locale format.
     private fun LocalDate.toDate(): Date = Date.from(atStartOfDay(ZoneId.systemDefault()).toInstant())
-    private fun LocalDate.recordDate(): String = dateFormat.format(toDate())
+    private fun LocalDate.recordDate(): String = synchronized(dateFormat) { dateFormat.format(toDate()) }
     private val StatisticsPeriod.startDate: String get() = start.recordDate()
     private val StatisticsPeriod.endDate: String get() = endInclusive.recordDate()
 

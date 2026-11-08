@@ -15,6 +15,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -184,14 +186,16 @@ private fun MainTabPage(
         motion?.let { MainTabItemMotion(it, page, if (isLtr) 1f else -1f) }
     }
     val active = state.settledPage == page
-    DisposableEffect(parent, owner, active) {
+    val visible by remember(state, page, selection) {
+        derivedStateOf {
+            if (selection?.running == true) page == selection.fromPage || page == selection.toPage
+            else abs(page - state.currentPage - state.currentPageOffsetFraction) < 1f
+        }
+    }
+    DisposableEffect(parent, owner, active, visible) {
         fun updateLifecycle() {
             val parentState = parent.lifecycle.currentState
-            owner.registry.currentState = if (active || parentState < Lifecycle.State.CREATED) {
-                parentState
-            } else {
-                Lifecycle.State.CREATED
-            }
+            owner.registry.currentState = mainTabLifecycleState(parentState, active, visible)
         }
         val observer = LifecycleEventObserver { _, _ -> updateLifecycle() }
         parent.lifecycle.addObserver(observer)
@@ -238,3 +242,10 @@ private class MainTabLifecycleOwner : LifecycleOwner {
     val registry = LifecycleRegistry(this)
     override val lifecycle: Lifecycle get() = registry
 }
+
+internal fun mainTabLifecycleState(parent: Lifecycle.State, active: Boolean, visible: Boolean): Lifecycle.State =
+    minOf(parent, when {
+        !visible -> Lifecycle.State.CREATED
+        active -> Lifecycle.State.RESUMED
+        else -> Lifecycle.State.STARTED
+    })

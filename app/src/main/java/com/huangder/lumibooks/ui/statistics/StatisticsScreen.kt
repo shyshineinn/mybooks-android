@@ -46,7 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
@@ -104,9 +104,9 @@ fun StatisticsScreen(
     onMessage: (String) -> Unit = {},
     viewModel: StatisticsViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val insights by viewModel.insights.collectAsState()
-    val readingDay by viewModel.readingDay.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val insights by viewModel.insights.collectAsStateWithLifecycle()
+    val readingDay by viewModel.readingDay.collectAsStateWithLifecycle()
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val topBlurBackdrop = rememberLayerBackdrop()
     val segmentedControlBackdrop = rememberLayerBackdrop()

@@ -61,7 +61,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,18 +120,35 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.Date
-import java.util.Locale
 
 @Composable
 internal fun AnnotationFeedScreen(
     onNavigateBack: () -> Unit,
     viewModel: AnnotationFeedViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val excerptDark = LocalIsDarkTheme.current
     val context = LocalContext.current
+    val locale = LocalConfiguration.current.locales[0]
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val todayLabel = stringResource(R.string.annotation_feed_today)
+    val yesterdayLabel = stringResource(R.string.annotation_feed_yesterday)
+    val displayEnvironment = remember(context, locale, zone, today, todayLabel, yesterdayLabel) {
+        val is24Hour = android.text.format.DateFormat.is24HourFormat(context)
+        AnnotationFeedDisplayEnvironment(
+            locale, zone, today,
+            (android.text.format.DateFormat.getTimeFormat(context) as? SimpleDateFormat)?.toPattern()
+                ?: android.text.format.DateFormat.getBestDateTimePattern(locale, if (is24Hour) "Hm" else "hm"),
+            android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMMdEEE"),
+            android.text.format.DateFormat.getBestDateTimePattern(locale, "yMMMMdEEE"),
+            todayLabel, yesterdayLabel
+        )
+    }
+    LaunchedEffect(viewModel, displayEnvironment) {
+        viewModel.setDisplayEnvironment(displayEnvironment)
+    }
     val scope = rememberCoroutineScope()
     val glassBackdrop = rememberLayerBackdrop()
     val segmentedControlBackdrop = rememberLayerBackdrop()
@@ -384,12 +401,6 @@ private fun AnnotationFeedList(
 ) {
     // Room answers quickly; showing nothing first avoids flashing the empty message.
     if (uiState.isLoading) return
-    val locale = LocalConfiguration.current.locales[0]
-    val context = LocalContext.current
-    val timeFormat = remember(locale) { android.text.format.DateFormat.getTimeFormat(context) }
-    val zone = remember { ZoneId.systemDefault() }
-    val today = remember { LocalDate.now(zone) }
-    val groups = remember(uiState.entries, zone) { uiState.entries.groupedByDay(zone) }
     LazyColumn(
         state = listState,
         modifier = modifier,
@@ -410,7 +421,7 @@ private fun AnnotationFeedList(
                 )
             }
         }
-        if (groups.isEmpty()) {
+        if (uiState.rows.isEmpty()) {
             item(key = "empty") {
                 Text(
                     text = stringResource(R.string.no_content),
@@ -421,31 +432,33 @@ private fun AnnotationFeedList(
                 )
             }
         }
-        groups.forEach { (day, entries) ->
-            item(key = "day-$day") { DayHeader(day = day, today = today, locale = locale) }
-            items(entries, key = { it.key }) { entry ->
-                val time = timeFormat.format(Date(entry.createdAt))
-                when (entry) {
-                    is AnnotationFeedEntry.NoteEntry -> HighlightNoteItem(
-                        note = entry.note,
-                        onShare = { onShare(entry) },
-                        onEditTags = { onEditNoteTags(entry.note) },
-                        onDelete = { onDeleteNote(entry.note) },
-                        header = { FeedBookHeader(entry.book) },
-                        dateText = time,
-                        expandable = true,
-                        cornerRadius = AppRadius.lg
-                    )
-                    is AnnotationFeedEntry.BookmarkEntry -> BookmarkItem(
-                        bookmark = entry.bookmark,
-                        onShare = { onShare(entry) },
-                        onEditRemark = { onEditBookmarkRemark(entry.bookmark) },
-                        onEditTags = { onEditBookmarkTags(entry.bookmark) },
-                        onDelete = { onDeleteBookmark(entry.bookmark) },
-                        header = { FeedBookHeader(entry.book) },
-                        dateText = time,
-                        cornerRadius = AppRadius.lg
-                    )
+        items(uiState.rows, key = { it.key }, contentType = { it.contentType }) { row ->
+            when (row) {
+                is AnnotationFeedRow.Day -> DayHeader(row.label)
+                is AnnotationFeedRow.Entry -> {
+                    val entry = row.entry
+                    when (entry) {
+                        is AnnotationFeedEntry.NoteEntry -> HighlightNoteItem(
+                            note = entry.note,
+                            onShare = { onShare(entry) },
+                            onEditTags = { onEditNoteTags(entry.note) },
+                            onDelete = { onDeleteNote(entry.note) },
+                            header = { FeedBookHeader(entry.book) },
+                            dateText = row.timeText,
+                            expandable = true,
+                            cornerRadius = AppRadius.lg
+                        )
+                        is AnnotationFeedEntry.BookmarkEntry -> BookmarkItem(
+                            bookmark = entry.bookmark,
+                            onShare = { onShare(entry) },
+                            onEditRemark = { onEditBookmarkRemark(entry.bookmark) },
+                            onEditTags = { onEditBookmarkTags(entry.bookmark) },
+                            onDelete = { onDeleteBookmark(entry.bookmark) },
+                            header = { FeedBookHeader(entry.book) },
+                            dateText = row.timeText,
+                            cornerRadius = AppRadius.lg
+                        )
+                    }
                 }
             }
         }
@@ -501,16 +514,7 @@ private fun SearchMorph(
 }
 
 @Composable
-private fun DayHeader(day: LocalDate, today: LocalDate, locale: Locale) {
-    val label = when (day) {
-        today -> stringResource(R.string.annotation_feed_today)
-        today.minusDays(1) -> stringResource(R.string.annotation_feed_yesterday)
-        else -> {
-            val skeleton = if (day.year == today.year) "MMMMdEEE" else "yMMMMdEEE"
-            val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton)
-            SimpleDateFormat(pattern, locale).format(Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant()))
-        }
-    }
+private fun DayHeader(label: String) {
     Text(
         text = label,
         fontSize = AppType.Caption,
